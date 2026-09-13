@@ -1,12 +1,21 @@
+# Core data
 tushare>=1.2.89
 pandas>=1.5.0
-pdfplumber>=0.9.0
+numpy>=1.23.0
+yfinance>=0.2.0
 requests>=2.28.0
-pytest>=7.0.0
+
+# PDF parsing and report rendering
+pdfplumber>=0.9.0
+markdown>=3.4.0
+jinja2>=3.0.0
+
+# Cache, visualization and notebooks
 pyarrow>=10.0.0
 matplotlib>=3.5.0
 tqdm>=4.60.0
 jupyter>=1.0.0
 ipykernel>=6.0.0
-jinja2>=3.0.0
-yfinance>=0.2.0
+
+# Testing
+pytest>=7.0.0
