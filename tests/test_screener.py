@@ -1,4 +1,4 @@
-"""Tests for Turtle Screener (龟龟选股器).
+"""Tests for Stock Screener (选股器).
 
 Tests cover:
 - ScreenerConfig defaults, overrides, validation
@@ -1354,7 +1354,7 @@ class TestPipelineAndExport:
         assert os.path.exists(html_path)
         with open(html_path) as f:
             content = f.read()
-        assert "龟龟选股器" in content
+        assert "选股器" in content
 
     def test_full_pipeline_mock(self, tmp_path):
         """End-to-end mock pipeline with tier2_limit=1."""

@@ -1,4 +1,4 @@
-"""Configuration and utility functions for Turtle Investment Framework."""
+"""Configuration and utility functions for Value Analysis Framework."""
 
 from __future__ import annotations
 

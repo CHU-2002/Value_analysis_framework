@@ -1,4 +1,6 @@
-# 估值分析模块 v2.0 — 协调器（Coordinator）
+# 价值分析子模块 · 通用估值 v2.0 — 协调器（Coordinator）
+
+> **模块定位**：本模块是价值分析（`/value-analysis`）的子模块，也可通过 `/valuation` 单独调用。它用多方法估值（DCF / DDM / PE Band / PEG / PS）回答"价格合不合理"，不替代价值分析对生意质量与管理层的判断。
 
 > **角色**：你是项目经理。职责：(1) 验证输入并补全缺失信息；(2) 检查前置条件（定性报告）；(3) 调度 Python 计算 → LLM 定性调整；(4) 监控超时；(5) 交付最终估值报告。你不执行估值计算或数学运算。
 >
@@ -111,9 +113,9 @@ python3 scripts/valuation_engine.py --code {ts_code} --output-dir {output_dir}
 
 按顺序读取以下文件的**完整内容**：
 
-1. `strategies/valuation/phase2_valuation.md` — 定性调整执行指令
-2. `strategies/valuation/references/valuation_methods.md` — 方法论参考
-3. `strategies/valuation/references/report_template.md` — 报告模板
+1. `strategies/value/valuation/phase2_valuation.md` — 定性调整执行指令
+2. `strategies/value/valuation/references/valuation_methods.md` — 方法论参考
+3. `strategies/value/valuation/references/report_template.md` — 报告模板
 4. `{output_dir}/qualitative_input.json` — 经校验的结构化定性输入或旧报告回退指针
 5. `{output_dir}/valuation_computed.md` — Python 计算结果
 6. `{output_dir}/data_pack_market.md` — 原始数据包（备查）
@@ -183,7 +185,7 @@ Python初步估值: {python_central} {币种}/股
 
 ```
 {workspace}     = 项目根目录
-{strategy_dir}  = {workspace}/strategies/valuation
+{strategy_dir}  = {workspace}/strategies/value/valuation
 {output_dir}    = {workspace}/output/{code}_{company}
 {computed}      = {output_dir}/valuation_computed.md
 {qualitative}   = {output_dir}/qualitative_input.json

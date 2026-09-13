@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turtle Investment Framework - PDF Preprocessor (Phase 2A).
+"""Value Analysis Framework - PDF Preprocessor (Phase 2A).
 
 Scans annual report PDFs for 9 target sections using keyword matching
 and outputs structured JSON for Agent fine-extraction.

@@ -8,8 +8,8 @@
 
 1. `{output_dir}/valuation_computed.md` — Python 计算结果（分类 + WACC + 方法详情 + 敏感性表 + 假设清单）
 2. `{output_dir}/qualitative_input.json` — 经校验的结构化定性输入或旧报告回退指针
-3. `strategies/valuation/references/valuation_methods.md` — 方法论参考
-4. `strategies/valuation/references/report_template.md` — 报告模板
+3. `strategies/value/valuation/references/valuation_methods.md` — 方法论参考
+4. `strategies/value/valuation/references/report_template.md` — 报告模板
 5. `{output_dir}/data_pack_market.md` — 原始数据包（备查）
 
 ---

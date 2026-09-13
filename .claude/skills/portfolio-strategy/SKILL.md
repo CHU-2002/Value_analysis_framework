@@ -2,14 +2,14 @@
 
 ## Skill Info
 - **Name**: portfolio-strategy
-- **Description**: 基于用户画像（年龄、资产、风险承受）构建集中化资产配置策略。遵循巴菲特"集中投资+安全边际"原则，输出精选个股为主的配置方案而非 ETF 超市。复用已有 /turtle-analysis 和 /value-analysis 的个股分析结果。
+- **Description**: 基于用户画像（年龄、资产、风险承受）构建集中化资产配置策略。遵循巴菲特"集中投资+安全边际"原则，输出精选个股为主的配置方案而非 ETF 超市。复用已有 /value-analysis（含其 /valuation 子模块）的个股分析结果。
 - **Entry Point**: `strategies/portfolio/coordinator.md`
 - **Slash Command**: `/portfolio-strategy [user profile description]`
 
 ## Dependencies
 - **business-analysis**: 若用户提及已有持仓需审查，自动检查并建议运行 `/business-analysis`
-- **turtle-analysis**: 用于 A 股和部分港美股的个股深度分析
-- **value-analysis**: 用于港股和美股的价值分析
+- **value-analysis**: 个股价值分析（护城河/诚信/防守层）与估值结论
+- **valuation**: value 的通用估值子模块，需要多方法估值时使用
 - **Python venv**: `.venv/` with `tushare`, `pandas`, `numpy` (created by `bash init.sh`)
 - **Tushare Pro API**: Required for screener and market data (for A/H shares)
 
@@ -42,7 +42,7 @@
 - **Buffett principles**: Circle of competence, margin of safety, cash is a call option on panic
 - **ETF is transitional**: Use ETFs only while researching; switch to individual stocks once research is done
 - **Cash is ammunition**: 10-30% permanent cash position, not a drag but a weapon
-- **Reuse not rebuild**: Individual stock analysis relies on existing `/turtle-analysis` and `/value-analysis`
+- **Reuse not rebuild**: Individual stock analysis relies on existing `/value-analysis` (and its `/valuation` submodule)
 
 ## Extensibility
 - New asset classes: Must justify irreplaceability; add to `asset_class_playbook.md`, `allocation_framework.md`

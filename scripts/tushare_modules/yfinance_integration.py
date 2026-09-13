@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Turtle Investment Framework - YFinanceMixin.
+"""Value Analysis Framework - YFinanceMixin.
 
 All yfinance integration methods for HK/US price and financial data fallback.
 """

@@ -1,4 +1,4 @@
-"""Configuration for Turtle Screener (龟龟选股器).
+"""Configuration for Stock Screener (选股器).
 
 Defines ScreenerConfig dataclass with all tunable thresholds, scoring weights,
 and cache settings for Tier 1 / Tier 2 screening pipeline.

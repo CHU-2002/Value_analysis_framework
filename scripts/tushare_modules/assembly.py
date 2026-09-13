@@ -1,4 +1,4 @@
-"""Turtle Investment Framework - AssemblyMixin + WarningsCollector.
+"""Value Analysis Framework - AssemblyMixin + WarningsCollector.
 
 Data pack assembly, derived metrics orchestration, and warning collection.
 """

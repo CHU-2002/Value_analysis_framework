@@ -112,7 +112,7 @@ prepare 会固定输入及 evidence/context/routing 产物的 SHA-256。之后�
 Agent(
   subagent_type = "general-purpose",
   prompt = """
-  请阅读 {workspace}/strategies/turtle/phase2_PDF解析.md 中的提取清单和输出格式。
+  请阅读 {workspace}/prompts/phase2_PDF解析.md 中的提取清单和输出格式。
 
   年报 PDF 文件：{output_dir}/{pdf_filename}
 
@@ -139,7 +139,7 @@ Bash(
 )
 Agent(
   prompt = """
-  请阅读 {workspace}/strategies/turtle/phase2_PDF解析.md 中的完整指令。
+  请阅读 {workspace}/prompts/phase2_PDF解析.md 中的完整指令。
   pdf_sections.json 文件路径：{output_dir}/pdf_sections.json
   公司名称：{company_name}
   将解析结果写入：{output_dir}/data_pack_report.md
@@ -265,7 +265,7 @@ python3 scripts/report_to_html.py \
 ├── scripts/
 │   ├── tushare_collector.py           ← Tushare 采集
 │   └── report_to_html.py             ← MD→HTML
-├── strategies/turtle/
+├── prompts/
 │   └── phase2_PDF解析.md              ← 附注提取格式规范（Step 1C 引用）
 └── output/{code}_{company}/
     ├── annual_report.pdf              ← 年报 PDF

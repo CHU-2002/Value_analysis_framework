@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turtle Screener (龟龟选股器) — Core screening logic.
+"""Stock Screener (选股器) — Core screening logic.
 
 Two-tier architecture:
   Tier 1: Bulk market data screening (~5s, 2 API calls)
@@ -1248,7 +1248,7 @@ class TushareScreener:
 <html>
 <head>
 <meta charset="utf-8">
-<title>龟龟选股器 Results</title>
+<title>选股器 Results</title>
 <style>
 body {{ font-family: -apple-system, sans-serif; margin: 20px; }}
 .screener-table {{ border-collapse: collapse; width: 100%; }}
@@ -1258,7 +1258,7 @@ body {{ font-family: -apple-system, sans-serif; margin: 20px; }}
 </style>
 </head>
 <body>
-<h1>龟龟选股器 — 筛选结果</h1>
+<h1>选股器 — 筛选结果</h1>
 <p>生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 共 {len(df)} 只股票</p>
 {html}
 </body>
@@ -1275,7 +1275,7 @@ body {{ font-family: -apple-system, sans-serif; margin: 20px; }}
 
 
 def main():
-    parser = argparse.ArgumentParser(description="龟龟选股器 (Turtle Screener)")
+    parser = argparse.ArgumentParser(description="选股器 (Stock Screener)")
     parser.add_argument("--tier1-only", action="store_true",
                         help="Only run Tier 1 (bulk screening, ~5s)")
     parser.add_argument("--tier2-limit", type=int, default=None,

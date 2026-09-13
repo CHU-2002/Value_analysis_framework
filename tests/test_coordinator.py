@@ -1,12 +1,10 @@
-"""Tests for coordinator.md prompt — phase ordering, commands, and slash command."""
+"""Tests for coordinator.md prompt — phase ordering and commands."""
 
 import os
-import re
 
 import pytest
 
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "prompts")
-COMMANDS_DIR = os.path.join(os.path.dirname(__file__), "..", ".claude", "commands")
 
 
 @pytest.fixture(scope="module")
@@ -64,39 +62,3 @@ class TestCoordinatorFlow:
         # Should have multiple AskUserQuestion blocks
         count = coordinator_content.count("AskUserQuestion")
         assert count >= 3, f"Expected ≥3 AskUserQuestion references, got {count}"
-
-
-class TestSlashCommand:
-    """Verify the turtle-analysis slash command file."""
-
-    @pytest.fixture(autouse=True)
-    def setup(self):
-        self.cmd_path = os.path.join(COMMANDS_DIR, "turtle-analysis.md")
-
-    def test_slash_command_exists(self):
-        """Slash command file exists at .claude/commands/turtle-analysis.md."""
-        assert os.path.exists(self.cmd_path), "Slash command file not found"
-
-    def test_slash_command_references_coordinator(self):
-        """Slash command references coordinator.md for execution."""
-        with open(self.cmd_path, encoding="utf-8") as f:
-            content = f.read()
-        assert "coordinator" in content.lower() or "prompts/" in content
-
-    def test_slash_command_includes_phases(self):
-        """Slash command mentions the multi-phase pipeline."""
-        with open(self.cmd_path, encoding="utf-8") as f:
-            content = f.read()
-        assert "Phase" in content or "phase" in content
-
-    def test_slash_command_includes_output_path(self):
-        """Slash command specifies output path convention."""
-        with open(self.cmd_path, encoding="utf-8") as f:
-            content = f.read()
-        assert "output/" in content
-
-    def test_slash_command_uses_arguments(self):
-        """Slash command uses $ARGUMENTS for stock code input."""
-        with open(self.cmd_path, encoding="utf-8") as f:
-            content = f.read()
-        assert "$ARGUMENTS" in content

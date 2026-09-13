@@ -1,4 +1,4 @@
-"""Markdown output formatting utilities for Turtle Investment Framework.
+"""Markdown output formatting utilities for Value Analysis Framework.
 
 All financial amounts are in millions RMB (raw yuan / 1e6).
 """

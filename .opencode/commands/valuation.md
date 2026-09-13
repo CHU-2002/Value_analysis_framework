@@ -1,4 +1,4 @@
-Run a Valuation Analysis (估值分析) on stock: $ARGUMENTS
+Run the General Valuation submodule of Value Analysis (价值分析子模块 · 通用估值) on stock: $ARGUMENTS
 
 ## Input Validation
 - Stock code must be a valid A-share (e.g., 600887, 000858.SZ), HK stock (00700.HK), or US stock (AAPL)
@@ -19,7 +19,7 @@ Status 3 means no consumable qualitative source; stop and request `/business-ana
 
 ## Execution Instructions
 
-Read strategies/valuation/coordinator.md for the full pipeline specification, then execute each step:
+Read strategies/value/valuation/coordinator.md for the full pipeline specification, then execute each step:
 
 ### Step 1: Python Valuation Computation
 ```bash
@@ -30,9 +30,9 @@ Read strategies/valuation/coordinator.md for the full pipeline specification, th
 - Contains: company type, WACC, each method's result + 5×5 sensitivity tables, cross-validation
 
 ### Step 2: LLM Qualitative Adjustment + Report
-- Read strategies/valuation/phase2_valuation.md for qualitative adjustment instructions
-- Read strategies/valuation/references/valuation_methods.md for methodology reference
-- Read strategies/valuation/references/report_template.md for output format
+- Read strategies/value/valuation/phase2_valuation.md for qualitative adjustment instructions
+- Read strategies/value/valuation/references/valuation_methods.md for methodology reference
+- Read strategies/value/valuation/references/report_template.md for output format
 - Read output/{code}_{company}/qualitative_input.json for validated qualitative parameters, claims, risks, and evidence
 - Read qualitative_report.md only when `source=legacy`
 - Read output/{code}_{company}/valuation_computed.md for all computed numbers

@@ -1,4 +1,4 @@
-"""Turtle Investment Framework - Tushare field mapping constants.
+"""Value Analysis Framework - Tushare field mapping constants.
 
 All *_MAP dicts used by TushareClient mixins live here.
 """

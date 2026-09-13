@@ -1,4 +1,4 @@
-"""Turtle Investment Framework - OtherDataMixin.
+"""Value Analysis Framework - OtherDataMixin.
 
 Data methods: segments, holders, audit, risk-free rate, repurchase, pledge.
 """
