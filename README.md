@@ -269,6 +269,7 @@ Value_analysis_framework/
 ├── init.sh                       # 环境初始化
 ├── requirements.txt
 ├── LICENSE
+├── NOTICE
 ├── README.md
 ├── CONTRIBUTING.md
 ├── CODE_OF_CONDUCT.md
@@ -327,6 +328,6 @@ test(value): cover owner-earnings edge cases
 - 上游作者：ying.j &lt;erl4780@dingtalk.com&gt;
 - 上游许可证：MIT
 
-根据 MIT 许可要求，原始版权声明与许可声明已保留于 [LICENSE](LICENSE)。
+根据 MIT 许可要求，原始版权声明与许可声明已保留于 [LICENSE](LICENSE)，衍生关系说明见 [NOTICE](NOTICE)。
 
 > **免责声明**：本项目仅用于研究与教育目的，不构成任何投资建议。市场有风险，决策需谨慎。
