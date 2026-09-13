@@ -33,6 +33,7 @@
 - 消费者统一通过 `resolve_qualitative` 获取定性输入
 - `main` 分支启用保护，所有改动必须经 Pull Request 合入
 - README 改为更直白的说明，并把来源与致谢统一放在文末
+- CI 升级到 `actions/checkout@v5` 与 `actions/setup-python@v6`，适配 Node.js 24
 
 ## [0.1.0] - 2026-09-13
 
