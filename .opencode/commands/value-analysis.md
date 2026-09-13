@@ -1,4 +1,4 @@
-Run a Buffett-Munger-Duan style Value Analysis (价值分析) on stock: $ARGUMENTS
+Run a Buffett-Munger-Duan style Value Analysis (价值分析，含通用估值子模块) on stock: $ARGUMENTS
 
 ## Input Validation
 - Stock code must be a valid A-share (e.g., 600887, 000858.SZ), HK stock (00700.HK), or US stock (AAPL)

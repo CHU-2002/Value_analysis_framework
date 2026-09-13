@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Turtle Investment Framework - DerivedMetricsMixin.
+"""Value Analysis Framework - DerivedMetricsMixin.
 
 Section 17 derived metrics: financial trends, Factor 2/3/4 computations.
 """

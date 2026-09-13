@@ -34,6 +34,13 @@
 - `main` 分支启用保护，所有改动必须经 Pull Request 合入
 - README 改为更直白的说明，并把来源与致谢统一放在文末
 - CI 升级到 `actions/checkout@v5` 与 `actions/setup-python@v6`，适配 Node.js 24
+- 通用估值（`/valuation`）降为价值分析的子模块，物理路径调整为 `strategies/value/valuation/`，仍可单独调用
+- 共享数据层与选股器去除 "Turtle/龟龟" 命名
+- 组合策略（`/portfolio-strategy`）的候选池改为以价值分析为主、选股器补充，不再依赖龟龟策略
+
+### Removed
+
+- 移除龟龟策略模块：`strategies/turtle/`、`/turtle-analysis` 命令与 skill；其能力由价值分析覆盖，上游项目仍保留在致谢中
 
 ## [0.1.0] - 2026-09-13
 

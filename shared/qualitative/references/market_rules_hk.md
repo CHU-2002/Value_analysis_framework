@@ -52,4 +52,4 @@ Agent A 定性分析中额外关注：
 
 ---
 
-*龟龟投资策略 v2.0 | 港股市场规则参考文件*
+*Value Analysis Framework | 港股市场规则参考文件*

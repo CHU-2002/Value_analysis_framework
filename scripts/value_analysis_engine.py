@@ -2,8 +2,8 @@
 """Deterministic precompute engine for value-analysis.
 
 Computes business-quality-aware valuation anchors that the LLM can reuse
-without redoing arithmetic. The goal is to mirror turtle-analysis' strong
-separation between deterministic computation and qualitative judgment.
+without redoing arithmetic. The goal is to keep the value-analysis pipeline's
+strong separation between deterministic computation and qualitative judgment.
 """
 
 from __future__ import annotations

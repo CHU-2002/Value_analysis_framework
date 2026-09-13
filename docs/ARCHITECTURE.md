@@ -19,7 +19,7 @@
 │  Slash commands 描述工作流；不包含计算逻辑                     │
 ├─────────────────────────────────────────────────────────────┤
 │ 策略层 strategies/                                            │
-│  turtle / value / valuation / portfolio                       │
+│  value（含 valuation 子模块）/ portfolio                        │
 │  coordinator + phase prompts + references                     │
 ├─────────────────────────────────────────────────────────────┤
 │ 共享定性层 shared/qualitative/                                │
@@ -87,7 +87,7 @@ prepare
 
 ### 3. 下游消费
 
-Turtle、Value、Valuation、Portfolio 统一通过 `resolve_qualitative` 获取 `qualitative_input.json`：
+价值分析、通用估值（价值分析子模块）、组合配置统一通过 `resolve_qualitative` 获取 `qualitative_input.json`：
 
 - `source=structured`：完整、同 run、同主体、输入未变更的结构化结果集。
 - `source=legacy`：仅当目录没有 `run_manifest.json` 时，原子回退到 `qualitative_report.md`。

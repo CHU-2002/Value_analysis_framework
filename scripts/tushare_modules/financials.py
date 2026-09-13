@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Turtle Investment Framework - FinancialsMixin.
+"""Value Analysis Framework - FinancialsMixin.
 
 Financial statement get_* methods: basic info, market data, income, balance sheet,
 cashflow, dividends, weekly prices, financial indicators. Each with CN/HK/US variants.

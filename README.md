@@ -11,7 +11,7 @@
 
 - **取数**：从 Tushare、yfinance 拉财报、分红、股东、质押、无风险利率等数据。
 - **读年报**：下载年报 PDF，自动切出管理层讨论、公司治理、重要事项等章节。
-- **做分析**：内置四套流程——龟龟策略、价值分析、通用估值、组合配置。
+- **做分析**：内置两大流程——价值分析（含通用估值子模块）与组合配置。
 - **出报告**：结果先存成统一格式的文件，再生成 Markdown 或 HTML 报告。
 
 ## 它是怎么工作的
@@ -79,9 +79,8 @@ export TUSHARE_TOKEN='your_token_here'
 |------|------|--------------|
 | `/download-report {code}` | 搜索并下载最近一年的年报 PDF | 无 |
 | `/business-analysis {code}` | 从 6 个角度分析公司（AI 主要工作在这里） | 无 |
-| `/turtle-analysis {code}` | 龟龟策略：算穿透回报率和估值 | 先跑 `/business-analysis` |
-| `/value-analysis {code}` | 价值分析：现金流折现、收购视角 | 先跑 `/business-analysis` |
-| `/valuation {code}` | 通用估值：DCF、DDM、可比公司、Graham | 先跑 `/business-analysis` |
+| `/value-analysis {code}` | 价值分析：现金流折现、收购视角（含通用估值子模块） | 先跑 `/business-analysis` |
+| `/valuation {code}` | 价值分析子模块 · 通用估值：DCF、DDM、可比公司、Graham（可单独调用） | 先跑 `/business-analysis` |
 | `/portfolio-strategy {profile}` | 组合配置：画像 → 宏观 → 配置 → 选标的 → 风险 | 无 |
 
 示例：
@@ -139,7 +138,7 @@ export TUSHARE_TOKEN='your_token_here'
 2. **分模块分析**：每个 AI 只读自己那份材料，输出统一的 `result.json`（给机器看）和 `report.md`（给人看）。固定模块有 `business_moat`、`environment`、`governance`、`mda_quality`，按需启用 `holding_structure`。
 3. **对账（reconcile_results）**：检查各模块的时间口径、参数有没有冲突，交叉核对治理和护城河。
 4. **汇总（synthesis）**：由一个汇总 AI 重新写最终结论。
-5. **交付（resolve_qualitative）**：下游的 Turtle / Value / Valuation / Portfolio 统一从这里取结果。
+5. **交付（resolve_qualitative）**：下游的价值分析、通用估值（价值分析子模块）、组合配置统一从这里取结果。
 
 ```bash
 .venv/bin/python -m scripts.results.prepare --output-dir output/600887_伊利 --ticker 600887 --company 伊利
@@ -177,7 +176,7 @@ Value_analysis_framework/
 │   ├── screener_core.py          # 两级选股器
 │   └── report_to_html.py         # Markdown 转 HTML
 ├── shared/qualitative/           # 共享定性模块
-├── strategies/                   # turtle / value / valuation / portfolio
+├── strategies/                   # value（含 valuation 子模块）/ portfolio
 ├── tests/                        # pytest 测试和 mock 数据
 ├── output/                       # 运行输出（已 gitignore）
 ├── init.sh                       # 环境初始化脚本

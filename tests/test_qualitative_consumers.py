@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_analysis_commands_resolve_structured_qualitative_input():
-    command_names = ("turtle-analysis.md", "value-analysis.md", "valuation.md")
+    command_names = ("value-analysis.md", "valuation.md")
     for command_dir in (ROOT / ".claude/commands", ROOT / ".opencode/commands"):
         for name in command_names:
             content = (command_dir / name).read_text(encoding="utf-8")
@@ -25,9 +25,8 @@ def test_analysis_commands_resolve_structured_qualitative_input():
 
 def test_strategy_agents_use_resolved_qualitative_input():
     paths = (
-        ROOT / "strategies/turtle/phase3_valuation.md",
         ROOT / "strategies/value/phase2_value_analysis.md",
-        ROOT / "strategies/valuation/phase2_valuation.md",
+        ROOT / "strategies/value/valuation/phase2_valuation.md",
     )
     for path in paths:
         content = path.read_text(encoding="utf-8")
@@ -90,8 +89,8 @@ def test_market_refresh_commands_preserve_manifest_inputs():
     paths = [
         ROOT / command_dir / name
         for command_dir in (".claude/commands", ".opencode/commands")
-        for name in ("turtle-analysis.md", "value-analysis.md")
-    ] + [ROOT / "strategies" / strategy / "coordinator.md" for strategy in ("turtle", "value")]
+        for name in ("value-analysis.md",)
+    ] + [ROOT / "strategies" / strategy / "coordinator.md" for strategy in ("value",)]
     for path in paths:
         content = path.read_text(encoding="utf-8")
         refresh_commands = [

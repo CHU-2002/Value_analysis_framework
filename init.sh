@@ -1,5 +1,5 @@
 #!/bin/bash
-# init.sh - Turtle Investment Framework environment setup
+# init.sh - Value Analysis Framework environment setup
 # Run at the start of each Claude Code session
 
 set -e
@@ -7,7 +7,7 @@ set -e
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_ROOT"
 
-echo "=== Turtle Investment Framework - Environment Setup ==="
+echo "=== Value Analysis Framework - Environment Setup ==="
 echo "Project root: $PROJECT_ROOT"
 echo ""
 

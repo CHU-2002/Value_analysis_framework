@@ -65,7 +65,7 @@ gh pr create --fill
 
 **type**：`feat` / `fix` / `docs` / `refactor` / `test` / `chore` / `perf` / `build` / `ci`
 
-**scope**（可选，建议使用）：`results` / `value` / `turtle` / `valuation` / `portfolio` / `collector` / `pdf` / `screener` / `schema` / `deps` 等。
+**scope**（可选，建议使用）：`results` / `value` / `valuation` / `portfolio` / `collector` / `pdf` / `screener` / `schema` / `deps` 等。
 
 要求：
 

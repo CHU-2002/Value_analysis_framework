@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turtle Investment Framework - Tushare Data Collector (Phase 1A).
+"""Value Analysis Framework - Tushare Data Collector (Phase 1A).
 
 Facade module: re-exports all public names and defines TushareClient
 which inherits from mixin classes in tushare_modules/.

@@ -52,7 +52,7 @@ python3 scripts/tushare_collector.py --code $ARGUMENTS --output output/{code}_{c
 - Mark data source as WebSearch in report (lower confidence)
 
 **1D: PDF Footnote Extraction (if PDF available, produces data_pack_report.md for downstream strategies)**
-- Read strategies/turtle/phase2_PDF解析.md for extraction format spec
+- Read prompts/phase2_PDF解析.md for extraction format spec
 - For plain-text PDFs: Read footnote sections directly from PDF by page range (from TOC)
 - For scanned PDFs: fallback to `python3 scripts/pdf_preprocessor.py` → pdf_sections.json → Agent extraction
 - Extract: P2 (restricted cash), P3 (A/R aging), P4 (related party transactions),
@@ -174,7 +174,7 @@ python3 scripts/report_to_html.py --input output/{code}_{company}/qualitative_re
 - **MD report** (default): output/{code}_{company}/qualitative_report.md
   - Includes: Executive Summary + 6 Dimensions + Cross-Validation + Deep Conclusion + Structured Parameters
 - **PDF footnote data** (if PDF available): output/{code}_{company}/data_pack_report.md
-  - Structured extraction: P2/P3/P4/P6/P13/SUB — used by downstream strategies (Turtle, etc.)
+  - Structured extraction: P2/P3/P4/P6/P13/SUB — used by downstream strategies (value analysis, etc.)
 - **HTML dashboard** (optional, only when requested): output/{code}_{company}/qualitative_report.html
   - For local viewing: `--standalone` flag embeds CSS inline
   - For website deployment: references external CSS from terancejiang.com

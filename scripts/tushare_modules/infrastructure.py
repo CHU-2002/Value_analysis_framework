@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Turtle Investment Framework - InfrastructureMixin.
+"""Value Analysis Framework - InfrastructureMixin.
 
 Utility methods: market detection, display formatting, HK pivot, store helpers.
 """

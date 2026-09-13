@@ -1,4 +1,4 @@
-"""Shared test fixtures for Turtle Investment Framework."""
+"""Shared test fixtures for Value Analysis Framework."""
 
 import json
 import os

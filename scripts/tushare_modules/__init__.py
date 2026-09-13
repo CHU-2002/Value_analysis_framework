@@ -1,4 +1,4 @@
-"""Turtle Investment Framework - tushare_modules package.
+"""Value Analysis Framework - tushare_modules package.
 
 Re-exports all mixin classes and constants for clean imports.
 """

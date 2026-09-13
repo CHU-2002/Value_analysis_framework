@@ -17,7 +17,7 @@ When scanning each `output/{code}_{company}` directory, run:
 .venv/bin/python -m scripts.results.resolve_qualitative --output-dir "{company_output_dir}" --ticker "{ticker}" --output "{company_output_dir}/qualitative_input.json"
 ```
 
-Exit status 3 means the company analysis is unavailable and should be marked for research; status 2 is an invocation error and must be fixed. Prefer module-owned parameters when `source=structured`. Parse `qualitative_report.md` only when the resolver selects `source=legacy`. Turtle Buy/Hold/Sell and Value defensive ratings still come from their strategy reports and must not be inferred from qualitative modules.
+Exit status 3 means the company analysis is unavailable and should be marked for research; status 2 is an invocation error and must be fixed. Prefer module-owned parameters when `source=structured`. Parse `qualitative_report.md` only when the resolver selects `source=legacy`. Value defensive ratings still come from the value-analysis report and must not be inferred from qualitative modules.
 
 Options: `--full` rebuilds the allocation; `--incremental {existing_portfolio_dir}` requires and preserves the named existing portfolio as the source configuration while refreshing market data and holdings.
 
