@@ -12,6 +12,10 @@ Read only:
 
 The synthesis context contains compact result cards, reconciliation findings and selected evidence. Do not read the complete PDF, complete market data pack, or module `report.md` by default.
 
+The default budget is 30,000 serialized characters. Parameters, primary claims, key risks, metric basis, module statuses and reconciliation are protected. Other entries may be omitted atomically; each card's `omitted` counts distinguish compaction from empty source data. When an omitted detail is material to the final judgement, request a bounded lookup from the card's `result_path` and the same-run evidence index. Do not fill omitted metrics from memory or treat omitted warnings as resolved. If the lookup is unavailable, disclose the gap and keep the conclusion partial.
+
+Shared evidence preserves the modules' verified excerpts. Each card maps its evidence IDs using `quote_index`: 0 selects `quote`, and n > 0 selects `alternative_quotes[n - 1]`. Different excerpts of one chunk are not interchangeable. Select the excerpt supporting the specific claim; never replace it with a chunk prefix or concatenate alternatives. The final sidecar still requires unique evidence IDs and one continuous quote per ID. If one supplied excerpt cannot support all claims attached to that ID, narrow the claims or request a targeted lookup before finalizing.
+
 ## Reasoning requirements
 
 1. Reconstruct the business in plain language before evaluating it.
@@ -56,9 +60,10 @@ Before completion verify:
 
 - all module statuses are represented;
 - every material claim has an evidence ID or is labelled `待验证`;
+- each cited excerpt supports the specific statement, including amounts, units and periods; guarantee balances, annual occurrences and overdue amounts are distinct, and an overdue guarantee is not automatically a recognized loss;
 - every reconciliation conflict is addressed;
 - no deterministic number was changed;
 - the result is a synthesized narrative rather than copied blocks;
 - the final report is written to the requested path.
 
-The synthesis sidecar uses `result_type=qualitative.synthesis`, `scope=["D1", "D2", "D3", "D4", "D5", "D6"]`, copies `run.run_id`, `subject`, and `upstream_digest` exactly from `synthesis/context.json`, and preserves the merged parameters, claims, risks, evidence and quality warnings. Complete `run.generated_at`, evidence-supported `run.as_of`, and result `run.status` according to the module output contract. Evidence objects must copy the indexed `source_id` and `locator`, and each quote must be an exact excerpt of the indexed quote. Run `python3 -m scripts.results.validate_result "{output_dir}/synthesis/result.json"` before completion. The coordinator must then run `scripts.results.resolve_qualitative` to verify the complete run, not just this file's schema.
+The synthesis sidecar uses `result_type=qualitative.synthesis`, `scope=["D1", "D2", "D3", "D4", "D5", "D6"]`, copies `run.run_id`, `subject`, and `upstream_digest` exactly from `synthesis/context.json`, and preserves the merged parameters, claims, risks, evidence and quality warnings. Complete `run.generated_at`, evidence-supported `run.as_of`, and result `run.status` according to the module output contract. Evidence objects must copy the indexed `source_id` and `locator`, and each quote must be an exact excerpt of the indexed quote. Run `python3 -m scripts.results.validate_result "{output_dir}/synthesis/result.json" --evidence-index "{output_dir}/evidence/index.json"` before completion. The coordinator must then run `scripts.results.resolve_qualitative` to verify the complete run, not just this file's schema.

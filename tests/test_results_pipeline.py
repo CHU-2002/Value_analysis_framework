@@ -14,6 +14,7 @@ from results.resolve_qualitative import main as resolve_main, resolve_qualitativ
 from results.synthesis import build_synthesis_context
 from results.reconcile_results import main as reconcile_main, reconcile_results
 from results.schema import ResultValidationError, compact_result, result_set_digest, validate_result
+from results.validate_result import main as validate_main
 
 
 DEFAULT_PARAMETERS = {
@@ -351,6 +352,88 @@ def test_evidence_json_sections_keep_section_locator(tmp_path):
     assert index["entries"][0]["section"] == "MDA"
 
 
+def test_pack_evidence_keeps_heading_scope_and_units(tmp_path):
+    source = tmp_path / "data_pack_report.md"
+    source.write_text(
+        "# Pack\n## P4. Related parties\nUnits: million\nProcurement\n"
+        "## P6. Guarantees\nUnits: million\nOverdue 47.5624\n",
+        encoding="utf-8",
+    )
+    index = build_evidence_index([{"source_id": "pdf_footnotes", "path": str(source)}])
+    p6 = next(item for item in index["entries"] if item["section"] == "P6")
+    assert p6["evidence_id"] == "pdf_footnotes:P6:001"
+    assert p6["locator"]["section"] == "P6"
+    assert "Units: million" in p6["quote"]
+    assert "Procurement" not in p6["quote"]
+
+
+def test_repeated_pack_headings_do_not_duplicate_evidence_ids(tmp_path):
+    source = tmp_path / "data_pack_report.md"
+    source.write_text("## P6. Guarantees\nCurrent period\n## P6. Guarantees\nPrior period\n", encoding="utf-8")
+    index = build_evidence_index([{"source_id": "pdf_footnotes", "path": str(source)}])
+    assert [item["evidence_id"] for item in index["entries"]] == ["pdf_footnotes:P6:001", "pdf_footnotes:P6:002"]
+
+
+def test_repeated_policy_keywords_do_not_outweigh_topic_coverage():
+    entries = [
+        {"evidence_id": "policy", "quote": "risk " * 200},
+        {"evidence_id": "business", "quote": "brand competition risk"},
+    ]
+    assert select_evidence(make_index(entries), keywords=["risk", "brand", "competition"], limit=1)[0]["evidence_id"] == "business"
+
+
+@pytest.mark.parametrize("module", ["business_moat", "governance", "mda_quality"])
+def test_large_market_tables_cannot_starve_pdf_or_citable_sections(tmp_path, module):
+    data = tmp_path / "data_pack_market.md"
+    data.write_text("".join(f"## {i}. Section\n" + "Financial row\n" * 900 for i in range(1, 18)), encoding="utf-8")
+    pdf = tmp_path / "pdf_sections.json"
+    pdf.write_text(json.dumps({
+        key: (f"{key} source text\n" * 700)
+        for key in ("MDA", "SUB", "P3", "P4", "P6", "P2", "P13", "GOV", "MATTERS")
+    }), encoding="utf-8")
+    notes = tmp_path / "data_pack_report.md"
+    notes.write_text("## P6. Guarantees\n担保逾期金额 47.5624 百万元\n" + "## P4. Related parties\n采购总额\n", encoding="utf-8")
+    index = build_evidence_index([
+        {"source_id": "market_data", "path": str(data)},
+        {"source_id": "pdf_sections", "path": str(pdf)},
+        {"source_id": "pdf_footnotes", "path": str(notes)},
+    ])
+    index_path = tmp_path / "index.json"
+    index_path.write_text(json.dumps(index), encoding="utf-8")
+    bundle = build_module_context(module, data_pack_path=data, pdf_sections_path=pdf, evidence_index_path=index_path)
+    assert bundle["budget"]["actual_chars"] == len(json.dumps(bundle, ensure_ascii=False, indent=2) + "\n")
+    assert bundle["budget"]["actual_chars"] <= 24000
+    assert all(item["selected_chars"] >= 500 for item in bundle["pdf_sections"])
+    assert validate_result_evidence(bundle, index) == []
+    coverage = bundle["selection"]["evidence_coverage"]
+    assert "omitted" not in coverage.values()
+    if module == "governance":
+        assert coverage["pdf_footnotes:P6"] == "pdf_footnotes:P6:001"
+        assert "47.5624" in next(item["quote"] for item in bundle["evidence"] if item["evidence_id"] == coverage["pdf_footnotes:P6"])
+    else:
+        assert coverage["market_data:3"].startswith("market_data:3:")
+        assert coverage["market_data:5"].startswith("market_data:5:")
+        assert coverage["pdf_sections:MDA"].startswith("pdf_sections:MDA:")
+    # Metadata must describe the actual serialized excerpts after final fitting.
+    for item in bundle["pdf_sections"]:
+        text = bundle["context_text"].split(f"[PDF {item['section']}]\n", 1)[1]
+        text = text.split("\n\n[PDF ", 1)[0]
+        assert len(text) == item["selected_chars"]
+
+
+def test_module_context_marks_missing_and_omitted_evidence(tmp_path):
+    source = tmp_path / "pdf_sections.json"
+    source.write_text(json.dumps({"MDA": "Industry", "P13": "Adjustments"}), encoding="utf-8")
+    index = build_evidence_index([{"source_id": "pdf_sections", "path": str(source)}])
+    index_path = tmp_path / "index.json"
+    index_path.write_text(json.dumps(index), encoding="utf-8")
+    bundle = build_module_context("environment", pdf_sections_path=source, evidence_index_path=index_path, max_evidence=1)
+    coverage = bundle["selection"]["evidence_coverage"]
+    assert coverage["pdf_sections:P13"] == "omitted"
+    assert coverage["market_data:3"] == "missing"
+    assert bundle["budget"]["truncated"] is True
+
+
 def test_prepare_run_creates_standard_workspace(tmp_path):
     output_dir = tmp_path / "stock"
     (output_dir).mkdir()
@@ -499,6 +582,126 @@ def test_synthesis_selects_evidence_from_retained_cards(tmp_path):
     )
 
     assert "E-final" in {item["evidence_id"] for item in context["evidence"]}
+
+
+def _synthesis_fixture(tmp_path, results, entries=None):
+    paths = []
+    for result in results:
+        path = tmp_path / f"{result['result_type']}.json"
+        path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        paths.append(path)
+    reconciliation = tmp_path / "reconciliation.json"
+    reconciliation.write_text(json.dumps(reconcile_results(results), ensure_ascii=False), encoding="utf-8")
+    index = tmp_path / "index.json"
+    if entries is None:
+        entries = list({item["evidence_id"]: item for result in results for item in result["evidence"]}.values())
+    index.write_text(json.dumps(make_index(entries), ensure_ascii=False), encoding="utf-8")
+    return {"result_paths": paths, "reconciliation_path": reconciliation, "evidence_index_path": index}
+
+
+def test_synthesis_preserves_module_excerpts_past_chunk_prefix_and_shared_alternatives(tmp_path):
+    first = make_result()
+    second = make_result("qualitative.governance")
+    first["evidence"][0]["quote"] = "Guarantees total 5732.9531; not a recognized loss."
+    second["evidence"][0]["quote"] = "Overdue amount 47.5624; recovery remains unverified."
+    entry = {**first["evidence"][0], "quote": "Unrelated accounting policy. " * 30 + first["evidence"][0]["quote"] + "\n" + second["evidence"][0]["quote"]}
+    args = _synthesis_fixture(tmp_path, [first, second], [entry])
+    context = build_synthesis_context(**args)
+    assert len(context["evidence"]) == 1
+    evidence = context["evidence"][0]
+    assert evidence["quote"] == first["evidence"][0]["quote"]
+    assert evidence["alternative_quotes"] == [second["evidence"][0]["quote"]]
+    assert context["modules"][0]["evidence"][0]["quote_index"] == 0
+    assert context["modules"][1]["evidence"][0]["quote_index"] == 1
+    assert all(quote in entry["quote"] for quote in [evidence["quote"], *evidence["alternative_quotes"]])
+
+
+def test_synthesis_budget_covers_metrics_quality_and_preserves_protected_content(tmp_path):
+    results = []
+    for result_type in DEFAULT_PARAMETERS:
+        result = make_result(result_type)
+        result["run"]["status"] = "partial"
+        result["parameters"]["long_parameter"] = "Verified parameter; " * 50
+        result["metrics"] = {
+            "basis": {"currency": "CNY", "unit": "million", "as_of": "2025-12-31"},
+            "oversized": {"series": list(range(3000))},
+            "guarantee": {"value": 5732.9531, "unit": "million", "period": "2025", "evidence_ids": ["E-001"]},
+            "receivables": 47.5624,
+        }
+        result["risks"] = [{"risk": "Material credit exposure", "severity": "high", "evidence_ids": ["E-001"]}]
+        for key in ("missing_inputs", "warnings", "unresolved_questions"):
+            result["quality"][key] = [f"{key} {i}: " + "Further verification needed. " * 20 for i in range(30)]
+        result["quality"]["extra_detail"] = "Unbounded quality extension. " * 3000
+        results.append(result)
+    args = _synthesis_fixture(tmp_path, results)
+    context = build_synthesis_context(**args)
+    assert context == build_synthesis_context(**args)
+    assert context["budget"]["actual_chars"] == len(json.dumps(context, ensure_ascii=False, indent=2) + "\n")
+    assert context["budget"]["actual_chars"] <= 30000
+    assert context["reconciliation"] == json.loads(args["reconciliation_path"].read_text(encoding="utf-8"))
+    assert context["upstream_digest"] == result_set_digest(results)
+    for card, result in zip(context["modules"], results):
+        assert card["parameters"] == result["parameters"]
+        assert card["risks"] == result["risks"]
+        assert card["claims"][0] == result["claims"][0]
+        assert card["run"] == result["run"]
+        assert card["metrics"]["guarantee"] == result["metrics"]["guarantee"]
+        assert card["metrics"]["basis"] == result["metrics"]["basis"]
+        assert card["quality"]["completeness"] == result["quality"]["completeness"]
+        assert card["omitted"]["metrics"] >= 1
+        assert card["omitted"]["quality"]["warnings"] > 0
+        assert card["omitted"]["quality"]["extra_detail"] == 1
+
+
+def test_synthesis_keeps_evidence_dependencies_of_risks_and_metrics(tmp_path):
+    result = make_result()
+    result["evidence"].extend([
+        {**result["evidence"][0], "evidence_id": "risk", "quote": "Actual risk finding"},
+        {**result["evidence"][0], "evidence_id": "metric", "quote": "Amount 47.5624 million"},
+    ])
+    result["risks"] = [{"risk": "Risk without claim reference", "severity": "medium", "evidence_ids": ["risk"]}]
+    result["metrics"]["overdue"] = {"value": 47.5624, "unit": "million", "evidence_ids": ["metric"]}
+    context = build_synthesis_context(**_synthesis_fixture(tmp_path, [result]))
+    assert {item["evidence_id"] for item in context["evidence"]} == {"E-001", "risk", "metric"}
+    assert context["modules"][0]["risks"] == result["risks"]
+
+
+def test_synthesis_refuses_to_discard_protected_parameters(tmp_path):
+    result = make_result(parameters={"large_parameter": "Verified parameter " * 2000})
+    with pytest.raises(ValueError, match="protected synthesis content"):
+        build_synthesis_context(**_synthesis_fixture(tmp_path, [result]))
+
+
+def test_synthesis_rejects_risk_reference_without_precise_module_excerpt(tmp_path):
+    result = make_result()
+    result["risks"] = [{"risk": "Requires evidence", "severity": "high", "evidence_ids": ["uncited"]}]
+    with pytest.raises(ValueError, match="without a module excerpt"):
+        build_synthesis_context(**_synthesis_fixture(tmp_path, [result]))
+
+
+@pytest.mark.parametrize("corruption", [None, "quote", "locator", "source_id", "run", "subject", "malformed"])
+def test_validator_cli_checks_frozen_index(tmp_path, monkeypatch, capsys, corruption):
+    result = make_result()
+    args = _synthesis_fixture(tmp_path, [result])
+    index = json.loads(args["evidence_index_path"].read_text(encoding="utf-8"))
+    if corruption in {"quote", "locator", "source_id"}:
+        index["entries"][0][corruption] = "Incorrect"
+    elif corruption == "run":
+        index["run"] = {"run_id": "another-run"}
+    elif corruption == "subject":
+        index["subject"]["ticker"] = "000858.SZ"
+    elif corruption == "malformed":
+        index = []
+    args["evidence_index_path"].write_text(json.dumps(index), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["validate_result", str(args["result_paths"][0]), "--evidence-index", str(args["evidence_index_path"])])
+    if corruption:
+        with pytest.raises(SystemExit) as exc:
+            validate_main()
+        assert exc.value.code == 1
+        assert "Invalid result evidence" in capsys.readouterr().err
+    else:
+        validate_main()
+        assert "Valid result" in capsys.readouterr().out
 
 
 def test_missing_optional_result_requires_llm_review(tmp_path, monkeypatch):

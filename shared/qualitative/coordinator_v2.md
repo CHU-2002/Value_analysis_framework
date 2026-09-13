@@ -88,6 +88,8 @@ python3 -m scripts.results.prepare \
 ```
 
 每个 context bundle 默认不超过 24,000 字符，并记录实际字符数、估算 Token 数和是否发生裁剪。
+市场正文、PDF 正文和证据摘录使用独立预算，各章节公平分配。检查 `selection.evidence_coverage`：值为证据 ID 表示已提供摘录，`missing` 表示索引缺少对应章节，`omitted` 表示预算内未选入。章节命中和摘录覆盖不等于完整核验；对必查项缺口，应授权按 source/section 或 ID 限量回查同 run 索引，并记录补证范围。索引也缺失时才补充原始输入并重新 prepare。
+新版 Markdown 证据按二级标题分段，例如 `market_data:3:001`、`pdf_footnotes:P6:001`。旧 run 的索引及结果仍可校验，但不得把新旧 ID 混用；复跑验证使用独立目录。
 prepare 会固定输入及 evidence/context/routing 产物的 SHA-256。之后不得改写这些文件；需要补充数据时重新 prepare，并重跑模块、reconciliation 和 synthesis。
 
 > **重要**：第五节 重要事项（Significant Matters）是中国年报的法定必备章节，包含：
@@ -126,6 +128,10 @@ Agent(
      P1: 应收账款账龄(P3)、关联交易(P4)、或有负债与承诺(P6)
      P2: 主要控股参股公司(SUB，条件触发：仅控股公司结构)
   4. 按 phase2_PDF解析.md 的格式提取结构化数据。
+  5. P6 必须交叉核对重要事项的对外担保总表与附注，覆盖供应商、经销商及子公司担保。
+     区分年度发生额、期末责任余额、逾期金额和已确认损失；关联担保跨表披露不得重复加总。
+     同时核对受限资金期初/期末、非经常性损益当前期/比较期、子公司注册资本原始单位。
+     pdf_sections 的 sections_found 仅代表命中章节，不代表上述检查完成。
 
   将提取结果写入：{output_dir}/data_pack_report.md
   """,
@@ -173,6 +179,7 @@ holding_structure  → contexts/holding_structure.json  → modules/holding_stru
 3. 输出符合 `investment.result` v1.0 的 `result.json`。
 4. 同时输出供人工审阅的 `report.md`，但该正文不作为最终汇总默认输入。
 5. 数据不足时输出 `partial` 或 `failed`，不得补造结论。只有 D6 明确不适用时使用 `not_applicable`；D6 缺失不能推断为不适用。
+6. 写入后执行 `python3 -m scripts.results.validate_result "{output_dir}/modules/{module}/result.json" --evidence-index "{output_dir}/evidence/index.json"`，并复核摘录是否真正支持相应判断。
 
 模块提示词：
 
@@ -215,6 +222,7 @@ python3 -m scripts.results.synthesis \
 ```
 
 启动 Final Synthesis Agent，读取 `shared/qualitative/agents/final_synthesis.md` 和 `synthesis/context.json`。它由大模型重新撰写执行摘要、六维度分析、跨维度判断、风险排序和投资启示，不得直接拼接模块正文；同时输出 `qualitative_report.md` 和 `synthesis/result.json`。
+汇总默认不超过 30,000 字符；参数、主判断、关键风险、指标口径和 reconciliation 保留原值，其他条目按整体 JSON 预算选入。检查各卡片 `omitted` 计数，对影响结论的省略项按 `result_path` 限量补读；未能补齐时披露缺口。引用沿用模块精准摘录，按 `quote_index` 选择对应原文，不得拼接多个不连续摘录。交付前执行带 `--evidence-index` 的 sidecar 校验，并单独核查金额、单位、日期与判断的语义对应。
 
 交付前执行 `.venv/bin/python -m scripts.results.resolve_qualitative --output-dir "{output_dir}" --ticker "{ts_code}" --output "{output_dir}/qualitative_input.json"`。只有 `source=structured` 才表示完整 run 通过校验；退出码 3 需要修复数据或重跑分析，不能回退同目录的 Markdown。
 

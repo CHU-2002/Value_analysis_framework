@@ -114,6 +114,8 @@ def test_business_analysis_commands_build_and_validate_synthesis_sidecar():
         assert "scripts.results.validate_result" in content
         assert "scripts.results.resolve_qualitative" in content
         assert "must finish before `scripts.results.prepare`" in content
+        validators = [line for line in content.splitlines() if "scripts.results.validate_result" in line]
+        assert all("--evidence-index" in line for line in validators)
 
 
 def test_parameter_contract_matches_documented_types_and_enums():

@@ -70,7 +70,24 @@ def _read_sections(path: Path) -> list[tuple[str, str]]:
         return _json_sections(path, json.loads(path.read_text(encoding="utf-8")))
     if path.suffix.lower() == ".pdf":
         return [("pdf", "")]
-    return [(path.stem, path.read_text(encoding="utf-8"))]
+    text = path.read_text(encoding="utf-8")
+    if path.suffix.lower() == ".md":
+        # Numbered pack headings make financial tables and footnotes separately
+        # addressable. Keep the heading in the quote, including units and dates.
+        sections: list[tuple[str, str]] = []
+        start = 0
+        section = path.stem
+        for match in re.finditer(r"^## ([^\n]+)", text, re.MULTILINE):
+            if text[start:match.start()].strip():
+                sections.append((section, text[start:match.start()]))
+            title = match.group(1).strip()
+            numbered = re.match(r"([A-Za-z]*\d+[A-Za-z]*|SUB)\.\s", title)
+            section = numbered.group(1) if numbered else title
+            start = match.start()
+        if text[start:].strip():
+            sections.append((section, text[start:]))
+        return sections
+    return [(path.stem, text)]
 
 
 def build_evidence_index(
@@ -109,10 +126,11 @@ def build_evidence_index(
         )
         source_manifest.append(source_item)
 
+        section_counts: dict[str, int] = {}
         for section, section_text in _read_sections(path):
-            for chunk_number, chunk in enumerate(
-                chunk_text(section_text, max_chars=chunk_chars, overlap=overlap_chars), start=1
-            ):
+            for chunk in chunk_text(section_text, max_chars=chunk_chars, overlap=overlap_chars):
+                chunk_number = section_counts.get(section, 0) + 1
+                section_counts[section] = chunk_number
                 evidence_id = f"{source_id}:{section}:{chunk_number:03d}"
                 entries.append(
                     {
@@ -218,7 +236,7 @@ def select_evidence(
         if evidence_id in seen:
             continue
         haystack = f"{item.get('section', '')} {item.get('quote', '')}".lower()
-        score = sum(haystack.count(keyword) for keyword in normalized_keywords)
+        score = sum(keyword in haystack for keyword in normalized_keywords)
         if score:
             scored.append((score, item))
 
