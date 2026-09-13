@@ -4,6 +4,11 @@
 # 添加管理员：在 admins 下追加一行 “- username”，然后到
 # Actions → Setup Branch Protection → Run workflow 应用一次即可生效。
 #
+# 说明：
+# - 用户仓库：GitHub 不支持 push restrictions，管理员放行依赖仓库 admin 角色；
+#   本名单用于记录，同时请到 Settings → Collaborators 把该用户设为 Admin。
+# - 组织仓库：本名单会写入分支保护的 push restrictions，只有名单内用户可直接 push。
+#
 # 同时请把该用户名加到 .github/CODEOWNERS，用于指定审阅人。
 
 admins:

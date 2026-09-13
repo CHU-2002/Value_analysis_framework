@@ -30,10 +30,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Detect repository owner type
+        id: owner
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: echo "type=$(gh api "repos/${REPO}" --jq .owner.type)" >> "$GITHUB_OUTPUT"
+
       - name: Build protection payload from .github/admins.yml
         env:
           REQUIRED_APPROVALS: ${{ inputs.required_approvals }}
           ENFORCE_ADMINS: ${{ inputs.enforce_admins }}
+          OWNER_TYPE: ${{ steps.owner.outputs.type }}
         run: |
           python3 - <<'PY'
           import json
@@ -56,6 +64,14 @@ jobs:
           if required_approvals < 0:
               sys.exit("错误：required_approvals 不能为负数")
 
+          # 只有组织仓库支持 push restrictions；用户仓库只能靠 admin 角色 + enforce_admins=false 放行。
+          owner_type = os.environ.get("OWNER_TYPE", "User")
+          if owner_type == "Organization":
+              restrictions = {"users": admins, "teams": [], "apps": []}
+          else:
+              restrictions = None
+              print("提示：当前为用户仓库，跳过 push restrictions；管理员通过 admin 角色直接放行。")
+
           payload = {
               "required_status_checks": {
                   "strict": True,
@@ -67,7 +83,7 @@ jobs:
                   "require_code_owner_reviews": True,
                   "required_approving_review_count": required_approvals,
               },
-              "restrictions": {"users": admins, "teams": [], "apps": []},
+              "restrictions": restrictions,
               "required_linear_history": True,
               "allow_force_pushes": False,
               "allow_deletions": False,
