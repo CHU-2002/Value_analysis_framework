@@ -1,90 +1,35 @@
-# Value Analysis Framework (价值分析框架)
+# Value Analysis Framework（价值分析框架）
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Tests: pytest](https://img.shields.io/badge/tests-pytest-brightgreen.svg)](tests/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-AI 辅助的 A 股 / 港股 / 美股基本面分析框架。**Python 负责确定性数据采集与计算，LLM Agent 负责定性判断与综合写作**，两者通过结构化结果协议衔接。
+一句话：这是一个分析 A 股、港股、美股公司的工具。**Python 负责取数据和算数字，AI Agent 负责读年报和写判断**，最后给你一份公司研究报告。
 
-本项目是基于开源项目 [terancejiang/Turtle_investment_framework](https://github.com/terancejiang/Turtle_investment_framework) 的衍生作品，在其龟龟策略基础上扩展了**价值分析（Value Analysis）**、**组合配置（Portfolio）**与**结构化定性结果管线（evidence-first pipeline）**。来源与许可详见 [许可证与致谢](#许可证与致谢)。
+## 它到底能做什么
 
----
+- **取数**：从 Tushare、yfinance 拉财报、分红、股东、质押、无风险利率等数据。
+- **读年报**：下载年报 PDF，自动切出管理层讨论、公司治理、重要事项等章节。
+- **做分析**：内置四套流程——龟龟策略、价值分析、通用估值、组合配置。
+- **出报告**：结果先存成统一格式的文件，再生成 Markdown 或 HTML 报告。
 
-## 目录
+## 它是怎么工作的
 
-- [核心能力](#核心能力)
-- [架构概览](#架构概览)
-- [快速开始](#快速开始)
-- [使用方法](#使用方法)
-- [结构化定性结果管线](#结构化定性结果管线)
-- [项目结构](#项目结构)
-- [测试](#测试)
-- [贡献](#贡献)
-- [版本与变更](#版本与变更)
-- [许可证与致谢](#许可证与致谢)
+1. **Python 先把所有数字算好**并存成文件，同样的输入永远得到同样的结果。
+2. **AI 只负责阅读和判断**，不参与计算，也不会自己改数字。
+3. **每个判断都能追到出处**，AI 拿到的材料有长度上限，不会把整份年报一次性塞进去。
+4. **要么全用新结果，要么整体退回旧报告**，不会新旧混着用。
 
----
-
-## 核心能力
-
-| 能力 | 说明 |
-|------|------|
-| **多策略分析** | 龟龟策略、巴芒段价值分析、通用估值、组合配置四套独立工作流 |
-| **证据优先的定性分析** | 先建立可定位的 `evidence/index.json`，再按模块生成有预算的上下文，避免整份年报进入单一 context |
-| **结构化结果协议** | 统一 `investment.result` v1.0，模块输出 `result.json`（机器消费）+ `report.md`（人工审阅） |
-| **确定性 / 判断分离** | 所有数字由 Python 预计算，LLM 只做解释与判断，不重算 |
-| **数据血缘与可复现** | run manifest 记录输入与产物的 SHA-256，解析器校验同源、同主体、同输入 |
-| **多市场支持** | A 股、港股、美股（含 `BRK.B` 类别股），报表币种与单位自动适配 |
-| **组合引擎** | 7 类资产权重、有效前沿、风险平价、相关性矩阵、回撤与估值逆风情景 |
-| **报告输出** | Markdown 报告 + 可选的桌面 / 移动端 HTML |
-| **离线可测** | 完整 pytest 套件全部基于 mock 数据，无需 Tushare Token 即可运行 |
-
-## 架构概览
-
-```
-                    ┌──────────────────────────────┐
-   用户输入 ───────▶│  Slash Command / Python 脚本  │
-                    └──────────────┬───────────────┘
-                                   │
-             ┌─────────────────────┼─────────────────────┐
-             ▼                     ▼                     ▼
-   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-   │ 数据采集 (Python) │  │ 年报解析 (Python) │  │ 定性分析 (LLM)   │
-   │ Tushare + yfinance│  │ pdfplumber       │  │ evidence-first   │
-   └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘
-            └────────────┬────────┴─────────────────────┘
-                         ▼
-            ┌────────────────────────────┐
-            │  结构化结果管线 scripts/results │
-            │  prepare → modules → reconcile │
-            │  → synthesis → resolve         │
-            └───────────────┬────────────┘
-                            ▼
-            ┌────────────────────────────┐
-            │  下游策略消费                 │
-            │  Turtle / Value / Valuation  │
-            │  / Portfolio                 │
-            └────────────────────────────┘
-```
-
-设计原则：
-
-1. **确定性计算与 LLM 判断分离** —— Python 产出可复现的数字，LLM 负责叙事与取舍。
-2. **证据可追溯** —— 重要判断必须引用 `evidence_id`，证据索引在分析前固定。
-3. **上下文有预算** —— 每个模块与最终汇总都有硬字符上限，并记录裁剪状态。
-4. **整组原子回退** —— 结构化结果集不完整时整体回退到旧 Markdown，不混用参数。
-
-更详细的模块划分与调用链见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+更细的设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ## 快速开始
 
 ### 环境要求
 
-- Python >= 3.10
-- [Tushare Pro](https://tushare.pro/) 账号及 API Token（A 股数据）
-- 可选：`pdfplumber`（年报 PDF 解析）
-- 运行环境：[Claude Code](https://claude.com/claude-code) 或 [OpenCode](https://opencode.ai)（slash command 工作流）
+- Python 3.10 或更高
+- [Tushare Pro](https://tushare.pro/) 账号和 Token（取 A 股数据时需要）
+- [Claude Code](https://claude.com/claude-code) 或 [OpenCode](https://opencode.ai)（用 slash command 时需要）
 
 ### 安装
 
@@ -92,18 +37,11 @@ AI 辅助的 A 股 / 港股 / 美股基本面分析框架。**Python 负责确�
 git clone https://github.com/CHU-2002/Value_analysis_framework.git
 cd Value_analysis_framework
 
-# 一键初始化：创建 .venv、安装依赖、检查 Token、运行测试
+# 一键搞定：建虚拟环境、装依赖、检查 Token、跑测试
 bash init.sh
 ```
 
-`init.sh` 会依次完成：
-
-1. 查找系统中 Python >= 3.10 并创建 `.venv`
-2. 安装 `requirements.txt` 依赖
-3. 检查 `TUSHARE_TOKEN`
-4. 运行测试验证环境
-
-更新依赖：
+想更新依赖时：
 
 ```bash
 git pull
@@ -114,38 +52,37 @@ bash init.sh --force-install
 
 ```bash
 cp .env.sample .env
-# 编辑 .env，填入：
-# TUSHARE_TOKEN=your_token_here
+# 打开 .env，把 TUSHARE_TOKEN=your_token_here 换成你自己的
 ```
 
-或使用环境变量：
+也可以直接用环境变量：
 
 ```bash
 export TUSHARE_TOKEN='your_token_here'
 ```
 
-> `.env` 已被 `.gitignore` 忽略，请勿提交任何 token。
+> `.env` 已被 `.gitignore` 忽略，请不要把 Token 提交到仓库。
 
-### 验证
+### 验证是否装好
 
 ```bash
 .venv/bin/python -m pytest -q
 ```
 
-## 使用方法
+## 怎么用
 
-### Slash Commands
+### 在 Claude Code / OpenCode 里用 slash command
 
-在 Claude Code / OpenCode 中通过 slash command 驱动完整工作流：
+在对话框里输入下面这些命令即可，`{code}` 换成股票代码：
 
-| 命令 | 作用 | 前置条件 |
-|------|------|----------|
-| `/download-report {code}` | 搜索并下载最近年报 PDF | — |
-| `/business-analysis {code}` | 6 维度定性分析（evidence-first 分层 Agent） | — |
-| `/turtle-analysis {code}` | 龟龟策略：穿透回报率 + 估值 | `/business-analysis` |
-| `/value-analysis {code}` | 巴芒段价值分析：现金流折现 + 收购视角 `EE` | `/business-analysis` |
-| `/valuation {code}` | 通用估值：DCF / DDM / 可比 / Graham | `/business-analysis` |
-| `/portfolio-strategy {profile}` | 组合策略：画像 → 宏观 → 战略配置 → 选标的 → 风险 | — |
+| 命令 | 作用 | 需要先做什么 |
+|------|------|--------------|
+| `/download-report {code}` | 搜索并下载最近一年的年报 PDF | 无 |
+| `/business-analysis {code}` | 从 6 个角度分析公司（AI 主要工作在这里） | 无 |
+| `/turtle-analysis {code}` | 龟龟策略：算穿透回报率和估值 | 先跑 `/business-analysis` |
+| `/value-analysis {code}` | 价值分析：现金流折现、收购视角 | 先跑 `/business-analysis` |
+| `/valuation {code}` | 通用估值：DCF、DDM、可比公司、Graham | 先跑 `/business-analysis` |
+| `/portfolio-strategy {profile}` | 组合配置：画像 → 宏观 → 配置 → 选标的 → 风险 | 无 |
 
 示例：
 
@@ -155,9 +92,9 @@ export TUSHARE_TOKEN='your_token_here'
 /portfolio-strategy 30岁 50万人民币 风险中高 长期
 ```
 
-### 命令行脚本
+### 直接跑 Python 脚本
 
-**数据采集（A 股 / 港股 / 美股）**
+**取数据**
 
 ```bash
 .venv/bin/python scripts/tushare_collector.py --code 600887.SH
@@ -165,42 +102,28 @@ export TUSHARE_TOKEN='your_token_here'
 .venv/bin/python scripts/tushare_collector.py --code 600887 --dry-run
 ```
 
-输出 Markdown 覆盖 §1–§17 共 17 个数据段（基本信息、三大报表、分红、周线、财务指标、风险、无风险利率、回购、质押、衍生指标等）。
-
-**年报解析**
+**解析年报 PDF**
 
 ```bash
 .venv/bin/python scripts/pdf_preprocessor.py --pdf report.pdf --output output/pdf_sections.json
 ```
 
-提取 9 个目标章节：
+会提取这几类章节：管理层讨论（MDA）、公司治理（GOV）、重要事项（MATTERS）、受限资产（P2）、应收账款账龄（P3）、关联交易（P4）、或有负债（P6）、非经常性损益（P13）、子公司（SUB）。
 
-| 缩写 | 章节 |
-|------|------|
-| MDA | 管理层讨论与分析 |
-| GOV | 公司治理 |
-| MATTERS | 重要事项（收购重组、诉讼、担保、关联交易） |
-| P2 | 所有权/使用权受限资产 |
-| P3 | 应收账款账龄 |
-| P4 | 关联方交易 |
-| P6 | 或有负债 / 诉讼 / 担保 |
-| P13 | 非经常性损益 |
-| SUB | 主要控股参股公司 / 子公司 |
-
-**确定性预计算**
+**预先算好数字**
 
 ```bash
-# 价值分析：估值锚、Owner Earnings、情景、EE
+# 价值分析
 .venv/bin/python scripts/value_analysis_engine.py --code 600887 --output-dir output/600887_伊利
 
-# 通用估值：分类 + WACC + 各估值方法 + 敏感性表
+# 通用估值
 .venv/bin/python scripts/valuation_engine.py --code 600887 --output-dir output/600887_伊利
 
-# 组合引擎：有效前沿 / 风险平价 / 情景 / 相关性
+# 组合配置
 .venv/bin/python scripts/portfolio_engine.py --mode full --profile output/portfolio_xxx/profile.md
 ```
 
-**选股与报告输出**
+**选股与导出报告**
 
 ```bash
 .venv/bin/python scripts/screener_core.py --tier1-only
@@ -208,15 +131,15 @@ export TUSHARE_TOKEN='your_token_here'
 .venv/bin/python scripts/md_to_mobile_html.py --input report.md --output mobile.html
 ```
 
-## 结构化定性结果管线
+## 结构化定性结果管线（`scripts/results/`）
 
-`scripts/results/` 是本框架区别于普通 prompt 集合的核心。定性分析不再把整份年报塞进一个 Agent，而是：
+这是本框架和一般 prompt 集合最大的不同：不会把整份年报丢给一个 AI 一次性读完，而是拆成几步。
 
-1. **`prepare`** —— 扫描 `data_pack_market.md`、`pdf_sections.json`、年报 PDF 与附注，建立证据索引，记录输入与产物的 SHA-256，并为每个模块生成有字符预算的 `contexts/{module}.json`。
-2. **模块 Agent** —— 每个 Agent 只读取自己的 context，输出符合 `investment.result` v1.0 的 `modules/{module}/result.json` 与 `report.md`。核心模块：`business_moat`、`environment`、`governance`、`mda_quality`；条件模块：`holding_structure`。
-3. **`reconcile_results`** —— 跨模块检查时间口径、参数冲突、治理与护城河的交叉影响，输出 `synthesis/reconciliation.json`。
-4. **`synthesis`** —— 构建最终汇总上下文，由 Final Synthesis Agent 重新撰写叙事并输出 `synthesis/result.json`。
-5. **`resolve_qualitative`** —— 下游消费者（Turtle / Value / Valuation / Portfolio）统一调用，校验完整 run 后输出 `qualitative_input.json`。
+1. **准备（prepare）**：扫描已经取好的数据、年报章节和 PDF，建立证据索引，记录每个文件的 SHA-256，并给每个模块切出一份长度受控的材料。
+2. **分模块分析**：每个 AI 只读自己那份材料，输出统一的 `result.json`（给机器看）和 `report.md`（给人看）。固定模块有 `business_moat`、`environment`、`governance`、`mda_quality`，按需启用 `holding_structure`。
+3. **对账（reconcile_results）**：检查各模块的时间口径、参数有没有冲突，交叉核对治理和护城河。
+4. **汇总（synthesis）**：由一个汇总 AI 重新写最终结论。
+5. **交付（resolve_qualitative）**：下游的 Turtle / Value / Valuation / Portfolio 统一从这里取结果。
 
 ```bash
 .venv/bin/python -m scripts.results.prepare --output-dir output/600887_伊利 --ticker 600887 --company 伊利
@@ -225,109 +148,87 @@ export TUSHARE_TOKEN='your_token_here'
 .venv/bin/python -m scripts.results.resolve_qualitative --output-dir output/600887_伊利 --ticker 600887
 ```
 
-解析器保证：
+几条硬规矩：
 
-- 优先使用完整、同 run、同主体、输入未变更的结构化结果集；
-- 有 `run_manifest.json` 时绝不回退 Markdown；
-- 无 manifest 的旧目录才允许原子回退到 `qualitative_report.md`；
-- `source=unavailable` 时 CLI 以退出码 `3` 结束（`2` 表示命令参数错误）。
+- 优先使用完整、同一次运行、同一家公司、输入没变过的结果。
+- 有 `run_manifest.json` 时绝不退回旧 Markdown。
+- 只有没有 manifest 的旧目录，才允许整体退回 `qualitative_report.md`。
+- `source=unavailable` 时命令以退出码 `3` 结束（`2` 表示参数写错了）。
 
 ## 项目结构
 
 ```
 Value_analysis_framework/
-├── .claude/
-│   ├── commands/                 # Claude Code slash commands
-│   └── skills/                   # Claude Code skills
-├── .opencode/commands/           # OpenCode slash commands
-├── .github/                      # CI、PR 与 Issue 模板
+├── .claude/                      # Claude Code 的 slash commands 和 skills
+├── .opencode/commands/           # OpenCode 的 slash commands
+├── .github/                      # CI、PR/Issue 模板、CODEOWNERS、管理员配置
 ├── docs/                         # 架构与开发文档
-├── notebooks/                    # 选股器 Jupyter notebooks
+├── notebooks/                    # 选股 Jupyter notebooks
 ├── prompts/                      # v1 遗留提示词（只读）
 ├── ciguttprepare/                # 烟蒂策略提示词草稿
 ├── scripts/
-│   ├── results/                  # 结构化结果管线（schema/manifest/evidence/context/...）
-│   ├── tushare_modules/          # Tushare 模块化实现（字段、财务报表、衍生指标、yfinance 回退）
-│   ├── tushare_collector.py      # 数据采集门面
+│   ├── results/                  # 结构化结果管线
+│   ├── tushare_modules/          # Tushare 模块化实现
+│   ├── tushare_collector.py      # 取数入口
 │   ├── pdf_preprocessor.py       # 年报章节提取
-│   ├── discover_report.py        # 年报 PDF 链接发现（CNINFO 优先）
-│   ├── download_report.py        # 年报 PDF 下载
 │   ├── value_analysis_engine.py  # 价值分析预计算
 │   ├── valuation_engine.py       # 通用估值预计算
 │   ├── portfolio_engine.py       # 组合预计算
 │   ├── screener_core.py          # 两级选股器
-│   ├── split_data_pack.py        # 数据预分发 + D6 触发检查
-│   └── report_to_html.py         # Markdown → HTML
-├── shared/qualitative/           # 共享定性模块（agents / references / templates）
-├── strategies/
-│   ├── turtle/                   # 龟龟策略
-│   ├── value/                    # 价值分析
-│   ├── valuation/                # 通用估值
-│   └── portfolio/                # 组合配置
-├── tests/                        # pytest 测试套件 + mock 数据
-├── output/                       # 运行输出（gitignored）
-├── init.sh                       # 环境初始化
-├── requirements.txt
-├── LICENSE
-├── NOTICE
-├── README.md
-├── CONTRIBUTING.md
-├── CODE_OF_CONDUCT.md
-├── SECURITY.md
-└── CHANGELOG.md
+│   └── report_to_html.py         # Markdown 转 HTML
+├── shared/qualitative/           # 共享定性模块
+├── strategies/                   # turtle / value / valuation / portfolio
+├── tests/                        # pytest 测试和 mock 数据
+├── output/                       # 运行输出（已 gitignore）
+├── init.sh                       # 环境初始化脚本
+└── requirements.txt
 ```
 
 ## 测试
 
 ```bash
-# 全量测试
+# 全部测试
 .venv/bin/python -m pytest -q
 
-# 单个文件
+# 只跑一个文件
 .venv/bin/python -m pytest tests/test_results_pipeline.py -v
 
-# 失败即停
+# 失败就停
 .venv/bin/python -m pytest -x -q
 
-# 覆盖率
+# 看覆盖率
 .venv/bin/python -m pytest --cov=scripts --cov-report=term-missing
 ```
 
-测试覆盖数据采集、衍生指标、PDF 预处理、结构化结果管线、命令与 schema 合同、组合引擎数值以及各策略消费者。所有测试均使用 mock 数据，**无需 Tushare Token**。
+所有测试都用 mock 数据，**不需要 Tushare Token**。
 
-## 贡献
+## 参与贡献
 
-欢迎提交 Issue 与 Pull Request。**本仓库的 `main` 分支受保护：所有改动必须通过 PR 合入。**
+`main` 分支受保护，**所有改动都必须通过 Pull Request 合入，不能直接 push**。
 
-- 开发流程、分支命名与提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)
-- 提交 PR 时请使用自动加载的 [PR 模板](.github/PULL_REQUEST_TEMPLATE.md)
-- 请遵守 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
-- 安全问题请按 [SECURITY.md](SECURITY.md) 私下报告
-
-提交信息遵循 [Conventional Commits](https://www.conventionalcommits.org/)：
-
-```
-feat(results): add evidence index integrity check
-fix(portfolio): correct risk-parity convergence
-docs(readme): rewrite project overview
-test(value): cover owner-earnings edge cases
-```
+- 提交 PR 后会自动跑 CI（测试、编译检查、PR 标题规范）。
+- 合并前至少需要 1 个 review 通过。
+- 管理员在 `.github/admins.yml` 里配置，改名即生效；管理员可直接合并 PR。
+- 详细的开发流程、分支命名和提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+- 提交信息请遵循 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/)。
+- 参与讨论请遵守 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。
+- 发现安全问题请按 [SECURITY.md](SECURITY.md) 私下报告，不要开公开 Issue。
 
 ## 版本与变更
 
 - 当前版本历史见 [CHANGELOG.md](CHANGELOG.md)
-- 上游龟龟框架 v1 → v3 的架构演进见 [CHANGELOG_V2.md](CHANGELOG_V2.md)
+- 上游龟龟框架 v1 → v3 的演进见 [CHANGELOG_V2.md](CHANGELOG_V2.md)
 
 ## 许可证与致谢
 
 本项目采用 **MIT** 许可证，详见 [LICENSE](LICENSE)。
 
-本项目是基于开源项目 [terancejiang/Turtle_investment_framework](https://github.com/terancejiang/Turtle_investment_framework)（作者 ying.j，MIT 许可）的衍生作品，在原龟龟投资框架的基础上扩展了价值分析框架、组合策略以及结构化定性结果管线。
+本项目是基于开源项目 [terancejiang/Turtle_investment_framework](https://github.com/terancejiang/Turtle_investment_framework)（作者 ying.j，MIT 许可）的衍生作品，在原龟龟投资框架的基础上扩展了价值分析、组合策略和结构化定性结果管线。
 
 - 上游项目：<https://github.com/terancejiang/Turtle_investment_framework>
 - 上游作者：ying.j &lt;erl4780@dingtalk.com&gt;
 - 上游许可证：MIT
 
-根据 MIT 许可要求，原始版权声明与许可声明已保留于 [LICENSE](LICENSE)，衍生关系说明见 [NOTICE](NOTICE)。
+根据 MIT 许可要求，原始版权声明与许可声明已保留在 [LICENSE](LICENSE) 中，衍生关系说明见 [NOTICE](NOTICE)。
 
-> **免责声明**：本项目仅用于研究与教育目的，不构成任何投资建议。市场有风险，决策需谨慎。
+> **免责声明**：本项目仅用于研究与学习，不构成任何投资建议。市场有风险，决策需谨慎。

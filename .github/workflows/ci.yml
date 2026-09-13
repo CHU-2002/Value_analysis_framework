@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   test:
-    name: pytest (Python ${{ matrix.python-version }})
+    name: pytest (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -40,5 +40,66 @@ jobs:
       - name: Run tests
         run: python -m pytest -q
 
-      - name: Check compilation
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check diff whitespace and conflict markers
+        if: github.event_name == 'pull_request'
+        run: git diff --check ${{ github.event.pull_request.base.sha }}...${{ github.sha }}
+
+      - name: Compile Python sources
         run: python -m compileall -q scripts tests
+
+  pr-title:
+    name: pr-title
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title follows Conventional Commits
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import sys
+
+          title = os.environ.get("TITLE", "").strip()
+          pattern = r"^(feat|fix|docs|refactor|test|chore|perf|build|ci|revert)(\([^)]+\))?!?: .+"
+          if not re.match(pattern, title):
+              print(f"::error::PR 标题不符合 Conventional Commits：{title!r}")
+              print("示例：feat(results): add artifact hash verification")
+              sys.exit(1)
+          if len(title) > 72:
+              print(f"::error::PR 标题超过 72 字符（当前 {len(title)}）")
+              sys.exit(1)
+          print(f"PR 标题合法：{title}")
+          PY
+
+  ci-success:
+    name: ci-success
+    if: always()
+    needs: [test, lint, pr-title]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required jobs
+        run: |
+          echo "test=${{ needs.test.result }}"
+          echo "lint=${{ needs.lint.result }}"
+          echo "pr-title=${{ needs.pr-title.result }}"
+          [ "${{ needs.test.result }}" = "success" ]
+          [ "${{ needs.lint.result }}" = "success" ]
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            [ "${{ needs.pr-title.result }}" = "success" ]
+          fi

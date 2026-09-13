@@ -8,6 +8,8 @@
 - [分支模型](#分支模型)
 - [提交规范](#提交规范)
 - [Pull Request 流程](#pull-request-流程)
+- [CI 与 Review](#ci-与-review)
+- [管理员与分支保护](#管理员与分支保护)
 - [代码风格](#代码风格)
 - [测试要求](#测试要求)
 - [文档](#文档)
@@ -95,9 +97,36 @@ Closes #42
    .venv/bin/python -m compileall -q scripts tests
    git diff --check
    ```
-5. 至少完成一次自查后再请求 review；如仓库配置了 CI，等待检查通过。
+5. 至少完成一次自查后再请求 review；CI 通过且至少 1 个 review 批准后才能合并。
 6. 合并前解决所有 review 评论，保持分支与 `main` 同步。
 7. 使用 **Squash and merge**，确保 `main` 的历史保持线性且信息清晰。
+
+## CI 与 Review
+
+每个 PR 会自动运行 [CI](.github/workflows/ci.yml)，包含：
+
+| 检查 | 内容 |
+|------|------|
+| `pytest (3.10)` / `pytest (3.12)` | 全量测试 |
+| `lint` | 编译检查与空白/冲突标记检查 |
+| `pr-title` | PR 标题符合 Conventional Commits，且不超过 72 字符 |
+| `ci-success` | 汇总以上检查，作为分支保护唯一必需的状态检查 |
+
+合并条件（由分支保护强制）：
+
+- `ci-success` 通过；
+- 至少 1 个 review 批准，且 CODEOWNERS 指定的审阅人已批准；
+- 所有 review 对话已解决；
+- 分支与 `main` 同步（`strict` 模式）。
+
+## 管理员与分支保护
+
+管理员可在保护规则中直接合并 PR，并绕过必需检查与 review。
+
+- **管理员名单**：编辑 [`.github/admins.yml`](.github/admins.yml)，在 `admins` 下追加 `- username` 即可，无需改代码。
+- **应用规则**：进入 GitHub 的 Actions → **Setup Branch Protection** → Run workflow，按需设置 review 数、是否限制管理员、是否 dry-run，然后运行。
+- **所需密钥**：需要仓库 Secret `ADMIN_TOKEN`，值为对仓库有 admin 权限的 Personal Access Token（`repo` + `admin:repo_hook`，或细粒度令牌的 Administration 写权限）。
+- **同步 CODEOWNERS**：新增管理员后，请同时把用户名加到 [`.github/CODEOWNERS`](.github/CODEOWNERS)，用于指定审阅人。
 
 ## 代码风格
 
