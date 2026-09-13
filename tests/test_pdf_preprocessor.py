@@ -965,3 +965,37 @@ class TestZoneDetection:
             zone="NOTES_ZONE", section_id="P3"
         )
         assert score_ar > score_prepay2
+
+
+# ============================================================
+# HK-style reports without CSRC "第X节" zone markers
+# ============================================================
+
+class TestHkStyleSectionDisambiguation:
+    """HK-style annual reports have no CSRC zone markers, so section scoring
+    must prefer a standalone section heading over incidental mentions or
+    quoted cross-references in the business review."""
+
+    def test_mda_prefers_chairman_report_heading_over_cross_reference(self):
+        pages = [
+            (2, "本事项详见“董事长报告书”章节之“未来展望”相关内容。"),
+            (12, "董事长报告书\n尊敬的各位股东：\n2025年营业收入10,502亿元。"),
+            (44, "董事会报告书\n董事会仝人谨将截至2025年12月31日止年度的年报呈览。"),
+        ]
+        result = find_section_pages(pages)
+        assert result["MDA"][0] == 12
+
+    def test_gov_prefers_corporate_governance_report_heading(self):
+        pages = [
+            (15, "公司治理卓有成效。持续筑牢依法合规经营防线，强化穿透式监管。"),
+            (26, "企业管治报告\n本公司一贯的目标是努力提升企业价值。"),
+        ]
+        result = find_section_pages(pages)
+        assert result["GOV"][0] == 26
+
+    def test_quoted_cross_reference_scores_lower_than_heading(self):
+        heading = "董事长报告书\n主要业务回顾"
+        cross_ref = "本事项详见“董事长报告书”章节之“未来展望”相关内容。"
+        score_heading = _score_match(12, 200, heading, "董事长报告书")
+        score_cross_ref = _score_match(12, 200, cross_ref, "董事长报告书")
+        assert score_heading > score_cross_ref

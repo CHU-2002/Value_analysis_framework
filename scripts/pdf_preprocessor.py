@@ -43,11 +43,15 @@ SECTION_KEYWORDS: Dict[str, List[str]] = {
     "P2": [
         # Simplified Chinese
         "所有权或使用权受限资产",
+        "主要资产受限情况",
+        "资产受限情况",
         "受限资产",
         "使用受限的资产",
         "所有权受限",
         "使用权受到限制",
         "受限的货币资金",
+        "受限制的银行存款",
+        "受限制的货币资金",
         "受到限制的资产",
         # Traditional Chinese (HK reports)
         "所有權或使用權受限資產",
@@ -110,11 +114,20 @@ SECTION_KEYWORDS: Dict[str, List[str]] = {
         "非經常性損益項目及金額",
     ],
     "MDA": [
+        # HK-style chairman's report carries the operating review for many
+        # HK-listed issuers. List the most specific section titles first so the
+        # per-page keyword loop prefers them over generic mentions.
+        "董事长报告书",
+        "董事长报告",
+        "主席报告书",
+        "主席报告",
+        "致股东信",
         # Simplified Chinese
         "管理层讨论与分析",
         "经营情况讨论与分析",
         "经营情况的讨论与分析",
         "管理层分析与讨论",
+        "董事会报告书",
         "董事会报告",
         # Traditional Chinese
         "管理層討論與分析",
@@ -122,10 +135,12 @@ SECTION_KEYWORDS: Dict[str, List[str]] = {
         "董事會報告",
     ],
     "GOV": [
-        "公司治理",
-        "公司治理报告",
+        # Specific section titles first; generic "公司治理" can appear as an
+        # incidental mention inside the business review and must not win.
         "企业管治报告",
+        "公司治理报告",
         "企業管治報告",
+        "公司治理",
         "董事、监事和高级管理人员",
         "董事、監事和高級管理人員",
     ],
@@ -424,6 +439,11 @@ def _score_match(
         # Fallback: position-based scoring when no zone info
         if page_num / total_pages > 0.30:
             score += 0.5
+        # Keyword specificity: longer, section-title-like keywords are stronger
+        # signals than generic terms (e.g. "企业管治报告" over "公司治理",
+        # "董事长报告书" over "董事会报告"). Important for HK-style reports
+        # where zone detection finds no CSRC "第X节" markers.
+        score += 0.12 * len(keyword)
 
     # Penalize TOC pages
     if "目录" in text or "目 录" in text:
@@ -465,6 +485,17 @@ def _score_match(
         if re.search(pat, text):
             score += 0.3
             break
+
+    # Standalone heading bonus: a keyword forming (almost) the whole line is a
+    # real section heading, not an inline cross-reference such as
+    # "“董事长报告书”章节之…" nor a TOC entry. PDF extraction frequently puts
+    # the heading on its own line in HK-style reports.
+    if kw_pos >= 0:
+        line_start = text.rfind("\n", 0, kw_pos) + 1
+        line_end = text.find("\n", kw_pos)
+        line = text[line_start: line_end if line_end != -1 else len(text)].strip()
+        if line.startswith(keyword) and len(line) <= len(keyword) + 4:
+            score += 1.0
 
     return score
 
