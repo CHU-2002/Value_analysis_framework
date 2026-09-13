@@ -13,6 +13,9 @@
 
 - 成熟的工程化文档：README、CONTRIBUTING、CODE_OF_CONDUCT、SECURITY、PR 与 Issue 模板
 - GitHub Actions CI：在 push 与 PR 上运行 pytest
+- CI 增强：`lint` 与 `pr-title` 检查、`ci-success` 汇总状态，用于分支保护
+- CODEOWNERS 与可配置管理员名单 `.github/admins.yml`，管理员可直接合并 PR
+- 一键应用 main 分支保护的工作流 `setup-branch-protection`（必需 CI + 必需 review + 管理员放行）
 - 架构文档 `docs/ARCHITECTURE.md`
 - 结构化定性结果管线：`scripts/results/`（schema、manifest、evidence、context、prepare、reconcile、synthesis、resolver）
 - 价值分析模块 `strategies/value/` 与预计算引擎 `scripts/value_analysis_engine.py`
@@ -28,6 +31,7 @@
 
 - 消费者统一通过 `resolve_qualitative` 获取定性输入
 - `main` 分支启用保护，所有改动必须经 Pull Request 合入
+- README 改为更直白的说明，并把来源与致谢统一放在文末
 
 ## [0.1.0] - 2026-09-13
 

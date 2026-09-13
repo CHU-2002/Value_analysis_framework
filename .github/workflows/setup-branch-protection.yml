@@ -1,0 +1,96 @@
+name: Setup Branch Protection
+
+on:
+  workflow_dispatch:
+    inputs:
+      required_approvals:
+        description: "合并前需要的 review 数（管理员不受限）"
+        required: true
+        default: "1"
+        type: string
+      enforce_admins:
+        description: "是否让管理员也受保护规则限制"
+        required: true
+        default: false
+        type: boolean
+      dry_run:
+        description: "只打印将要应用的规则，不真正修改"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    name: Apply branch protection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build protection payload from .github/admins.yml
+        env:
+          REQUIRED_APPROVALS: ${{ inputs.required_approvals }}
+          ENFORCE_ADMINS: ${{ inputs.enforce_admins }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          admins = []
+          with open(".github/admins.yml", encoding="utf-8") as fh:
+              for raw in fh:
+                  line = raw.split("#", 1)[0].strip()
+                  match = re.fullmatch(r"-\s*[\"']?([A-Za-z0-9-]+)[\"']?", line)
+                  if match:
+                      admins.append(match.group(1))
+
+          if not admins:
+              sys.exit("错误：.github/admins.yml 里没有解析到任何管理员用户名")
+
+          required_approvals = int(os.environ["REQUIRED_APPROVALS"])
+          if required_approvals < 0:
+              sys.exit("错误：required_approvals 不能为负数")
+
+          payload = {
+              "required_status_checks": {
+                  "strict": True,
+                  "contexts": ["ci-success"],
+              },
+              "enforce_admins": os.environ["ENFORCE_ADMINS"].strip().lower() == "true",
+              "required_pull_request_reviews": {
+                  "dismiss_stale_reviews": True,
+                  "require_code_owner_reviews": True,
+                  "required_approving_review_count": required_approvals,
+              },
+              "restrictions": {"users": admins, "teams": [], "apps": []},
+              "required_linear_history": True,
+              "allow_force_pushes": False,
+              "allow_deletions": False,
+              "required_conversation_resolution": True,
+          }
+          with open("protection.json", "w", encoding="utf-8") as fh:
+              json.dump(payload, fh, ensure_ascii=False, indent=2)
+
+          print("将应用以下 main 分支保护规则：")
+          print(json.dumps(payload, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Apply to main
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::缺少 secrets.ADMIN_TOKEN。请创建对仓库有 admin 权限的 PAT，并在仓库 Secrets 中添加 ADMIN_TOKEN。"
+            exit 1
+          fi
+          gh api --method PUT "repos/${REPO}/branches/main/protection" \
+            -H "Accept: application/vnd.github+json" \
+            --input protection.json
+          echo "已更新 main 分支保护规则。"

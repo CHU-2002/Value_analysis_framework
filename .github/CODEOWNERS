@@ -1,0 +1,7 @@
+# 代码审阅人（CODEOWNERS）。
+#
+# 添加或移除管理员时，请同步更新 .github/admins.yml 和本文件。
+# 规则说明：
+# https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+* @CHU-2002
