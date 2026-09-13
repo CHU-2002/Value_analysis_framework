@@ -18,30 +18,40 @@ MODULE_CONFIG: dict[str, dict[str, Any]] = {
         "data_sections": ["1.", "2.", "3.", "3P.", "4.", "4P.", "5.", "8.", "9.", "12.", "17."],
         "pdf_sections": ["MDA", "SUB", "P3", "P4"],
         "keywords": ["护城河", "品牌", "竞争", "主营", "毛利率", "ROE", "现金流"],
+        "market_evidence": ["3", "5", "9", "12"],
+        "footnote_evidence": ["P3", "P4"],
     },
     "environment": {
         "scope": ["D3"],
         "data_sections": ["1.", "3.", "8.", "10.", "12.", "14."],
         "pdf_sections": ["MDA", "P13"],
         "keywords": ["行业", "周期", "监管", "政策", "需求", "竞争"],
+        "market_evidence": ["3", "8", "10", "12", "14"],
+        "footnote_evidence": ["P13"],
     },
     "governance": {
         "scope": ["D4"],
         "data_sections": ["1.", "7.", "10.", "13.", "15.", "16."],
         "pdf_sections": ["GOV", "MATTERS", "P2", "P13", "P4", "P6"],
-        "keywords": ["审计", "治理", "关联交易", "质押", "诉讼", "承诺", "重大事项"],
+        "keywords": ["审计", "治理", "关联交易", "质押", "诉讼", "承诺", "重大事项", "担保", "逾期"],
+        "market_evidence": ["7", "15", "16"],
+        "footnote_evidence": ["P6", "P4", "P2"],
     },
     "mda_quality": {
         "scope": ["D5"],
         "data_sections": ["1.", "3.", "5.", "6.", "10.", "12.", "15.", "17."],
         "pdf_sections": ["MDA", "P13", "P3", "P6"],
         "keywords": ["收入", "利润", "现金流", "分红", "回购", "指引", "风险"],
+        "market_evidence": ["3", "5", "6", "15"],
+        "footnote_evidence": ["P6", "P13"],
     },
     "holding_structure": {
         "scope": ["D6"],
         "data_sections": ["1.", "4.", "4P.", "9."],
         "pdf_sections": ["SUB", "P6", "P4"],
         "keywords": ["子公司", "控股", "参股", "长期股权投资", "合并范围"],
+        "market_evidence": ["4", "4P", "9"],
+        "footnote_evidence": ["SUB", "P6", "P4"],
     },
 }
 
@@ -96,6 +106,55 @@ def _load_pdf_sections(path: Path | None) -> dict[str, str]:
     }
 
 
+def _fair_limits(lengths: list[int], budget: int) -> list[int]:
+    """Share a pool evenly, redistributing unused shares from short sections."""
+    limits = [0] * len(lengths)
+    pending = list(range(len(lengths)))
+    while pending and budget > 0:
+        share = max(1, budget // len(pending))
+        for position in pending:
+            amount = min(share, lengths[position] - limits[position], budget)
+            limits[position] += amount
+            budget -= amount
+        pending = [position for position in pending if limits[position] < lengths[position]]
+    return limits
+
+
+def _module_evidence(
+    index: dict[str, Any], config: dict[str, Any], limit: int,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    groups = [
+        (source, section)
+        for source, sections in (
+            ("pdf_sections", config["pdf_sections"]),
+            ("pdf_footnotes", config["footnote_evidence"]),
+            ("market_data", config["market_evidence"]),
+        )
+        for section in sections
+    ]
+    selected: list[dict[str, Any]] = []
+    coverage = {}
+    for source, section in groups:
+        candidates = [
+            item for item in index.get("entries", [])
+            if item.get("source_id") == source and item.get("section") == section
+        ]
+        ranked = select_evidence({"entries": candidates}, keywords=config["keywords"], limit=1)
+        # Concrete guarantees take priority over accounting-policy references.
+        if section in {"MATTERS", "P6"}:
+            targeted = select_evidence(
+                {"entries": candidates}, keywords=["担保总额", "担保逾期", "逾期金额", "对外担保"], limit=1
+            )
+            ranked = targeted or ranked
+        choice = (ranked or candidates)[:1]
+        key = f"{source}:{section}"
+        coverage[key] = "missing" if not choice else "omitted"
+        if choice and len(selected) < limit:
+            selected.extend(choice)
+            coverage[key] = choice[0]["evidence_id"]
+    return selected, coverage
+
+
 def build_module_context(
     module: str,
     *,
@@ -116,16 +175,11 @@ def build_module_context(
     if max_chars <= 0:
         raise ValueError("max_chars must be positive")
 
+    if max_evidence < 0:
+        raise ValueError("max_evidence must be non-negative")
     config = MODULE_CONFIG[module]
-    text_limit = max(1, int(max_chars * 0.85))
-    section_budget = max(1, int(text_limit * 0.7))
-    data_sections: list[dict[str, Any]] = []
-    pdf_sections: list[dict[str, Any]] = []
-    blocks: list[str] = []
-    used_chars = 0
-    truncated = False
     inputs: list[str] = []
-
+    market: list[tuple[str, str]] = []
     if data_pack_path:
         data_path = Path(data_pack_path)
         inputs.append(str(data_path))
@@ -133,101 +187,93 @@ def build_module_context(
             parsed = _parse_markdown_sections(data_path.read_text(encoding="utf-8"))
             for prefix in config["data_sections"]:
                 match = _find_section(parsed, prefix)
-                if not match:
-                    continue
-                title, content = match
-                remaining = section_budget - used_chars
-                if remaining <= 0:
-                    truncated = True
-                    break
-                selected, was_truncated = _truncate(content, remaining)
-                data_sections.append(
-                    {"title": title, "selected_chars": len(selected), "truncated": was_truncated}
-                )
-                blocks.append(f"[Market data: {title}]\n{selected}")
-                used_chars += len(selected)
-                truncated = truncated or was_truncated
+                if match:
+                    market.append(match)
 
     pdf_path = Path(pdf_sections_path) if pdf_sections_path else None
     if pdf_path:
         inputs.append(str(pdf_path))
     parsed_pdf = _load_pdf_sections(pdf_path)
-    for section_id in config["pdf_sections"]:
-        content = parsed_pdf.get(section_id)
-        if not content:
-            continue
-        remaining = section_budget - used_chars
-        if remaining <= 0:
-            truncated = True
-            break
-        selected, was_truncated = _truncate(content, remaining)
-        pdf_sections.append(
-            {"section": section_id, "selected_chars": len(selected), "truncated": was_truncated}
-        )
-        blocks.append(f"[PDF {section_id}]\n{selected}")
-        used_chars += len(selected)
-        truncated = truncated or was_truncated
-
-    evidence: list[dict[str, Any]] = []
+    pdf = [(key, parsed_pdf[key]) for key in config["pdf_sections"] if key in parsed_pdf]
+    index: dict[str, Any] = {"entries": []}
     if evidence_index_path:
         evidence_path = Path(evidence_index_path)
         inputs.append(str(evidence_path))
         if evidence_path.exists():
             index = json.loads(evidence_path.read_text(encoding="utf-8"))
-            selected_evidence = select_evidence(index, keywords=config["keywords"], limit=max_evidence)
-            for item in selected_evidence:
-                evidence_text = f"[Evidence {item['evidence_id']}]\n{item.get('quote', '')}"
-                remaining = text_limit - used_chars
-                if remaining <= 0:
-                    truncated = True
-                    break
-                selected, was_truncated = _truncate(evidence_text, remaining)
-                blocks.append(selected)
-                used_chars += len(selected)
-                truncated = truncated or was_truncated
-                evidence.append(
-                    {
-                        "evidence_id": item.get("evidence_id"),
-                        "source_id": item.get("source_id"),
-                        "locator": item.get("locator", {}),
-                        "content_hash": item.get("content_hash"),
-                    }
-                )
-
-    context_text, final_truncated = _truncate("\n\n".join(blocks), text_limit)
-    truncated = truncated or final_truncated
-    bundle = {
-        "schema": "investment.context_bundle",
-        "schema_version": "1.0",
-        "module": module,
-        "scope": config["scope"],
-        "inputs": inputs,
-        "data_sections": data_sections,
-        "pdf_sections": pdf_sections,
-        "evidence": evidence,
-        "context_text": context_text,
-        "budget": {
-            "max_chars": max_chars,
-            "actual_chars": 0,
-            "estimated_context_tokens": _estimate_tokens(context_text),
-            "truncated": truncated,
-        },
-        "selection": {
-            "data_section_prefixes": config["data_sections"],
-            "pdf_section_ids": config["pdf_sections"],
-            "keywords": config["keywords"],
-        },
-    }
-    if run_id is not None:
-        bundle["run"] = {"run_id": run_id, "status": "prepared"}
-    if subject is not None:
-        bundle["subject"] = subject
-    if input_digest is not None:
-        bundle["input_digest"] = input_digest
-    if routing is not None:
-        bundle["routing"] = routing
-
+    selected_evidence, coverage = _module_evidence(index, config, max_evidence) if evidence_index_path else ([], {})
+    content_budget = int(max_chars * 0.75)
     while True:
+        # Independent pools prevent a long financial table from starving PDF
+        # sections. Rebuild all pools after measuring JSON, never slice the tail.
+        weights = [25 if market else 0, 35 if pdf else 0, 40 if selected_evidence else 0]
+        pools = [content_budget * weight // max(1, sum(weights)) for weight in weights]
+        blocks: list[str] = []
+        section_metadata: list[list[dict[str, Any]]] = [[], []]
+        truncated = False
+        for sections, pool, metadata, label, key in (
+            (market, pools[0], section_metadata[0], "Market data:", "title"),
+            (pdf, pools[1], section_metadata[1], "PDF", "section"),
+        ):
+            limits = _fair_limits([len(text) for _, text in sections], pool)
+            for (title, text), limit in zip(sections, limits):
+                excerpt, cut = _truncate(text, limit)
+                metadata.append({key: title, "selected_chars": len(excerpt), "truncated": cut})
+                if excerpt:
+                    blocks.append(f"[{label} {title}]\n{excerpt}")
+                truncated |= cut
+
+        evidence = []
+        limits = _fair_limits([len(item["quote"]) for item in selected_evidence], pools[2])
+        retained_coverage = dict(coverage)
+        for item, limit in zip(selected_evidence, limits):
+            if limit < min(160, len(item["quote"])):
+                retained_coverage[f"{item['source_id']}:{item['section']}"] = "omitted"
+                truncated = True
+                continue
+            quote = item["quote"]
+            terms = ["担保总额", "担保逾期", "逾期金额", "对外担保"] + config["keywords"]
+            positions = [quote.find(term) for term in terms if term in quote]
+            start = max(0, min(positions[0] - limit // 4, len(quote) - limit)) if positions else 0
+            excerpt, _ = _truncate(quote[start:], limit)
+            evidence.append({
+                **{key: item[key] for key in ("evidence_id", "source_id", "locator", "content_hash") if key in item},
+                "quote": excerpt,
+            })
+            truncated |= excerpt != quote
+        context_text = "\n\n".join(blocks)
+        bundle = {
+            "schema": "investment.context_bundle",
+            "schema_version": "1.0",
+            "module": module,
+            "scope": config["scope"],
+            "inputs": inputs,
+            "data_sections": section_metadata[0],
+            "pdf_sections": section_metadata[1],
+            "evidence": evidence,
+            "context_text": context_text,
+            "budget": {
+                "max_chars": max_chars,
+                "actual_chars": 0,
+                "estimated_context_tokens": _estimate_tokens(context_text + "".join(item["quote"] for item in evidence)),
+                "truncated": truncated or "omitted" in retained_coverage.values(),
+            },
+            "selection": {
+                "data_section_prefixes": config["data_sections"],
+                "pdf_section_ids": config["pdf_sections"],
+                "keywords": config["keywords"],
+                "evidence_coverage": retained_coverage,
+                "missing_pdf_sections": [key for key in config["pdf_sections"] if key not in parsed_pdf],
+            },
+        }
+        if run_id is not None:
+            bundle["run"] = {"run_id": run_id, "status": "prepared"}
+        if subject is not None:
+            bundle["subject"] = subject
+        if input_digest is not None:
+            bundle["input_digest"] = input_digest
+        if routing is not None:
+            bundle["routing"] = routing
         while True:
             actual_chars = len(json.dumps(bundle, ensure_ascii=False, indent=2)) + 1
             if bundle["budget"]["actual_chars"] == actual_chars:
@@ -235,22 +281,9 @@ def build_module_context(
             bundle["budget"]["actual_chars"] = actual_chars
         if actual_chars <= max_chars:
             return bundle
-        if bundle["evidence"]:
-            removed = bundle["evidence"].pop()
-            marker = f"[Evidence {removed['evidence_id']}]"
-            marker_position = bundle["context_text"].rfind(marker)
-            if marker_position >= 0:
-                bundle["context_text"] = bundle["context_text"][:marker_position].rstrip()
-            bundle["budget"]["truncated"] = True
-            bundle["budget"]["estimated_context_tokens"] = _estimate_tokens(bundle["context_text"])
-            continue
-        overflow = actual_chars - max_chars
-        target_length = len(bundle["context_text"]) - overflow - 8
-        if target_length <= 0:
+        if content_budget == 0:
             raise ValueError(f"Unable to fit {module} context bundle within {max_chars} characters")
-        bundle["context_text"], _ = _truncate(bundle["context_text"], target_length)
-        bundle["budget"]["truncated"] = True
-        bundle["budget"]["estimated_context_tokens"] = _estimate_tokens(bundle["context_text"])
+        content_budget = max(0, content_budget - max(1, actual_chars - max_chars))
 
 
 def main() -> None:

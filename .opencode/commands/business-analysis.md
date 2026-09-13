@@ -81,6 +81,7 @@ output/{code}_{company}/modules/{module}/report.md
 ```
 
 每个 `result.json` 必须符合 `investment.result` v1.0；重要判断必须引用 `evidence_id`。保留原有第五节重要事项检查，但将检查结果写入治理模块的 `claims`、`evidence` 和 `quality.warnings`。
+检查 context 的 `selection.evidence_coverage` 和裁剪记录，必查事项缺失时按 source/section 限量补证或标记 partial。章节命中不代表完整核验。每个模块写入后执行 `python3 -m scripts.results.validate_result "output/{code}_{company}/modules/{module}/result.json" --evidence-index "output/{code}_{company}/evidence/index.json"`。
 
 模块 Agent 分别读取 `shared/qualitative/agents/modules/*.md` 和 `shared/qualitative/agents/module_output_contract.md`，不读取完整 PDF 或完整数据包。
 
@@ -115,7 +116,7 @@ python3 -m scripts.results.synthesis \
 验证最终 sidecar：
 
 ```bash
-python3 -m scripts.results.validate_result "output/{code}_{company}/synthesis/result.json"
+python3 -m scripts.results.validate_result "output/{code}_{company}/synthesis/result.json" --evidence-index "output/{code}_{company}/evidence/index.json"
 ```
 
 Before delivery, validate the entire run:
@@ -123,6 +124,7 @@ Before delivery, validate the entire run:
 .venv/bin/python -m scripts.results.resolve_qualitative --output-dir "output/{code}_{company}" --ticker "{stock_code}" --output "output/{code}_{company}/qualitative_input.json"
 ```
 Require `source=structured`. Exit status 3 requires fixing or rerunning the analysis; never fall back to the Markdown report in a manifest-backed run. Status 2 is an invocation error.
+Review synthesis card `omitted` counts and obtain bounded same-run lookups for material gaps. Use each module's precise excerpt via `quote_index`, and separately check that it supports the attached claim. A matching quote is not a semantic verdict; `source=structured` may still carry partial research.
 
 ### Step 3: Generate HTML Dashboard Report (optional — only when user requests)
 
