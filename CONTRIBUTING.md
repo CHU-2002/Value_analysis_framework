@@ -127,6 +127,7 @@ Closes #42
 - **应用规则**：进入 GitHub 的 Actions → **Setup Branch Protection** → Run workflow，按需设置 review 数、是否限制管理员、是否 dry-run，然后运行。
 - **所需密钥**：需要仓库 Secret `ADMIN_TOKEN`，值为对仓库有 admin 权限的 Personal Access Token（`repo` + `admin:repo_hook`，或细粒度令牌的 Administration 写权限）。
 - **同步 CODEOWNERS**：新增管理员后，请同时把用户名加到 [`.github/CODEOWNERS`](.github/CODEOWNERS)，用于指定审阅人。
+- **用户仓库与组织仓库的差异**：GitHub 仅允许组织仓库设置 push restrictions。用户仓库的管理员需在 Settings → Collaborators 里设为 **Admin**，再配合 `enforce_admins=false` 直接合并 PR；组织仓库则会自动把 `admins.yml` 写入 push restrictions。
 
 ## 代码风格
 

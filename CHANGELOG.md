@@ -26,6 +26,7 @@
 
 - 在 `requirements.txt` 中补充缺失的运行时依赖 `markdown` 与 `numpy`
 - 行情刷新改写为独立副本，避免破坏定性分析的原始证据快照
+- 分支保护工作流区分用户仓库与组织仓库，避免用户仓库因 push restrictions 报错
 
 ### Changed
 
