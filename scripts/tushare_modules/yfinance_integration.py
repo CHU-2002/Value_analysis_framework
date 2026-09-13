@@ -128,6 +128,18 @@ class YFinanceMixin:
         try:
             ticker = _yf().Ticker(self._yf_ticker(ts_code))
             info = ticker.info
+            timestamp = info.get("regularMarketTime")
+            quote_date = None
+            if timestamp and info.get("regularMarketPrice"):
+                zone = "Asia/Hong_Kong" if ts_code.endswith(".HK") else "America/New_York"
+                try:
+                    quote_date = pd.Timestamp(timestamp, unit="s", tz="UTC").tz_convert(zone).date().isoformat()
+                except (ValueError, TypeError, OverflowError):
+                    pass
+            self._store["buy_sell_quote"] = {
+                "close": info.get("regularMarketPrice") or info.get("previousClose"),
+                "quote_date": quote_date,
+            }
             return {
                 "close": info.get("regularMarketPrice") or info.get("previousClose"),
                 "high_52w": info.get("fiftyTwoWeekHigh"),

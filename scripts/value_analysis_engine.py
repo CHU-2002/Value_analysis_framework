@@ -1525,6 +1525,10 @@ class ValueAnalysisEngine:
         expected_return_metrics = self._compute_expected_return_metrics(anchor, growth, ee_data, basic, guardrails, scenarios, dividend_metrics, sector_profile)
         sensitivity_headers, sensitivity_rows = self._compute_sensitivity(anchor, growth, guardrails, sector_profile, defensive_metrics)
         bank_health = self._compute_bank_health_metrics() if sector_profile.get("bank_like") else None
+        self.computed = {
+            "scenarios": scenarios, "guardrails": guardrails, "sector_profile": sector_profile,
+            "bank_health": bank_health, "wacc_data": wacc_data,
+        }
         acquisition_yield = None
         if anchor.get("normalized_raw") is not None and ee_data.get("enterprise_purchase_price_raw"):
             acquisition_yield = anchor["normalized_raw"] / ee_data["enterprise_purchase_price_raw"] * 100
@@ -1843,6 +1847,7 @@ def main():
     parser = argparse.ArgumentParser(description="Value-analysis precompute engine")
     parser.add_argument("--code", required=True, help="Stock code (e.g. 600887, 00700.HK, AAPL)")
     parser.add_argument("--output-dir", required=True, help="Output directory")
+    parser.add_argument("--valuation-cycle", help="Explicit valuation review ID/reason (e.g. 2026Q3-review)")
     args = parser.parse_args()
 
     ts_code = validate_stock_code(args.code)
@@ -1862,6 +1867,10 @@ def main():
     out_path = os.path.join(args.output_dir, "value_computed.md")
     with open(out_path, "w", encoding="utf-8") as handle:
         handle.write(output_md)
+
+    from buy_sell_inputs import export_inputs
+
+    export_inputs(engine, cycle=args.valuation_cycle)
 
     print(f"[value_analysis_engine] 完成: {out_path}", file=sys.stderr)
 

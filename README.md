@@ -12,6 +12,7 @@
 - **取数**：从 Tushare、yfinance 拉财报、分红、股东、质押、无风险利率等数据。
 - **读年报**：下载年报 PDF，自动切出管理层讨论、公司治理、重要事项等章节。
 - **做分析**：内置两大流程——价值分析（含通用估值子模块）与组合配置。
+- **定买卖计划**：对确定长期持有的公司，输出四档买入价格/资金比例、单日 30% 上限、极端高估卖出价及当前执行指令；固定财报期价值基准，不随每日股价漂移。
 - **出报告**：结果先存成统一格式的文件，再生成 Markdown 或 HTML 报告。
 
 ## 它是怎么工作的
@@ -79,7 +80,7 @@ export TUSHARE_TOKEN='your_token_here'
 |------|------|--------------|
 | `/download-report {code}` | 搜索并下载最近一年的年报 PDF | 无 |
 | `/business-analysis {code}` | 从 6 个角度分析公司（AI 主要工作在这里） | 无 |
-| `/value-analysis {code}` | 价值分析：现金流折现、收购视角（含通用估值子模块） | 先跑 `/business-analysis` |
+| `/value-analysis {code}` | 价值分析：现金流折现、收购视角、可执行分批买入与卖出计划 | 先跑 `/business-analysis` |
 | `/valuation {code}` | 价值分析子模块 · 通用估值：DCF、DDM、可比公司、Graham（可单独调用） | 先跑 `/business-analysis` |
 | `/portfolio-strategy {profile}` | 组合配置：画像 → 宏观 → 配置 → 选标的 → 风险 | 无 |
 
@@ -115,12 +116,17 @@ export TUSHARE_TOKEN='your_token_here'
 # 价值分析
 .venv/bin/python scripts/value_analysis_engine.py --code 600887 --output-dir output/600887_伊利
 
+# 买卖计划（仅读取本地产物，可离线重放；无资金参数时输出百分比）
+.venv/bin/python scripts/buy_sell_engine.py --output-dir output/600887_伊利
+
 # 通用估值
 .venv/bin/python scripts/valuation_engine.py --code 600887 --output-dir output/600887_伊利
 
 # 组合配置
 .venv/bin/python scripts/portfolio_engine.py --mode full --profile output/portfolio_xxx/profile.md
 ```
+
+买卖计划输出 `buy_sell_plan.json` 和 `buy_sell_plan.md`，报告原样引用。已有实际成交时使用可选 `buy_sell_state.json`，重复运行不会被当作成交；缺失关键价格/日期时明确暂停交易。基准冻结、卖出确认、硬退出和输入示例见 [买卖计划合同](docs/BUY_SELL_CONTRACT.md)。独立 `/valuation` 仍是研究估值入口，不覆盖主流程的交易计划。
 
 **选股与导出报告**
 
@@ -171,6 +177,8 @@ Value_analysis_framework/
 │   ├── tushare_collector.py      # 取数入口
 │   ├── pdf_preprocessor.py       # 年报章节提取
 │   ├── value_analysis_engine.py  # 价值分析预计算
+│   ├── buy_sell_engine.py        # 离线确定性买卖计划 JSON / Markdown
+│   ├── buy_sell_inputs.py        # 既有估值/行情输入适配
 │   ├── valuation_engine.py       # 通用估值预计算
 │   ├── portfolio_engine.py       # 组合预计算
 │   ├── screener_core.py          # 两级选股器

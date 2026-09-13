@@ -94,6 +94,7 @@
 ┌─────────────────────────────────────────────────┐
 │  Step 2: Python 预计算                              │
 │  value_analysis_engine.py → value_computed.md       │
+│  buy_sell_engine.py → buy_sell_plan.json / .md      │
 └──────────┬──────────────────────────────────────┘
            │
            ▼
@@ -141,7 +142,7 @@ cp "{output_dir}/data_pack_market.md" "{output_dir}/data_pack_market_current.md"
 
 ### 输出
 
-`{output_dir}/value_computed.md`
+`{output_dir}/value_computed.md`、`value_computed.json`、`buy_sell_market.json`
 
 ### 包含内容
 - 默认估值锚（FCF / Owner Earnings / Profit）
@@ -154,6 +155,20 @@ cp "{output_dir}/data_pack_market.md" "{output_dir}/data_pack_market_current.md"
 - 给最终分析 Agent 的调整接口
 
 ---
+
+## Step 2B: 买卖计划
+
+先读取 `docs/BUY_SELL_CONTRACT.md`，执行：
+
+```bash
+.venv/bin/python scripts/buy_sell_engine.py --output-dir "{output_dir}"
+```
+
+输出 `buy_sell_basis.json`、`buy_sell_plan.json`、`buy_sell_plan.md`。同财报期沿用固定基准，只有新财报期或显式 `--valuation-cycle "日期-原因"` 更新；不得因每日行情变化删除基准或重建周期。`buy_sell_state.json` 仅记录实际成交，不把推荐当成交。无状态时按首次投入百分比输出。
+
+硬退出优先：结构化 `integrity_rating=不可靠` 自动卖出全部持仓；明确的重大财务造假、治理失效、偿债失败、核心业务失效，按合同记录带证据的 `buy_sell_risk.json` 并重跑。一般防守层 caution/severe flags 不能等同于已确认硬退出。
+
+退出码 3：已生成 BLOCKED 计划，报告原样披露缺失项；退出码 2：修复输入后重跑，禁止使用上次产物。
 
 ## Step 3: 价值分析与报告生成
 
@@ -170,6 +185,7 @@ cp "{output_dir}/data_pack_market.md" "{output_dir}/data_pack_market_current.md"
 7. `{output_dir}/qualitative_input.json`
 8. `{output_dir}/data_pack_market_current.md`（刷新失败时可读原始包并披露时效性）
 9. `{output_dir}/data_pack_report.md`（若存在）
+10. `{output_dir}/buy_sell_plan.json` 与 `{output_dir}/buy_sell_plan.md`（必须读取并原样引用确定性数字；Markdown 整段原样插入）
 
 `source=structured` 时只从 `parameters` 和模块卡片读取定性参数，不再读取旧报告；`source=legacy` 时读取 `legacy_report.path`。
 
@@ -185,6 +201,8 @@ cp "{output_dir}/data_pack_market.md" "{output_dir}/data_pack_market_current.md"
 - 未来现金流/所有者收益估值主线（基于 `value_computed.md`）
 - `EE` 指标与解读（基于 `value_computed.md`）
 - 当前价格与内在价值比较
+- 四档买入价格、20/30/30/20 资金比例、单日最多 30%、明确卖出价、确认状态，以及当前档位/动作/累计比例/下一档价格均与 `buy_sell_plan.json` 一致；禁止 LLM 自行重算
+- 明确区分当日研究估值与带日期的固定买卖基准；最终交易动作只引用买卖计划
 - 先别买的理由 / 反方论证 / 能力圈与复杂性判断
 - 关键假设、风险与置信度
 
@@ -202,6 +220,10 @@ cp "{output_dir}/data_pack_market.md" "{output_dir}/data_pack_market_current.md"
 估算内在价值区间: {value_range}
 EE: {ee}
 估值判断: {judgment}
+当前执行指令: {buy_sell_plan.execution.action}
+本次资金比例: {buy_sell_plan.execution.buy_now_pct}%
+下一档价格: {buy_sell_plan.execution.next_price}
+极端高估卖出价: {buy_sell_plan.basis.exit_price}
 ```
 
 ---
