@@ -43,7 +43,18 @@ cp "{output_dir}/data_pack_market.md" "{output_dir}/data_pack_market_current.md"
 ```
 - Collects fresh structured data and produces deterministic value anchors
 - Outputs: `output/{code}_{company}/value_computed.md`
+- Also outputs `value_computed.json` (structured valuation scenarios and independent method values) and `buy_sell_market.json` (current dated quotes and confirmed-close inputs).
 - Contains: valuation anchor selection, owner earnings bridge, cross-cycle normalization, defensive balance-sheet checks, capital-allocation signals, scenario valuation, EE, asset backstop, and LLM adjustment interface
+
+### Step 2B: Deterministic buy/sell plan
+Read `docs/BUY_SELL_CONTRACT.md`. Run:
+```bash
+.venv/bin/python scripts/buy_sell_engine.py --output-dir "{output_dir}"
+```
+- Outputs: `buy_sell_basis.json`, `buy_sell_plan.json`, `buy_sell_plan.md`. Preserve the frozen basis across market-only reruns; new financial periods update it automatically. Only an explicit valuation review permits `value_analysis_engine.py --valuation-cycle "{dated_reason}"`.
+- Reuse `buy_sell_state.json` when present; never infer fills from a prior recommendation. Without state, this is a first-allocation proposal in percentages, not an additional order on rerun.
+- Structured `integrity_rating=不可靠` is a hard exit. When annual-report evidence explicitly confirms financial fraud, governance failure, insolvency, or core-business failure, record the exact evidence references in `buy_sell_risk.json` using the contract and rerun the engine before report assembly. Do not infer these events from generic caution flags or invent a confirmation.
+- Exit code 3 means a current BLOCKED plan was written: quote it including missing-data reasons and null prices. Exit code 2 means invalid inputs/invocation: stop and fix; never consume an old plan after failure.
 
 ### Step 3: Value analysis and report assembly
 - Read `strategies/value/phase2_value_analysis.md` for execution instructions
@@ -52,6 +63,7 @@ cp "{output_dir}/data_pack_market.md" "{output_dir}/data_pack_market_current.md"
 - Read `output/{code}_{company}/qualitative_input.json` for validated business quality, moat, management, evidence, and quality warnings
 - Read `qualitative_report.md` only when `source=legacy`
 - Read `output/{code}_{company}/value_computed.md` for all deterministic numbers and scenario anchors
+- Read `{output_dir}/buy_sell_plan.json` and insert `{output_dir}/buy_sell_plan.md` verbatim. Quote the engine's current action, tier, buy percentage, cumulative percentage, next price and exit price without recalculating or overriding them. The dated frozen plan basis governs trading prices even when daily `value_computed.md` differs; distinguish them explicitly.
 - Read `{output_dir}/data_pack_market_current.md` for current market cross-checks and supporting context
 - Read `output/{code}_{company}/data_pack_report.md` if available for footnote-level validation
 - Produce `output/{code}_{company}/{company}_{code}_价值分析报告.md`
@@ -71,7 +83,7 @@ cp "{output_dir}/data_pack_market.md" "{output_dir}/data_pack_market_current.md"
 - Market refresh failure → continue with existing pack and note reduced timeliness
 - `value_analysis_engine.py` fails → check TUSHARE_TOKEN / Python deps, retry, then stop if still failing
 - Missing data_pack_report.md → continue in degraded mode and disclose lower confidence on cash/profit quality
-- Always produce a final report even with partial data, but allow the final action to be `观察 / 等待更好价格 / 放弃`
+- With partial data, quote the engine's explicit action and blockers. Never replace the buy/sell plan with only `观察 / 可能买入`, and never fabricate unavailable prices.
 
 ## Output
 Final report: `output/{code}_{company}/{company}_{code}_价值分析报告.md`

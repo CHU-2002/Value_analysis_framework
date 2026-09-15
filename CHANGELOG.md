@@ -11,6 +11,7 @@
 
 ### Added
 
+- 可执行买卖计划：基于固定估值基准生成四档分批买入限价、资金比例与极端高估卖出价，并支持行情确认、成交状态和硬退出事件
 - 成熟的工程化文档：README、CONTRIBUTING、CODE_OF_CONDUCT、SECURITY、PR 与 Issue 模板
 - GitHub Actions CI：在 push 与 PR 上运行 pytest
 - CI 增强：`lint` 与 `pr-title` 检查、`ci-success` 汇总状态，用于分支保护

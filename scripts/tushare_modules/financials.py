@@ -149,6 +149,7 @@ class FinancialsMixin:
             daily = self._cached_us_daily(ts_code=api_code)
             if not daily.empty:
                 self._store["basic_info"] = daily
+                self._store["daily_prices"] = daily.copy()
                 d = daily.iloc[0]
                 val_rows = [
                     ["当前价格 (USD)", f"{d.get('close', '—')}"],
@@ -196,6 +197,7 @@ class FinancialsMixin:
             return "\n".join(lines)
 
         latest_close = df.iloc[0]["close"]
+        self._store["daily_prices"] = df.copy()
         high_52w = df["high"].max()
         low_52w = df["low"].min()
         high_date = df.loc[df["high"].idxmax(), "trade_date"]
@@ -248,6 +250,7 @@ class FinancialsMixin:
             pass
 
         if not df.empty:
+            self._store["daily_prices"] = df.copy()
             latest_close = df.iloc[0]["close"]
             high_52w = df["high"].max()
             low_52w = df["low"].min()

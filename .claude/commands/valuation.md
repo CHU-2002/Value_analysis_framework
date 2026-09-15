@@ -49,6 +49,8 @@ Read strategies/value/valuation/coordinator.md for the full pipeline specificati
 - Always produce a final report even with partial data
 
 ## Output
+Executable buy/sell plans belong to `/value-analysis`. This standalone valuation research command does not create or overwrite `buy_sell_basis.json` / `buy_sell_plan.json`: its generic company classification does not supply the primary value workflow's financial-sector guardrails or fixed valuation cycle. Run `/value-analysis {ticker}` for the executable plan; do not invent trading prices in this report.
+
 Final report: output/{code}_{company}/{company}_{code}_估值报告.md
 
 Usage: /valuation 600887 or /valuation 00700.HK or /valuation AAPL

@@ -10,6 +10,7 @@ import time
 
 import pandas as pd
 
+from market_sessions import MARKET_ZONES
 from tushare_modules.constants import _YF_INCOME_MAP, _YF_BALANCE_MAP, _YF_CASHFLOW_MAP
 
 
@@ -122,12 +123,25 @@ class YFinanceMixin:
         return pivoted
 
     def _yf_hk_market_data(self, ts_code: str) -> dict | None:
-        """Fetch HK stock market data via yfinance (52-week, price, volume)."""
+        """Fetch HK/US quote metadata via yfinance."""
+        self._store.pop("buy_sell_quote", None)
         if not self._yf_available:
             return None
         try:
             ticker = _yf().Ticker(self._yf_ticker(ts_code))
             info = ticker.info
+            timestamp = info.get("regularMarketTime")
+            quote_date = None
+            if timestamp and info.get("regularMarketPrice"):
+                zone = MARKET_ZONES["HK" if self._is_hk(ts_code) else "US"]
+                try:
+                    quote_date = pd.Timestamp(timestamp, unit="s", tz="UTC").tz_convert(zone).date().isoformat()
+                except (ValueError, TypeError, OverflowError):
+                    pass
+            self._store["buy_sell_quote"] = {
+                "close": info.get("regularMarketPrice") or info.get("previousClose"),
+                "quote_date": quote_date,
+            }
             return {
                 "close": info.get("regularMarketPrice") or info.get("previousClose"),
                 "high_52w": info.get("fiftyTwoWeekHigh"),
@@ -137,6 +151,24 @@ class YFinanceMixin:
             }
         except Exception:
             return None
+
+    def _yf_recent_daily_history(self, ts_code: str) -> pd.DataFrame:
+        """Keep actual daily labels; weekly/adjusted series cannot confirm exits."""
+        if not self._yf_available:
+            return pd.DataFrame()
+        try:
+            ticker = _yf().Ticker(self._yf_ticker(ts_code))
+            frame = ticker.history(period="1mo", interval="1d", auto_adjust=False,
+                                   back_adjust=False, actions=False, prepost=False)
+            if frame.empty or "Close" not in frame or not isinstance(frame.index, pd.DatetimeIndex):
+                return pd.DataFrame()
+            dates = frame.index
+            if dates.tz is not None:
+                dates = dates.tz_convert(MARKET_ZONES["HK" if self._is_hk(ts_code) else "US"])
+            return pd.DataFrame({"ts_code": ts_code, "trade_date": dates.strftime("%Y%m%d"),
+                                 "close": pd.to_numeric(frame["Close"], errors="coerce").to_numpy()})
+        except Exception:
+            return pd.DataFrame()
 
     def _yf_weekly_history(self, ts_code: str) -> pd.DataFrame:
         """Fetch 10-year weekly price history via yfinance."""
