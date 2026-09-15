@@ -1,11 +1,14 @@
 """Offline numerical, execution-state, artifact and workflow contract tests."""
 
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
+import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
@@ -15,6 +18,7 @@ from buy_sell_engine import (
     run_directory, safety_margin, select_basis, write_json,
 )
 from buy_sell_inputs import export_inputs, financial_period, market_snapshot, value_snapshot
+from market_sessions import MARKET_ZONES, daily_close_complete
 from value_analysis_engine import ValueAnalysisEngine
 
 
@@ -138,6 +142,7 @@ def test_current_tier_boundaries_and_gap_cap(snapshot, close, tier, buy, target,
     assert execution["next_price"] == next_price
     assert execution["cumulative_after_fill_pct"] == buy
     assert execution["execute"] is (buy > 0)
+    assert execution["buy_limit_price"] == ([80, 70, 60, 50][tier - 1] if buy else None)
 
 
 def test_gap_fill_over_multiple_days_and_no_duplicate_daily_spend(snapshot):
@@ -184,11 +189,14 @@ def test_missing_stale_or_incompatible_market_blocks(snapshot, changes):
 def test_two_day_exit_with_weekend_and_threshold_equality(snapshot):
     quotes = market(200, daily_closes=[bar("2026-09-11", 205),
                                      bar(TODAY, 200, previous_session="2026-09-11")])
-    result = build_plan(make_basis(snapshot), quotes, as_of=TODAY)
+    result = build_plan(make_basis(snapshot), quotes, as_of=TODAY, state=state(60))
     assert result["execution"]["action"] == "SELL_ALL"
     assert result["execution"]["sell_position_pct"] == 100
     assert result["exit_confirmation"]["frequency"] == "daily"
     assert result["execution"]["next_price"] is None
+    assert result["execution"]["execute"] is True
+    assert result["execution"]["buy_limit_price"] is None
+    assert result["execution"]["cumulative_after_fill_pct"] == 0
 
 
 @pytest.mark.parametrize("change", ["one_day", "low_previous", "incomplete", "adjusted", "duplicate", "not_consecutive", "future", "stale"])
@@ -263,6 +271,32 @@ def test_unconfirmed_risk_does_not_trigger_and_exited_state_blocks_reentry(snaps
         plan(snapshot, risk_events=events)
 
 
+@pytest.mark.parametrize("exit_kind", ["hard", "price"])
+@pytest.mark.parametrize("position,expected_action,execute,status", [
+    (None, "SELL_ALL", False, "unknown"), (0, "DO_NOT_BUY", False, "flat"),
+    (60, "SELL_ALL", True, "long"),
+])
+def test_exit_respects_known_empty_and_unknown_positions(snapshot, exit_kind, position, expected_action, execute, status):
+    risks = {"subject": SUBJECT, "events": [{"code": "insolvency", "confirmed": True,
+                                              "observed_at": TODAY, "evidence": ["report:42"]}]}
+    quotes = market(210, daily_closes=[bar("2026-09-11", 200), bar(TODAY, 210, previous_session="2026-09-11")])
+    result = build_plan(make_basis(snapshot), quotes if exit_kind == "price" else market(None),
+                        as_of=TODAY, state=None if position is None else state(position),
+                        risk_events=risks if exit_kind == "hard" else None)
+    execution = result["execution"]
+    assert execution["action"] == expected_action
+    assert execution["execute"] is execute
+    assert execution["position_status"] == status
+    assert execution["buy_now_pct"] == 0 and execution["buy_limit_price"] is None
+    if position == 0:
+        assert execution["sell_position_pct"] == 0
+        assert "no_position" in execution["reason"]
+        assert "无持仓可卖" in render_markdown(result)
+    if position is None:
+        assert any("sell_requires_execution_state" in warning for warning in result["warnings"])
+        assert "待核实持仓" in render_markdown(result)
+
+
 @pytest.mark.parametrize("currency,ticker", [("CNY", "600887.SH"), ("HKD", "00700.HK"), ("USD", "AAPL.US")])
 def test_currency_is_preserved_and_cross_subject_inputs_rejected(snapshot, currency, ticker):
     snapshot["subject"] = {"ticker": ticker, "currency": currency}
@@ -324,6 +358,7 @@ def test_offline_cli_artifacts_replay_and_exit_codes(snapshot, tmp_path):
     result = json.loads(first)
     markdown = (tmp_path / "buy_sell_plan.md").read_text()
     assert markdown == render_markdown(result)
+    assert "本次买入限价：50.00 元/股" in markdown
     for text in ("80.00 元/股", "70.00 元/股", "60.00 元/股", "50.00 元/股", "200.00 元/股", "30%", result["basis"]["basis_id"]):
         assert text in markdown
     write_json(tmp_path / "buy_sell_market.json", market(None))
@@ -442,6 +477,157 @@ def test_newer_daily_quote_is_used_without_fabricating_timestamp(value_engine):
     value_engine.client._store["daily_prices"] = pd.DataFrame([{"trade_date": "20260911", "close": 100}])
     quotes = market_snapshot(value_engine, now=datetime(2026, 9, 14, 10, tzinfo=timezone.utc))
     assert quotes["close"] == 100 and quotes["quote_date"] == "2026-09-11"
+
+
+@pytest.fixture(params=[("HK", "00700.HK", "HKD"), ("US", "AAPL.US", "USD")])
+def international_market(request, value_engine, snapshot):
+    market_name, ticker, currency = request.param
+    client = value_engine.client
+    client._yf_available = True
+    client._store.clear()
+    # The existing US basic-info path provides only one daily row.
+    client._store["daily_prices"] = pd.DataFrame([{"trade_date": "20260914", "close": 210}])
+    client._store["weekly_prices"] = pd.DataFrame([{"trade_date": "20260907", "close": 210}])
+    snapshot["subject"] = {"ticker": ticker, "currency": currency}
+    engine = SimpleNamespace(ts_code=ticker, market=market_name, client=client)
+    return engine, make_basis(snapshot), ZoneInfo(MARKET_ZONES[market_name])
+
+
+def collect_international(engine, now, history, *, timestamp=True, fail_history=False):
+    with patch("tushare_collector.yf") as yf, patch.object(engine.client, "_safe_call", return_value=pd.DataFrame()):
+        ticker = yf.Ticker.return_value
+        ticker.info = {"regularMarketPrice": 210}
+        if timestamp:
+            ticker.info["regularMarketTime"] = now.timestamp()
+        ticker.history.side_effect = TimeoutError("offline fixture") if fail_history else None
+        ticker.history.return_value = history
+        rendered = engine.client.get_market_data(engine.ts_code)
+        assert "210.00" in rendered
+        quotes = market_snapshot(engine, now=now)
+        ticker.history.assert_called_once_with(period="1mo", interval="1d", auto_adjust=False,
+                                               back_adjust=False, actions=False, prepost=False)
+    return quotes
+
+
+@pytest.mark.parametrize("hour,prices,expected", [
+    (17, [190, 190, 205, 210], "SELL_ALL"),
+    (15, [190, 190, 205, 210], "HOLD"),
+    (15, [190, 205, 205, 210], "SELL_ALL"),
+])
+def test_default_hk_us_collection_to_exit_confirmation(international_market, hour, prices, expected):
+    engine, basis, zone = international_market
+    now = datetime(2026, 9, 14, hour, tzinfo=zone)
+    # UTC indices must be converted before extracting HK/US session labels.
+    dates = pd.DatetimeIndex(["2026-09-09", "2026-09-10", "2026-09-11", TODAY], tz=zone).tz_convert("UTC")
+    history = pd.DataFrame({"Close": prices, "Adj Close": [100] * 4}, index=dates)
+    quotes = collect_international(engine, now, history)
+    assert len(quotes["daily_closes"]) == 4
+    assert quotes["daily_closes"][-1]["date"] == TODAY
+    assert quotes["daily_closes"][-1]["complete"] is (hour == 17)
+    assert quotes["weekly_closes"] == []
+    assert quotes["daily_source"] == "yfinance.history(1d,auto_adjust=False)"
+    execution_state = {**state(60), "subject": basis["subject"]}
+    result = build_plan(basis, quotes, as_of=TODAY, state=execution_state)
+    assert result["execution"]["action"] == expected
+    if expected == "SELL_ALL":
+        assert result["execution"]["execute"] is True
+        assert result["exit_confirmation"]["frequency"] == "daily"
+        assert all(row["complete"] for row in result["exit_confirmation"]["closes"])
+    else:
+        assert result["exit_confirmation"] is None
+
+
+@pytest.mark.parametrize("failure", ["empty", "timeout", "one_day", "missing_close", "duplicate"])
+def test_hk_us_missing_or_invalid_history_cannot_confirm(international_market, failure):
+    engine, basis, zone = international_market
+    now = datetime(2026, 9, 14, 17, tzinfo=zone)
+    days = [TODAY] if failure == "one_day" else ["2026-09-11", TODAY]
+    if failure == "duplicate":
+        days = [TODAY, TODAY]
+    history = pd.DataFrame({"Close": [210] * len(days)}, index=pd.DatetimeIndex(days, tz=zone))
+    if failure in {"empty", "timeout"}:
+        history = pd.DataFrame()
+    elif failure == "missing_close":
+        history = history.rename(columns={"Close": "Adj Close"})
+    quotes = collect_international(engine, now, history, fail_history=failure == "timeout")
+    result = build_plan(basis, quotes, as_of=TODAY, state={**state(60), "subject": basis["subject"]})
+    assert result["execution"]["action"] == "HOLD"
+    assert result["exit_confirmation"] is None
+    if failure != "duplicate":
+        assert "insufficient_complete_daily_closes" in result["warnings"]
+
+
+def test_hk_us_history_supplies_actual_date_when_quote_timestamp_missing(international_market):
+    engine, basis, zone = international_market
+    history = pd.DataFrame({"Close": [205, 210]}, index=pd.DatetimeIndex(["2026-09-10", "2026-09-11"]))
+    now = datetime(2026, 9, 14, 10, tzinfo=zone)
+    quotes = collect_international(engine, now, history, timestamp=False)
+    assert quotes["quote_date"] == "2026-09-11"
+    assert quotes["session_date"] == TODAY
+    assert build_plan(basis, quotes, as_of=TODAY)["exit_confirmation"]["frequency"] == "daily"
+
+
+@pytest.mark.parametrize("market_name,instant,complete", [
+    ("A", "2026-09-14T06:59:59+00:00", False), ("A", "2026-09-14T07:00:00+00:00", True),
+    ("HK", "2026-09-14T08:05:00+00:00", False), ("HK", "2026-09-14T08:10:00+00:00", True),
+    ("US", "2026-09-14T19:59:59+00:00", False), ("US", "2026-09-14T20:00:00+00:00", True),
+    ("US", "2026-12-14T20:30:00+00:00", False), ("US", "2026-12-14T21:00:00+00:00", True),
+])
+def test_exchange_close_cutoffs_and_us_dst(market_name, instant, complete):
+    now = datetime.fromisoformat(instant)
+    assert daily_close_complete(now.date(), market_name, now) is complete
+
+
+@pytest.mark.parametrize("market_name,currency,ticker,machine_zone", [
+    ("US", "USD", "AAPL.US", "Asia/Shanghai"),
+    ("HK", "HKD", "00700.HK", "America/Los_Angeles"),
+    ("A", "CNY", "600887.SH", "America/Los_Angeles"),
+])
+def test_cli_session_cap_survives_machine_midnight(snapshot, tmp_path, monkeypatch, market_name, currency, ticker, machine_zone):
+    subject = {"ticker": ticker, "currency": currency}
+    snapshot["subject"] = subject
+    write_json(tmp_path / "value_computed.json", snapshot)
+    before_midnight = datetime(2026, 9, 14, 23, 59, tzinfo=ZoneInfo(machine_zone))
+    session = before_midnight.astimezone(ZoneInfo(MARKET_ZONES[market_name])).date().isoformat()
+    write_json(tmp_path / "buy_sell_state.json", {**state(30, 30, session), "subject": subject})
+    write_json(tmp_path / "buy_sell_market.json", {**market(50, quote_date=session), "subject": subject})
+    old_tz = os.environ.get("TZ")
+    try:
+        monkeypatch.setenv("TZ", machine_zone)
+        time.tzset()
+        for instant in (before_midnight, before_midnight + timedelta(minutes=2)):
+            with patch("market_sessions.datetime", wraps=datetime) as clock:
+                clock.now.return_value = instant.astimezone(timezone.utc)
+                assert main(["--output-dir", str(tmp_path)]) == 0
+                engine = SimpleNamespace(ts_code=ticker, market=market_name, client=SimpleNamespace(_store={}))
+                quotes = market_snapshot(engine)
+            result = json.loads((tmp_path / "buy_sell_plan.json").read_text())
+            assert result["as_of"] == quotes["session_date"] == session
+            assert result["execution"]["session_timezone"] == quotes["session_timezone"]
+            assert result["execution"]["session_spent_pct"] == 30
+            assert result["execution"]["action"] == "HOLD"
+        next_session = (datetime.fromisoformat(session) + timedelta(days=1)).date().isoformat()
+        with patch("market_sessions.datetime", wraps=datetime) as clock:
+            clock.now.return_value = datetime(2030, 1, 1, tzinfo=timezone.utc)
+            assert main(["--output-dir", str(tmp_path), "--as-of", next_session]) == 0
+        replay = json.loads((tmp_path / "buy_sell_plan.json").read_text())
+        assert replay["execution"]["session_date"] == next_session
+        assert replay["execution"]["buy_now_pct"] == 30
+    finally:
+        if old_tz is None:
+            monkeypatch.delenv("TZ", raising=False)
+        else:
+            monkeypatch.setenv("TZ", old_tz)
+        time.tzset()
+
+
+def test_value_export_uses_exchange_date_across_utc_midnight(value_engine, tmp_path):
+    value_engine.generate_output()
+    value_engine.market, value_engine.ts_code = "US", "AAPL.US"
+    export_inputs(value_engine, now=datetime(2026, 9, 15, 1, tzinfo=timezone.utc))
+    valuation = json.loads((tmp_path / "value_computed.json").read_text())
+    quotes = json.loads((tmp_path / "buy_sell_market.json").read_text())
+    assert valuation["as_of"] == quotes["session_date"] == TODAY
 
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), -float("inf")])

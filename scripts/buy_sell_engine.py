@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR
 import hashlib
 import json
@@ -14,6 +14,7 @@ from numbers import Real
 from pathlib import Path
 import statistics
 
+from market_sessions import CURRENCY_MARKETS, MARKET_ZONES, market_time
 
 VERSION = "1.0"
 ALLOCATIONS = (20, 30, 30, 20)
@@ -224,7 +225,7 @@ def _confirmed_exit(basis, market, as_of):
             if day is None or day in dates:
                 return None
             dates.add(day)
-            if day <= as_of:
+            if day <= as_of and (frequency != "daily" or row.get("complete") is True):
                 dated.append((day, row))
         dated.sort(key=lambda item: item[0], reverse=True)
         latest = dated[:count]
@@ -232,8 +233,7 @@ def _confirmed_exit(basis, market, as_of):
             continue
         if (as_of - latest[0][0]).days > max_age or latest[0][0] > quote_date:
             continue
-        if frequency == "daily" and (latest[0][0] != quote_date or
-                                      (latest[0][0] - latest[1][0]).days > 7):
+        if frequency == "daily" and (latest[0][0] - latest[1][0]).days > 7:
             continue
         if all(row.get("complete") is True and row.get("price_basis") == "unadjusted"
                and positive(row.get("close")) is not None and row["close"] >= threshold
@@ -249,7 +249,7 @@ def build_plan(basis, market, *, as_of, state=None, qualitative=None, risk_event
     if today is None:
         raise ValueError("as_of must be an ISO date")
     _match_subject(market, basis["subject"], "market")
-    warnings, blockers, hard_exits = [], list(basis["errors"]), []
+    warnings, blockers, hard_exits = list(market.get("warnings", [])), list(basis["errors"]), []
     valuation_date = iso_date(basis.get("valuation_as_of"))
     if valuation_date and valuation_date > today:
         blockers.append("valuation_from_future")
@@ -268,6 +268,7 @@ def build_plan(basis, market, *, as_of, state=None, qualitative=None, risk_event
             (spent > 0 and session_date is None) or (session_date and session_date > today)):
         raise ValueError("invalid execution state percentages/date/exited")
     today_spent = spent if session_date == today else 0
+    position_status = "unknown" if state_assumed else "flat" if committed == 0 or state["exited"] else "long"
     if qualitative is not None:
         if qualitative.get("subject", {}).get("ticker") != basis["subject"]["ticker"]:
             raise ValueError("qualitative ticker mismatch")
@@ -320,15 +321,24 @@ def build_plan(basis, market, *, as_of, state=None, qualitative=None, risk_event
         action, reason = "BUY", "eligible_buy_tier"
     else:
         action, reason = "HOLD", "session_cap_reached" if today_spent >= 30 and target > committed else "no_unfunded_eligible_tier"
+    if action == "SELL_ALL" and position_status == "flat":
+        action, reason = "DO_NOT_BUY", reason + "_no_position"
+    if action == "SELL_ALL" and position_status == "unknown":
+        warnings.append("sell_requires_execution_state: position unknown; do not open a short position")
     buy_pct = buy_pct if action == "BUY" else 0
-    after = committed + buy_pct
+    execute = action == "BUY" or (action == "SELL_ALL" and position_status == "long")
+    after = 0 if action == "SELL_ALL" and execute else committed + buy_pct
     next_tier = next((t for t in tiers if t["cumulative_pct"] > after), None)
     if action in {"SELL_ALL", "DO_NOT_BUY", "BLOCKED"}:
         next_tier = None
-    execution = {"action": action, "reason": reason, "execute": action in {"BUY", "SELL_ALL"},
+    execution = {"action": action, "reason": reason, "execute": execute,
+                 "position_status": position_status,
+                 "session_date": today.isoformat(),
+                 "session_timezone": MARKET_ZONES[CURRENCY_MARKETS[basis["subject"]["currency"]]],
                  "current_tier": tier if tiers and close is not None else None,
                  "target_cumulative_pct": target, "committed_pct": committed,
-                 "buy_now_pct": buy_pct, "sell_position_pct": 100 if action == "SELL_ALL" else 0,
+                  "buy_now_pct": buy_pct, "sell_position_pct": 100 if action == "SELL_ALL" else 0,
+                 "buy_limit_price": tiers[tier - 1]["price"] if action == "BUY" else None,
                  "cumulative_after_fill_pct": after, "session_spent_pct": today_spent,
                  "pending_eligible_pct": max(0, target - after) if action in {"BUY", "HOLD"} else 0,
                  "next_tier": next_tier["tier"] if next_tier else None,
@@ -351,11 +361,15 @@ def render_markdown(plan):
     def price(value):
         return "N/A" if value is None else f"{value:.2f} {unit}/股"
     actions = {"BUY": "执行买入", "SELL_ALL": "卖出全部持仓", "HOLD": "持有，当前不加仓",
-               "DO_NOT_BUY": "已退出，禁止重新买入", "BLOCKED": "暂停交易，输入数据不足或无效"}
+               "DO_NOT_BUY": "禁止买入，无持仓可卖或已退出", "BLOCKED": "暂停交易，输入数据不足或无效"}
+    if execution["action"] == "SELL_ALL" and not execution["execute"]:
+        actions["SELL_ALL"] = "退出条件成立，待核实持仓后卖出；禁止开空仓"
     lines = ["## 买卖计划", "", f"**当前指令：{actions[execution['action']]}**",
+             f"- 执行交易日：{execution['session_date']}（{execution['session_timezone']}）；持仓状态：{execution['position_status']}",
              f"- 当前价格：{price(plan['market']['close'])}；行情日期：{plan['market']['quote_date'] or 'N/A'}",
              f"- 当前档位：{execution['current_tier'] if execution['current_tier'] is not None else 'N/A'}（0 为高于 P1）；是否执行：{'是' if execution['execute'] else '否'}",
-             f"- 本次买入：计划总资金的 {execution['buy_now_pct']:g}%；卖出：现有持仓的 {execution['sell_position_pct']:g}%",
+              f"- 本次买入：计划总资金的 {execution['buy_now_pct']:g}%；卖出：现有持仓的 {execution['sell_position_pct']:g}%",
+             f"- 本次买入限价：{price(execution['buy_limit_price'])}",
              f"- 已投入：{execution['committed_pct']:g}%；本次成交后累计：{execution['cumulative_after_fill_pct']:g}%；当前档位目标累计：{execution['target_cumulative_pct']:g}%",
              f"- 下一档：{execution['next_tier'] or 'N/A'}；价格：{price(execution['next_price'])}；已触及待分日资金：{execution['pending_eligible_pct']:g}%",
              f"- 原因：{execution['reason']}", "",
@@ -386,10 +400,12 @@ def render_markdown(plan):
     return "\n".join(lines)
 
 
-def run_directory(output_dir, *, as_of):
+def run_directory(output_dir, *, as_of=None):
     root = Path(output_dir)
     snapshot = load_json(root / "value_computed.json")
     market = load_json(root / "buy_sell_market.json")
+    if as_of is None:
+        as_of = market_time(CURRENCY_MARKETS[snapshot["subject"]["currency"]]).date().isoformat()
     def optional(name):
         path = root / name
         return load_json(path) if path.exists() else None
@@ -405,7 +421,7 @@ def run_directory(output_dir, *, as_of):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--as-of", default=date.today().isoformat())
+    parser.add_argument("--as-of", help="Exchange-local session date YYYY-MM-DD for offline replay; defaults to the current exchange-local date")
     args = parser.parse_args(argv)
     try:
         plan = run_directory(args.output_dir, as_of=args.as_of)

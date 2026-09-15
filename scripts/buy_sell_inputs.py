@@ -1,10 +1,9 @@
 """Adapters from existing collector/valuation contracts to offline plan inputs."""
 
-from datetime import datetime, time
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from buy_sell_engine import iso_date, number, write_json
+from market_sessions import MARKET_ZONES, daily_close_complete, market_time
 
 
 def financial_period(client):
@@ -58,8 +57,7 @@ def value_snapshot(engine, computed, *, as_of, cycle=None):
 
 
 def market_snapshot(engine, *, now=None):
-    now = now or datetime.now().astimezone()
-    local = now.astimezone(ZoneInfo({"A": "Asia/Shanghai", "HK": "Asia/Hong_Kong", "US": "America/New_York"}[engine.market]))
+    local = market_time(engine.market, now)
     today = local.date()
     basic = engine.client._store.get("basic_info")
     row = basic.iloc[0] if basic is not None and not basic.empty else {}
@@ -70,17 +68,28 @@ def market_snapshot(engine, *, now=None):
     close = number(quote.get("close")) if quote else number(row.get("close"))
     if quote:
         quote_date = iso_date(quote.get("quote_date"))
-    daily = engine.client._store.get("daily_prices")
+    daily = engine.client._store.get("buy_sell_daily_prices")
+    daily_source = "yfinance.history(1d,auto_adjust=False)"
+    if (daily is None or daily.empty) and engine.market in {"HK", "US"}:
+        # Keep the extra history request inside the trading-plan adapter. Basic
+        # market-data rendering must remain usable without an unnecessary
+        # network call, especially when the plan is not requested.
+        fetch_history = getattr(engine.client, "_yf_recent_daily_history", None)
+        if fetch_history is not None:
+            daily = fetch_history(engine.ts_code)
+    if daily is None or daily.empty:
+        daily = engine.client._store.get("daily_prices")
+        daily_source = "tushare.daily"
     daily_rows = []
     if daily is not None and not daily.empty and "trade_date" in daily:
-        ordered = daily.sort_values("trade_date").drop_duplicates("trade_date")
+        ordered = daily.sort_values("trade_date")
         previous = None
         for _, item in ordered.iterrows():
             day = iso_date(str(item.get("trade_date")))
             if day is None:
                 continue
             daily_rows.append({"date": day.isoformat(), "close": number(item.get("close")),
-                               "complete": day < today or (day == today and local.time() >= time(16)),
+                               "complete": daily_close_complete(day, engine.market, local),
                                "previous_session": previous, "price_basis": "unadjusted"})
             previous = day.isoformat()
         if daily_rows:
@@ -97,16 +106,23 @@ def market_snapshot(engine, *, now=None):
             if day and day.weekday() == 4 and day < today:
                 weekly_rows.append({"date": day.isoformat(), "close": number(item.get("close")),
                                     "complete": True, "price_basis": "unadjusted"})
+    # Keep three completed sessions plus a possible in-progress current bar.
+    daily_rows = daily_rows[-4:]
+    warnings = []
+    if sum(row["complete"] and row["close"] is not None and row["close"] > 0 for row in daily_rows) < 2:
+        warnings.append("insufficient_complete_daily_closes")
     return {"schema": "investment.buy_sell_market", "schema_version": "1.0",
             "subject": {"ticker": engine.ts_code,
                         "currency": {"A": "CNY", "HK": "HKD", "US": "USD"}[engine.market]},
-            "retrieved_at": now.isoformat(), "quote_date": quote_date.isoformat() if quote_date else None,
+            "retrieved_at": local.isoformat(), "quote_date": quote_date.isoformat() if quote_date else None,
+            "session_date": today.isoformat(), "session_timezone": MARKET_ZONES[engine.market],
             "close": close, "price_basis": "unadjusted", "source": "collector._store",
-            "daily_closes": daily_rows[-3:], "weekly_closes": sorted(weekly_rows, key=lambda r: r["date"])[-2:]}
+            "daily_source": daily_source, "warnings": warnings,
+            "daily_closes": daily_rows, "weekly_closes": sorted(weekly_rows, key=lambda r: r["date"])[-2:]}
 
 
 def export_inputs(engine, *, cycle=None, now=None):
-    now = now or datetime.now().astimezone()
+    now = market_time(engine.market, now)
     root = Path(engine.output_dir)
     previous_path = root / "value_computed.json"
     if cycle is None and previous_path.exists():
