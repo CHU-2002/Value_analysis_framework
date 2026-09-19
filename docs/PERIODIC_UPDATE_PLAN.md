@@ -2,12 +2,26 @@
 
 本文档定义一项新能力的最终设计：**根据最新一期定期报告（一季报 / 半年报 / 三季报 / 年报）做增量更新分析**——若某公司已有分析记录，则拉取最新期次、分析最近一段时间的经营状况、更新已有结论，并额外输出一份独立的「经营变化报告」；同时定义**分析迭代的管理机制**（财报更新与框架更新两类触发）。
 
-> 状态：方案已评审通过，待实现。
+> 状态：**已实现**（PR1–PR5 全部合入 `main`）。
 > 已确认决策：
 > 1. **迭代管理采用彻底 run-store**：所有 run 产物落在 `runs/{run_id}/`，公司目录只留指针、台账与原始输入。
 > 2. **增量更新默认四模块 + `period_delta` 全量重跑**，保留「同 run / 同主体 / 同输入」不变量。
 > 3. **范围限定 A 股四类定期报告**，触发方式为手动 `/update-analysis`。
 > 4. 交付顺序：先合本文档，再从 PR1（季度报下载）开始实现。
+
+### 实现记录
+
+| PR | 分支 | 内容 | 主要位置 |
+|----|------|------|----------|
+| 1 | `feat/periodic-report-discovery` | CNINFO 四类定期报告发现、期次工具、`--latest`/`--since` 下载、`sources_index.json` | `scripts/periods.py`、`scripts/download_report.py` |
+| 2 | `feat/comparable-periods` | 上年同期可比列、每期次 `pdf_sections_{period}.json`、`prepare --primary-period` | `scripts/tushare_modules/infrastructure.py`、`scripts/results/prepare.py` |
+| 3 | `feat/run-history-ledger` | `version.py` 框架指纹、`runs.py` run-store 与台账、`analysis_status.py` 状态判定 | `scripts/runs.py`、`docs/ARCHITECTURE.md` |
+| 4 | `feat/period-delta-analysis` | `qualitative.period_delta`（D7）、`prior_analysis` 证据源、变化报告与 `/update-analysis` | `shared/qualitative/coordinator_update.md` |
+| 5 | `docs/periodic-update` | 架构/README/CHANGELOG 与下游新鲜度接线 | `docs/ARCHITECTURE.md`、`.opencode/commands/value-analysis.md` |
+
+> 各 PR 在合入前都经过**无上下文独立子 agent 的对抗式评审**；评审发现的问题已复现并修复，逐条记录在各 PR 描述中。
+>
+> 相对原设计的偏差：`prepare` 的两个新选项分别为 `--primary-period`（主期次证据）与 `--prior-analysis`（上次结论证据源）；`sources_index.json` 额外记录 `size_bytes` 与 `last_download_status`（可选、向后兼容）。
 
 ---
 

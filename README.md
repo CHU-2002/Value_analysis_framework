@@ -80,6 +80,7 @@ export TUSHARE_TOKEN='your_token_here'
 |------|------|--------------|
 | `/download-report {code}` | 搜索并下载定期报告 PDF（年报默认近 3 年；支持中报/一季报/三季报与"最新一期"） | 无 |
 | `/business-analysis {code}` | 从 6 个角度分析公司（AI 主要工作在这里） | 无 |
+| `/update-analysis {code}` | 定期报告增量更新：拉最新期次、更新已有结论、另出独立「经营变化报告」 | 先跑 `/business-analysis` |
 | `/value-analysis {code}` | 价值分析：现金流折现、收购视角、可执行分批买入与卖出计划 | 先跑 `/business-analysis` |
 | `/valuation {code}` | 价值分析子模块 · 通用估值：DCF、DDM、可比公司、Graham（可单独调用） | 先跑 `/business-analysis` |
 | `/portfolio-strategy {profile}` | 组合配置：画像 → 宏观 → 配置 → 选标的 → 风险 | 无 |
@@ -88,9 +89,27 @@ export TUSHARE_TOKEN='your_token_here'
 
 ```text
 /business-analysis 600887
+/update-analysis 600887 2026H1
 /value-analysis 600887
 /portfolio-strategy 30岁 50万人民币 风险中高 长期
 ```
+
+### 定期报告增量更新
+
+公司发新一期财报后，不必重跑完整分析：
+
+```bash
+# 1) 判断是否需要更新、更新哪一级
+.venv/bin/python scripts/analysis_status.py --company-dir output/600887_伊利 --ticker 600887 --json
+
+# 2) 新建 run、拉取最新期次、重跑模块与 period_delta、更新结论并出变化报告
+#    完整步骤见 shared/qualitative/coordinator_update.md 与 /update-analysis
+```
+
+- 每次分析是一个**不可变 run**，落在 `output/{code}_{company}/runs/{run_id}/`，输入是 run 私有快照；行情刷新与新报告不会污染历史 run。
+- `history.jsonl` 是追加式台账，`latest.json` 是当前生效指针，`record.json` 是给人看的分析记录卡。
+- 变化报告（`change_report_{period}.md`）是独立交付物：只说明最近一段时间经营状况发生了怎样的改变，以及上一版结论是否改变。
+- 增量更新后 `value_computed.json` / `buy_sell_basis.json` 仍属旧财报期；需显式重跑 `/value-analysis`，买卖计划不会自动改写。
 
 ### 直接跑 Python 脚本
 
@@ -191,13 +210,16 @@ Value_analysis_framework/
 ├── prompts/                      # v1 遗留提示词（只读）
 ├── ciguttprepare/                # 烟蒂策略提示词草稿
 ├── scripts/
-│   ├── results/                  # 结构化结果管线
+│   ├── results/                  # 结构化结果管线（含 change_report）
 │   ├── tushare_modules/          # Tushare 模块化实现
 │   ├── tushare_collector.py      # 取数入口
 │   ├── discover_report.py        # 定期报告链接发现（CNINFO 四类 + 10jqka 兜底）
 │   ├── download_report.py        # 定期报告 PDF 下载（年报/中报/一季报/三季报）
 │   ├── periods.py                # 期次标识（2026Q1/H1/Q3/FY）解析与推算
-│   ├── pdf_preprocessor.py       # 年报章节提取
+│   ├── version.py                # 框架版本与提示词/代码指纹
+│   ├── runs.py                   # run-store：new/resolve/finish/adopt/export
+│   ├── analysis_status.py        # 更新判定：最新 / 需增量 / 需全量重跑
+│   ├── pdf_preprocessor.py       # 年报章节提取（按期次产出）
 │   ├── value_analysis_engine.py  # 价值分析预计算
 │   ├── buy_sell_plan.py          # 触发式买卖计划：采集当时行情 + 离线生成
 │   ├── buy_sell_engine.py        # 离线确定性买卖计划 JSON / Markdown
@@ -207,7 +229,7 @@ Value_analysis_framework/
 │   ├── portfolio_engine.py       # 组合预计算
 │   ├── screener_core.py          # 两级选股器
 │   └── report_to_html.py         # Markdown 转 HTML
-├── shared/qualitative/           # 共享定性模块
+├── shared/qualitative/           # 共享定性模块（coordinator_v2 / coordinator_update）
 ├── strategies/                   # value（含 valuation 子模块）/ portfolio
 ├── tests/                        # pytest 测试和 mock 数据
 ├── output/                       # 运行输出（已 gitignore）

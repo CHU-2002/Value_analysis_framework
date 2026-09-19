@@ -8,11 +8,23 @@ Run a Buffett-Munger-Duan style Value Analysis (价值分析，含通用估值�
 
 ## Prerequisite Check
 Before executing, verify these files exist in output/{code}_{company}/:
-- **Structured qualitative results** — preferred: the four core `modules/*/result.json` files.
+- **Structured qualitative results** — preferred: the four core `modules/*/result.json` files, or the latest run directory when a run-store layout exists. Resolve the run directory with `python3 scripts/runs.py resolve --company-dir "{output_dir}" --latest` when `latest.json` is present; otherwise use `{output_dir}` as today.
 - **qualitative_report.md** — compatibility fallback only when no `run_manifest.json` exists and the resolver selects `source=legacy`. A manifest-backed failure never falls back to Markdown.
 - **data_pack_market.md** — required. If missing, same as above.
 - **data_pack_report.md** — optional. If present, use annual report footnotes to validate cash/profit quality.
 - If `qualitative_report.md` and `data_pack_market.md` exist under different `output/{code}_*/` directories for the same stock, reconcile them into a single directory before continuing
+
+### Freshness check (newer periodic report)
+
+If the company directory has iteration state (`record.json` / `latest.json`), check whether the conclusions are built on the latest published period:
+
+```bash
+.venv/bin/python scripts/analysis_status.py --company-dir "{output_dir}" --ticker "{ticker}" --json
+```
+
+- exit `0` (up to date) → continue.
+- exit `1` or `3` → tell the user that a newer period (or a framework change) exists and recommend `/update-analysis {stock_code}` first. If they choose to continue anyway, state in the report that the analysis is based on an older period and record it as a data-freshness limitation. Never silently consume stale conclusions.
+- `record.json` reporting `downstream.stale=true` means the frozen valuation inputs belong to an older period; disclose this rather than presenting them as current.
 
 Resolve the qualitative source first:
 ```bash
@@ -55,6 +67,7 @@ This command only produces the research report and the frozen `value_computed.js
 - Read `strategies/value/references/report_template.md` for report structure
 - Read `output/{code}_{company}/qualitative_input.json` for validated business quality, moat, management, evidence, and quality warnings
 - Read `qualitative_report.md` only when `source=legacy`
+- **Cross-check** material-event claims against the targeted annual-report evidence when needed, especially "收购/重组/发行股份/购买资产" in 重要事项. Record discrepancies without loading the complete PDF into the default context.
 - Read `output/{code}_{company}/value_computed.md` for all deterministic numbers and scenario anchors
 - Only if `{output_dir}/buy_sell_plan.json` already exists (the user triggered `/buy-sell-plan`), read it and insert `{output_dir}/buy_sell_plan.md` verbatim; quote the engine's action, tier, buy percentage, cumulative percentage, next price and exit price without recalculating. If it does not exist, do not invent a plan: state that no executable buy/sell plan has been generated and that `/buy-sell-plan` can produce one.
 - Read `{output_dir}/data_pack_market_current.md` for current market cross-checks and supporting context

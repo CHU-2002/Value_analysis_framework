@@ -21,6 +21,9 @@
 - 架构文档 `docs/ARCHITECTURE.md`
 - 定期报告增量更新分析的设计与实施计划 `docs/PERIODIC_UPDATE_PLAN.md`（季度/半年/年报增量更新、经营变化报告、run-store 迭代台账）
 - 定期报告（一季报/半年报/三季报/年报）发现与下载：CNINFO 四类公告分类接入、期次标识 `scripts/periods.py`、最新期次探测 `--latest`/`--report-type auto`、期次补齐 `--since` 与 `sources_index.json`
+- 可比期数据与期次章节：数据包财务报表新增「上年同期」可比列（用于同比与单季拆分）、`pdf_preprocessor.py --period` 按期次产出 `pdf_sections_{period}.json`、`prepare --primary-period` 选定主期次证据
+- 运行台账与框架指纹：`scripts/version.py`（`FRAMEWORK_VERSION`、提示词/代码指纹、schema 版本）、`scripts/runs.py`（`new`/`resolve`/`finish`/`adopt`/`export`、run 私有输入快照、`history.jsonl`/`latest.json`/`record.json`）、`scripts/analysis_status.py`（更新判定与全仓重跑清单）、manifest 加性 `framework` 块
+- 定期报告增量更新：`qualitative.period_delta`（D7）模块与 `shared/qualitative/agents/modules/period_delta.md`、`prior_analysis` 证据源、`scripts/results/change_report.py` 与变化报告提示词、协调器 `shared/qualitative/coordinator_update.md`、命令 `/update-analysis`
 - 结构化定性结果管线：`scripts/results/`（schema、manifest、evidence、context、prepare、reconcile、synthesis、resolver）
 - 价值分析模块 `strategies/value/` 与预计算引擎 `scripts/value_analysis_engine.py`
 - 组合策略模块 `strategies/portfolio/` 与引擎 `scripts/portfolio_engine.py`
