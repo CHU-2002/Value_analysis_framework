@@ -10,7 +10,7 @@
 - 需求管理：`docs/requirements/`（编号规则、状态机、优先级、`TEMPLATE.md`、需求台账 `ledger.md`），
   首批登记 REQ-001…REQ-005，并接入 GitHub Issue / 标签 / 里程碑
 - 测试管理：`docs/TESTING.md` 测试策略、`pytest.ini`（严格 marker 与分层）、
-  按文件自动分层的 marker（`unit` / `contract` / `e2e` / `integration`）、覆盖率门禁 ≥ 74%（基线 76.44%）
+  按文件自动分层的 marker（`unit` / `contract` / `e2e` / `integration`）、覆盖率门禁 ≥ 74%（基线 76.4%）
 - 需求↔测试追溯门禁 `tests/test_requirement_traceability.py`：台账与需求条目一致性、
   无悬空 `REQ-NNN` 引用、已交付需求必须有测试引用
 - 开发流程：`docs/DEVELOPMENT.md`（就绪定义 DoR、完成定义 DoD、拆分与验收流程）、
