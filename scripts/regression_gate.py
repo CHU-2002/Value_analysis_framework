@@ -144,7 +144,7 @@ def draft(main_ref: str) -> str:
         "reviewer: TBD（必须是没有参与本批实现的独立评审者）\n"
         "independence: independent\n"
         "requirements: TBD（本批涉及的 REQ-NNN，逗号分隔）\n"
-        f"full-suite: TBD（形如 1440 passed / 3 skipped，覆盖率 76.35%）\n"
+        f"full-suite: TBD（形如 1442 passed / 3 skipped，覆盖率 76.36%）\n"
         "coverage: TBD\n"
         "---\n"
         "\n"

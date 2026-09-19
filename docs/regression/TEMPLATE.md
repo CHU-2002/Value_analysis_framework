@@ -2,8 +2,8 @@
 date: YYYY-MM-DD
 covered-until: <main 上的 sha>
 reviewer: TBD
-full-suite: "1440 passed, 3 skipped"
-coverage: "76.35%"
+full-suite: "1442 passed, 3 skipped"
+coverage: "76.36%"
 ---
 
 <!--

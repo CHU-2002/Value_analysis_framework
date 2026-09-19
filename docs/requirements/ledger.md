@@ -49,4 +49,4 @@
 | `--light` 结转模式 | `docs/PERIODIC_UPDATE_PLAN.md` §12.1 | 需先量化「哪些模块可安全结转」 |
 | `runs/` 保留策略与 PDF 引用计数回收 | `docs/PERIODIC_UPDATE_PLAN.md` §12.2 | 依赖 REQ-003 落地后再评估 |
 | 港股 / 美股定期报告 PDF 通路 | `docs/PERIODIC_UPDATE_PLAN.md` §12.3 | 数据源与披露规则未定 |
-| 覆盖率洼地补测（`valuation_engine.py` 34%、`portfolio_engine.py` 47%、`split_data_pack.py` 45%、`value_analysis_engine.py` 65%、`report_to_html.py` / `md_to_mobile_html.py` / `generate_available_fields.py` 0%） | `make cov` 基线 2026-09-20，总覆盖率 76.35% | 需先判定这些模块是否属于「一次性脚本」，再决定补测或标注豁免 |
+| 覆盖率洼地补测（`valuation_engine.py` 34%、`portfolio_engine.py` 47%、`split_data_pack.py` 45%、`value_analysis_engine.py` 65%、`report_to_html.py` / `md_to_mobile_html.py` / `generate_available_fields.py` 0%） | `make cov` 基线 2026-09-20，总覆盖率 76.36% | 需先判定这些模块是否属于「一次性脚本」，再决定补测或标注豁免 |

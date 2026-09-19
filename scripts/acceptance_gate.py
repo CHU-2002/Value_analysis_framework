@@ -15,6 +15,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from pr_body_guard import section
+
 ROOT = Path(__file__).resolve().parents[1]
 REQUIREMENTS_DIR = ROOT / "docs" / "requirements"
 VERIFICATION_DIR = ROOT / "docs" / "verification"
@@ -122,6 +124,18 @@ def added_reports(base: str, head: str) -> list:
     ]
 
 
+def batch_requirements(body: str) -> list:
+    """批次需求只认「## 需求编号」小节；该小节缺失时才回退到全篇扫描。
+
+    只认那一节：PR 正文常需要在说明里提到别的需求编号（例如「REQ-005 不在本批，
+    因为它未通过验收」）。若按全篇扫描，这些被显式排除的需求会被卷进批次，
+    门禁就会去要求它们的 AC 打勾——那是误判。
+    """
+    declared = section(body, "需求编号")
+    scope = declared if declared else body
+    return sorted(set(REQ_RE.findall(scope)))
+
+
 def evaluate(body: str, reports: list, paths=None) -> list:
     """返回问题列表；空列表表示通过。
 
@@ -132,7 +146,7 @@ def evaluate(body: str, reports: list, paths=None) -> list:
         return []
 
     problems = []
-    batch = sorted(set(REQ_RE.findall(body)))
+    batch = batch_requirements(body)
     if not batch:
         problems.append("验收 PR 必须写明本批包含的 REQ-NNN（写在「## 需求编号」里）")
         return problems

@@ -252,3 +252,31 @@ def test_regression_record_accepts_a_complete_one(tmp_path):
     )
     records = regression_gate.load_records(tmp_path)
     assert regression_gate.validate_record(records[0]) == []
+
+
+def test_acceptance_gate_batch_comes_from_the_requirement_section(tmp_path):
+    """正文里提到「REQ-005 不在本批」不应把 REQ-005 卷进批次。"""
+    checked = "\n".join(
+        f"- [x] **AC-{ac}**：成立" for ac in acceptance_gate.requirement_ac_ids("REQ-003")
+    )
+    report = tmp_path / "batch.md"
+    report.write_text(
+        "---\nreviewer: r\nindependence: independent\n"
+        "requirements: REQ-003\nfull-suite: 见正文\n---\n\n1440 passed\n\n"
+        f"### REQ-003 台账\n\n{checked}\n\n"
+        "### REQ-005 文档\n\n- [ ] **AC-1**：不成立\n",
+        encoding="utf-8",
+    )
+    body = (
+        "## 需求编号\n\nREQ-003\n\n"
+        "## 验收报告\n\nREQ-005 本次不在批内：它未通过验收（见下文）。\n"
+    )
+    assert acceptance_gate.batch_requirements(body) == ["REQ-003"]
+    assert acceptance_gate.evaluate(body, [report]) == []
+
+
+def test_acceptance_gate_falls_back_to_whole_body_without_the_section(tmp_path):
+    body = "本次要交付 REQ-005，但没有写需求编号小节。\n"
+    assert acceptance_gate.batch_requirements(body) == ["REQ-005"]
+    problems = acceptance_gate.evaluate(body, [])
+    assert any("验收报告" in problem for problem in problems), problems
