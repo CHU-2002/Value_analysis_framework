@@ -6,7 +6,7 @@
 - 所有 PR：写明「需求编号」，并填「研发自测（手工）」。
   自动化测试只能证明既有的断言，新功能的行为是否符合预期必须有人手工验过，
   并把步骤与观察结果写下来。
-- 合入 `main` 的 PR：额外填「验收报告」，指向 docs/verification/ 下的报告文件。
+- 特性分支合入 `main` 的 PR：额外填「验收报告」，指向 docs/verification/ 下的报告文件。
 
 CI 用本脚本拦住空栏；判断的是「有没有认真填」，不是「填得好不好」。
 """
@@ -75,7 +75,7 @@ def evaluate(body: str, base: str) -> list:
         verification = section(body, VERIFICATION_HEADING)
         if not meaningful(verification, 10) or "docs/verification/" not in (verification or ""):
             problems.append(
-                f"合入 main 的 PR 必须填「## {VERIFICATION_HEADING}」并链接 "
+                f"特性分支合入 main 的 PR 必须填「## {VERIFICATION_HEADING}」并链接 "
                 "docs/verification/ 下的独立验收报告（模板见 docs/verification/TEMPLATE.md）"
             )
     return problems
@@ -84,7 +84,7 @@ def evaluate(body: str, base: str) -> list:
 def main() -> int:
     parser = argparse.ArgumentParser(description="校验 PR 描述必填栏")
     parser.add_argument("--body-file", required=True)
-    parser.add_argument("--base", required=True, help="PR 目标分支名，如 develop / main")
+    parser.add_argument("--base", required=True, help="PR 目标分支名，如 feat/xxx（子 PR）或 main（特性分支）")
     args = parser.parse_args()
 
     body = Path(args.body_file).read_text(encoding="utf-8")

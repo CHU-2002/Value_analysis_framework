@@ -1,10 +1,11 @@
 name: CI
 
 on:
+  # 子 PR 的目标是特性分支（feat/*），所以 PR 不做分支过滤：
+  # 任何 PR 都跑测试与 pr-body；目标是 main 的 PR 额外跑验收与回归门禁。
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
-    branches: [main, develop]
 
 permissions:
   contents: read

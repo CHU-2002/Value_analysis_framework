@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""develop → main 的独立验收门禁。
+"""特性分支 → main 的独立验收门禁。
 
 合入 `main` 之前必须有一次**独立**验收：由没有参与实现的人（或独立 agent）
 跑全量测试，并逐条核对需求的验收标准，产出一份报告放到 docs/verification/。
@@ -119,7 +119,7 @@ def evaluate(body: str, reports: list) -> list:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="develop → main 的独立验收门禁")
+    parser = argparse.ArgumentParser(description="特性分支 → main 的独立验收门禁")
     parser.add_argument("--body-file", required=True)
     parser.add_argument("--base", default="origin/main", help="基线 git ref")
     parser.add_argument("--head", default="HEAD", help="当前 git ref")

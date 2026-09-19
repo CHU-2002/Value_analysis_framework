@@ -7,35 +7,42 @@
 ## 1. 全景
 
 ```
-登记需求     就绪评审       开发                    集成                 正式
-REQ-NNN  →  DoR 通过  →  feat/* ──PR──→ develop ──PR──→ main ──→ 攒够 3 条 ──→ 全量回归
-                            │              │              │
-                          门①            门②            门③
-                     全量CI+手工自测   独立验收报告    批量回归记录
+需求          就绪        特性分支（一个特性一条）                     正式
+REQ-NNN  →   DoR   →   feat/<特性>  ←── 子 PR（门①：CI 全量 + 研发自测）
+                            │
+                            └── PR（门②：独立验收报告）──→  main
+                                                            │
+                                         每 3 个特性 ──→ 门③：main 全量回归
 ```
 
-一条需求可以有多个 PR，一个 PR 也可以带多条需求；但**每个 PR 都要能指回 `REQ-NNN`**。
+一次**特性** = 一条特性分支 + 挂在它下面的若干子 PR。特性做完后整支直接合入 `main`，
+不为集成单独维护长期分支。子 PR 只做任务级拆分，每个 PR 都要能指回 `REQ-NNN`。
 
 ## 2. 分支模型
 
 | 分支 | 角色 | 谁往里合 | 保护 |
 |------|------|----------|------|
-| `main` | 正式分支，别人拿来用的就是它 | 只接受来自 `develop` 的 PR | 必需 CI + review |
-| `develop` | 集成分支，所有功能先在这里汇合 | `feat/*`、`fix/*`、`docs/*` 等 PR | 必需 CI + review |
-| `feat/*` | 单个功能，从最新 `develop` 切出 | 不直接进 main | — |
+| `main` | 正式分支，别人拿来用的就是它 | 只接受来自**特性分支**的 PR | 必需 CI + review |
+| `feat/<特性>` | 一个特性的集成分支，从最新 `main` 切出 | 该特性的子 PR（任务级） | 建议也开保护，规则同 main |
+| `feat/<任务>` | 子任务分支，从特性分支切出 | 不直接进 `main` | — |
 
-规则：**`main` 永不接受功能分支的直接 PR**。想让功能上线，先把功能合进 `develop`，
-再由 `develop` 带着独立验收报告合进 `main`。两个分支都用
-[`.github/workflows/setup-branch-protection.yml`](../.github/workflows/setup-branch-protection.yml)
-应用保护规则（`branch` 输入填 `main` 或 `develop`）。
+规则：
+
+- **不维护长期集成分支**（没有 `develop` 之类）。特性的集成就发生在那条特性分支上，
+  特性做完即合入 `main` 并删除；
+- `main` 只接受**特性分支**的 PR，且该 PR 必须带独立验收报告（门②）；
+- 子 PR 的目标是特性分支，不是 `main`——它的作用是「把这一个任务合进特性」；
+- `main` 的保护规则用
+  [`.github/workflows/setup-branch-protection.yml`](../.github/workflows/setup-branch-protection.yml)
+  应用（`branch` 输入填 `main`；特性分支要保护就把分支名填进去）。
 
 ## 3. 三道门
 
 | 门 | 什么时候 | 谁来做 | 检查什么 | 不过会怎样 |
 |----|----------|--------|----------|------------|
-| ① 功能 PR → `develop` | 每次提 PR | 自动（CI） | 全量测试 + 覆盖率门禁 + 追溯门禁 + 测试 scope 预算；PR 描述必须有需求编号与**研发自测（手工）** | PR 红，不能合 |
-| ② `develop` → `main` | 每次提 PR | **独立评审者**（人/独立 agent），产报告 | 门① 全部，外加独立验收报告：覆盖本批全部 `REQ-NNN`、逐条 `AC-n` 打勾、记录全量测试结果、声明独立性 | PR 红，不能合 |
-| ③ `main` 攒够 3 条功能合入 | 下一次 `develop` → `main` 提 PR 时 | 任意开发者 | `docs/regression/` 里有比上次更新的一条全量回归记录 | PR 红，不能合 |
+| ① 子 PR → 特性分支 | 每次提 PR | 自动（CI） | 全量测试 + 覆盖率门禁 + 追溯门禁 + 测试 scope 预算；PR 描述必须有需求编号与**研发自测（手工）** | PR 红，不能合 |
+| ② 特性分支 → `main` | 每次提 PR | **独立评审者**（人/独立 agent），产报告 | 门① 全部，外加独立验收报告：覆盖本批全部 `REQ-NNN`、逐条 `AC-n` 打勾、记录全量测试结果、声明独立性 | PR 红，不能合 |
+| ③ `main` 每累积 3 个特性 | 下一个特性分支合 `main` 提 PR 时 | 独立评审者 | `docs/regression/` 里有比上次更新的一条批量全量回归记录（含本批逐条 AC 结论） | PR 红，不能合 |
 
 对应脚本：`scripts/pr_body_guard.py`、`scripts/acceptance_gate.py`、`scripts/regression_gate.py`。
 每周还有一次计划任务（`.github/workflows/regression.yml`）在 `main` 上跑全量作为兜底提醒。
@@ -67,7 +74,7 @@ REQ-NNN  →  DoR 通过  →  feat/* ──PR──→ develop ──PR──�
 
 一条需求的交付必须全部满足，才能从 `implemented` 推进到 `verified`：
 
-- [ ] 代码已合入 `main`（经由 `develop`），门①②③ 全绿
+- [ ] 代码已合入 `main`（经由特性分支），门①②③ 全绿
 - [ ] 测试覆盖每条验收标准，文件里标注 `# 覆盖需求：REQ-NNN`（见 [`docs/TESTING.md`](TESTING.md) §7）
 - [ ] `make verify` 本地通过，覆盖率不低于门禁，测试 scope 在预算内
 - [ ] PR 描述有可复现的手工自测记录；独立评审者的报告已归档到 `docs/verification/`
@@ -80,7 +87,7 @@ REQ-NNN  →  DoR 通过  →  feat/* ──PR──→ develop ──PR──�
 
 - 一个 PR 只做一件事：能独立评审、能独立回滚、不放无关文件。
 - 改动规模以「评审者能在一次专注阅读内看完」为准；超过约 800 行有效改动时考虑拆分。
-- 有依赖关系的 PR 使用**栈式分支**，在 PR 正文写明合并顺序，合并前 rebase 到 `develop`。
+- 有依赖关系的子 PR 使用**栈式分支**，在 PR 正文写明合并顺序，合并前 rebase 到特性分支。
 - 期间发现的新需求不要塞进当前 PR：新开 `REQ-NNN` 并登记台账。
 
 ## 8. 分支、提交与 PR
@@ -108,7 +115,7 @@ make help        # 全部目标
    不通过就写 `- [ ]` 并附现象、复现命令与影响。
 4. **写报告**：用 [`docs/verification/TEMPLATE.md`](verification/TEMPLATE.md)，
    放到 `docs/verification/<日期>-<批次>.md`。
-5. **提交**：在 `develop` → `main` 的 PR 正文「## 验收报告」里链接该文件。CI 会校验留痕完整。
+5. **提交**：在「特性分支 → `main`」的 PR 正文「## 验收报告」里链接该文件。CI 会校验留痕完整。
 
 ## 11. 怎么做批量回归（门③）
 
@@ -117,8 +124,8 @@ python scripts/regression_gate.py --check   # 看是否已经攒够、差什么
 python scripts/regression_gate.py --new     # 打印可直接填写的记录草稿
 ```
 
-把填好的记录放到 `docs/regression/<日期>.md`（`covered-until` 写本次覆盖到的 main sha），
-下一次 `develop` → `main` 就能通过门③。
+把填好的记录放到 `docs/regression/<日期>.md`（`covered-until` 写本次覆盖到的 main sha，
+并逐条给出本批需求的 AC 结论），下一个特性分支合 `main` 时就能通过门③。
 
 ## 12. 评审
 
@@ -130,8 +137,9 @@ python scripts/regression_gate.py --new     # 打印可直接填写的记录草�
 
 ## 13. 合并与验收
 
-1. 功能 PR 用 **Squash and merge** 合入 `develop`。
-2. `develop` 攒到要上线时，开 `develop` → `main` 的 PR，附独立验收报告，通过门②③ 后合并。
+1. 子 PR 用 **Squash and merge** 合入特性分支。
+2. 特性做完后，开「特性分支 → `main`」的 PR，附独立验收报告，通过门②③ 后合并，
+   并删除该特性分支。
 3. **合并后立刻**把台账状态推到 `implemented`，回填 PR 编号。
 4. 逐条核对验收标准；全部通过 → `verified` 并关闭 Issue；
    不通过 → 记录缺口，状态回退 `in-progress`，并新开 `REQ-NNN` 或补 PR。
@@ -142,23 +150,24 @@ python scripts/regression_gate.py --new     # 打印可直接填写的记录草�
 | 指标 | 现行门禁 / 基线 | 出处 |
 |------|------------------|------|
 | 测试覆盖率 | ≥ 74%（基线 76.30%） | CI、`make cov` |
-| 测试 scope | ≤ 40 文件、≤ 1600 用例（当前 32 / 1435） | `docs/TEST_SCOPE.md`、`make scope-check` |
+| 测试 scope | ≤ 40 文件、≤ 1600 用例（当前 32 / 1436） | `docs/TEST_SCOPE.md`、`make scope-check` |
 | 需求追溯 | 台账 ↔ 条目 ↔ 测试引用一致 | `tests/test_requirement_traceability.py` |
 | PR 描述 | 需求编号 + 研发自测（手工）非空 | `scripts/pr_body_guard.py` |
 | 独立验收 | 报告覆盖本批 REQ 且 AC 全打勾 | `scripts/acceptance_gate.py` |
-| 批量回归 | 每 3 条功能合入必须留档 | `scripts/regression_gate.py` |
+| 批量回归 | 每 3 个特性合入必须留档 | `scripts/regression_gate.py` |
 | PR 标题 | Conventional Commits，≤ 72 字符 | CI `pr-title` |
-| 全量测试耗时 | 约 54s（1432 passed / 3 skipped） | `make cov` |
+| 全量测试耗时 | 约 54s（1433 passed / 3 skipped） | `make cov` |
 
 ## 15. 反模式
 
 | 反模式 | 后果 | 正确做法 |
 |--------|------|----------|
 | 先写代码，缺什么补什么需求 | 验收标准迁就实现，等于没有验收 | 先登记需求与验收标准（DoR） |
-| 把功能分支直接 PR 到 `main` | 绕过独立验收 | 先合 `develop`，再走门② |
+| 子任务分支直接 PR 到 `main` | 绕过特性集成与独立验收 | 子 PR 开向特性分支，特性做完再走门② |
+| 跳过独立验收合 `main` | 新特性没人验过就上线 | 门② 必须由没参与实现的人/agent 出报告 |
 | 手工自测只写「测试通过」 | 新功能其实没人验过 | 写清验了什么、怎么验、看到什么 |
 | 实现者自己写验收报告 | 自己给自己发合格证 | 换人或用独立 agent |
-| 攒了十几条改动也不回归 | `main` 可能早就坏了没人知道 | 到 3 条就 `--new` 留档 |
+| 攒了十几个特性也不回归 | `main` 可能早就坏了没人知道 | 到 3 个特性就 `--new` 留档 |
 | 合并了就关 Issue | 跳过验收，`verified` 形同虚设 | 验收通过再关 |
 | 一个 PR 混入重构 + 新功能 + 格式调整 | 无法评审、无法回滚 | 拆成独立 PR |
 | 覆盖率不够就降低门禁 | 债务永久固化 | 补测或登记豁免理由 |

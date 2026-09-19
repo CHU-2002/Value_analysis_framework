@@ -30,9 +30,10 @@ bash init.sh
 
 ## 分支模型
 
-`main` 与 `develop` 都受保护，**所有改动必须通过 Pull Request 合入**，禁止直接 push。
+`main` 受保护，**所有改动必须通过 Pull Request 合入**，禁止直接 push。
 
-三段式：**功能 PR 只进 `develop`**；`develop` 攒到要上线时，再带一份独立验收报告合进 `main`。
+工作方式是**一个特性一条特性分支**：该特性的子 PR 都开向这条特性分支（目标分支写特性分支名），
+特性做完后整支**直接合入 `main`**，并删除特性分支。不维护长期集成分支。
 判据与三道门见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
 | 分支前缀 | 用途 | 示例 |
@@ -47,13 +48,22 @@ bash init.sh
 工作流：
 
 ```bash
-git checkout develop
+# 1) 起一条特性分支（一个特性一条）
+git checkout main
 git pull
-git checkout -b feat/your-change
+git checkout -b feat/periodic-update
+git push -u origin feat/periodic-update
+
+# 2) 子任务：从特性分支切出，PR 开向特性分支
+git checkout feat/periodic-update
+git checkout -b feat/periodic-update-download
 # ... 修改并提交 ...
-make verify                      # 提交前自检（与 CI 等价）
-git push -u origin feat/your-change
-gh pr create --base develop --fill
+make verify                                   # 提交前自检（与 CI 等价）
+git push -u origin feat/periodic-update-download
+gh pr create --base feat/periodic-update --fill
+
+# 3) 特性做完：特性分支 → main，附独立验收报告（门②）
+gh pr create --base main --head feat/periodic-update --fill
 ```
 
 ## 提交规范
@@ -93,7 +103,8 @@ Closes #42
 
 ## Pull Request 流程
 
-1. 从最新 `develop` 切出主题分支；**功能 PR 的目标分支是 `develop`**，不要直接开向 `main`。
+1. 子任务从**特性分支**切出，PR 的目标分支写**特性分支**；只有「特性分支 → `main`」的 PR
+   才把目标写成 `main`，并必须附独立验收报告。
 2. 保持 PR 聚焦：一个 PR 解决一个问题。较大的改动请拆分为可独立审阅的 PR。
 3. 填写 PR 模板（仓库会自动加载）。
 4. 确保本地验证通过（等价于 CI）：
@@ -115,13 +126,13 @@ Closes #42
 | `test-scope` | 测试 scope 登记表是否最新、是否超预算 |
 | `pr-title` | PR 标题符合 Conventional Commits，且不超过 72 字符 |
 | `pr-body` | PR 描述必须有需求编号与**研发自测（手工）**栏 |
-| `acceptance-gate` | 仅 `develop` → `main`：必须有独立验收报告且每条 AC 打勾 |
-| `regression-gate` | 仅 `develop` → `main`：main 攒够 3 条功能合入必须有回归记录 |
+| `acceptance-gate` | 仅「特性分支 → `main`」：必须有独立验收报告且每条 AC 打勾 |
+| `regression-gate` | 仅「特性分支 → `main`」：main 每累积 3 个特性必须有批量回归记录 |
 | `ci-success` | 汇总以上检查，作为分支保护唯一必需的状态检查 |
 
 合并条件（由分支保护强制）：
 
-- `ci-success` 通过（含 `pr-body`；`develop` → `main` 还含 `acceptance-gate` 与 `regression-gate`）；
+- `ci-success` 通过（含 `pr-body`；「特性分支 → `main`」还含 `acceptance-gate` 与 `regression-gate`）；
 - 至少 1 个 review 批准，且 CODEOWNERS 指定的审阅人已批准；
 - 所有 review 对话已解决；
 - 分支与 `main` 同步（`strict` 模式）。

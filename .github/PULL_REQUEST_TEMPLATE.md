@@ -2,7 +2,7 @@
 感谢提交 Pull Request！标题请遵循 Conventional Commits，例如：
 feat(results): add artifact hash verification
 
-按流程：功能 PR 合入 develop，develop 再合入 main（见 docs/DEVELOPMENT.md）。
+按流程：子 PR 合入特性分支，特性分支做完后整支合入 main（见 docs/DEVELOPMENT.md）。
 -->
 
 ## 变更概述
@@ -32,7 +32,7 @@ REQ-
 ## 验收报告
 
 <!--
-仅合入 main 的 PR 必填，其他 PR 填「不适用」。
+仅「特性分支 → main」的 PR 必填，子 PR（合入特性分支）填「不适用」。
 链接本 PR 新增的 docs/verification/ 报告文件；模板见 docs/verification/TEMPLATE.md。
 -->
 

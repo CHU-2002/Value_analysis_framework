@@ -27,21 +27,23 @@ supersedes: TBD
 
 - 把合入路径分成**开发分支**与**正式分支**两段，每段有各自的验收要求。
 - 让新功能的**手工自测**成为必填留痕，而不是靠自觉。
-- 让 `develop → main` 必须经过**独立验收**（独立 agent 跑全量测试 + 逐条核对验收标准）。
+- 让「特性分支 → `main`」必须经过**独立验收**（独立 agent 跑全量测试 + 逐条核对验收标准）。
 - 让 `main` 在**累积若干需求后**必须补一次全量回归，而不是永远不跑。
 - 控制 CI 总量的方向是**维护整体测试 scope**，不是裁剪单个 PR 的测试范围。
 
 ## 验收标准
 
-- **AC-1**：分支模型为 `feat/* → develop → main`；功能 PR 只进 `develop`，
-  `main` 只接受来自 `develop` 的 PR，两个分支都受保护。
-- **AC-2**：每个 PR 都跑**全量**测试与覆盖率门禁；PR 描述中「研发自测（手工）」为必填栏，
-  为空或只有占位时 CI 失败（`scripts/pr_body_guard.py`）。新功能必须有手工验证记录。
-- **AC-3**：`develop → main` 的 PR 必须附带**独立验收报告**（`docs/verification/`），
+- **AC-1**：分支模型为「一个特性一条特性分支」：子 PR 合入特性分支，特性分支**直接合入 `main`**；
+  不维护长期集成分支（如 `develop`）；`main` 只接受来自特性分支的 PR 并受保护。
+- **AC-2**：每个 PR（含合入特性分支的子 PR）都跑**全量**测试与覆盖率门禁；PR 描述中
+  「研发自测（手工）」为必填栏，为空或只有占位时 CI 失败（`scripts/pr_body_guard.py`）。
+  新功能必须有手工验证记录。
+- **AC-3**：「特性分支 → `main`」的 PR 必须附带**独立验收报告**（`docs/verification/`），
   覆盖本批全部 `REQ-NNN`、逐条 `AC-n` 打勾、记录全量测试结果，且声明评审者独立性；
   缺失或不合格时 CI 失败（`scripts/acceptance_gate.py`）。
-- **AC-4**：`main` 累积 3 条功能合入（`feat` 提交）后，若没有更新的全量回归记录
-  （`docs/regression/`），则下一次 `develop → main` 的 PR 被卡住（`scripts/regression_gate.py`）。
+- **AC-4**：`main` 每累积 3 个特性合入（`feat` 提交或 merge 提交）后，若没有更新的批量全量回归记录
+  （`docs/regression/`，含本批逐条 AC 结论），则下一个特性分支合 `main` 的 PR 被卡住
+  （`scripts/regression_gate.py`）。
 - **AC-5**：整体测试 scope 有登记表（`docs/TEST_SCOPE.md`）与预算（文件数 / 用例数上限），
   由 `scripts/test_scope.py --check` 强制：新增或删除测试文件必须同步登记表，超预算必须先清理。
 - **AC-6**：本地 `make verify` 覆盖 CI 的检查项；`docs/DEVELOPMENT.md`、`docs/TESTING.md`、
@@ -78,5 +80,9 @@ supersedes: TBD
 
 ## 备注
 
-「每个 PR 只测自己功能即可」的原始想法被修正为：**CI 全量跑，新功能另需手工自测**；
-控制成本走整体 scope 维护（AC-5）。这条修正来自使用者的明确要求，故固化为 AC-2 与 AC-5。
+两次来自使用者的修正已固化为验收标准：
+
+1. 「每个 PR 只测自己功能即可」修正为**CI 全量跑 + 新功能另需手工自测**，
+   控制成本走整体 scope 维护（AC-2、AC-5）；
+2. 不用长期集成分支：**一堆子 PR 合入特性分支，特性分支直接合 `main`**（AC-1），
+   批量全量回归改为按特性计数、在 `main` 上每 3 个特性做一次（AC-4）。

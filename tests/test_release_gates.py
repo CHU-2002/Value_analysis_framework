@@ -138,6 +138,21 @@ def test_regression_gate_counts_only_feature_merges():
     assert not regression_gate.FEATURE_RE.match("fix(x): y")
 
 
+def test_regression_gate_counts_merge_commits_as_features():
+    """特性分支用 merge（非 squash）合入时，也要算作一个特性。"""
+    subjects = [
+        "feat(a): one",
+        "Merge pull request #12 from feat/b",
+        "docs(c): three",
+        "fix(d): four",
+    ]
+    assert regression_gate.count_features(subjects) == 2
+    assert regression_gate.select_features(subjects) == [
+        "feat(a): one",
+        "Merge pull request #12 from feat/b",
+    ]
+
+
 def test_regression_gate_loads_records_and_picks_latest(tmp_path):
     (tmp_path / "2026-09-01.md").write_text(
         "---\ndate: 2026-09-01\ncovered-until: aaa\n---\n", encoding="utf-8"

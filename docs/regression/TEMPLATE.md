@@ -7,8 +7,8 @@ coverage: "76.77%"
 ---
 
 <!--
-什么时候写：main 累积的功能合入达到阈值（默认 3 条）时必须跑一次全量回归并留档，
-否则 scripts/regression_gate.py 会卡住下一次 develop → main 的合并。
+什么时候写：main 每累积 3 个特性合入必须跑一次批量全量回归并留档（含本批逐条 AC 结论），
+否则 scripts/regression_gate.py 会卡住下一个特性分支合入 main 的 PR。
 草稿可以直接用：python scripts/regression_gate.py --new
 放在 docs/regression/ 下，文件名用日期，如 2026-09-20-batch1.md。
 -->

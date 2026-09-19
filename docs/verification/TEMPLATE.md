@@ -1,5 +1,5 @@
 ---
-batch: YYYY-MM-DD-REQ-00X
+batch: YYYY-MM-DD-<特性名>
 date: YYYY-MM-DD
 reviewer: independent-agent
 independence: independent
@@ -11,7 +11,7 @@ full-suite: "1389 passed, 3 skipped, 覆盖率 76.77%"
 <!--
 谁写这份报告：**没有参与实现的独立评审者**（人或独立 agent）。
 不要由实现者自己写，也不要在报告里复述实现者的说法——以自己的观察为准。
-写完放到 docs/verification/，并在 develop → main 的 PR 正文「## 验收报告」里链接它。
+写完放到 docs/verification/，并在「特性分支 → main」的 PR 正文「## 验收报告」里链接它。
 CI 会用 scripts/acceptance_gate.py 校验：报告存在、覆盖本批全部 REQ、每条 AC 都打勾、有全量测试结果。
 -->
 
