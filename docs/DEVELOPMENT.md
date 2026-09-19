@@ -103,7 +103,6 @@ REQ-NNN  →   DoR   →   feat/<特性>  ←── 子 PR（门①：CI 全量 
 ```bash
 make verify      # 本地可复现的全部门禁：lint + 全量测试 + 覆盖率 + 追溯 + scope + 回归门禁
 make gates       # PR 上下文相关门禁（pr-title / pr-body / acceptance-gate）的本地预演说明
-make gates       # 查看三道门在本地怎么自检
 make scope       # 看整体测试 scope 与预算使用率
 make help        # 全部目标
 ```
