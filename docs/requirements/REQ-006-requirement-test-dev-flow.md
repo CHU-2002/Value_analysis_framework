@@ -1,15 +1,15 @@
 ---
 id: REQ-006
 title: 需求-测试-开发流程与三道门
-status: in-progress
+status: verified
 priority: P1
 owner: CHU-2002
 created: 2026-09-20
 updated: 2026-09-20
-issue: TBD
+issue: N/A（以 PR 跟踪）
 design: docs/DEVELOPMENT.md
 milestone: 工程化流程
-pr: TBD
+pr: "#25"
 depends-on: REQ-001, REQ-002, REQ-003, REQ-004, REQ-005
 supersedes: TBD
 ---
@@ -86,9 +86,15 @@ supersedes: TBD
 | 项 | 内容 |
 |----|------|
 | 设计文档 | `docs/DEVELOPMENT.md`、`docs/TESTING.md` |
-| 实现 PR | TBD |
+| 实现 PR | #25（已合入 `22fe7fe`） |
 | 测试 | `tests/test_release_gates.py`、`tests/test_requirement_traceability.py` |
 | 文档更新 | `docs/DEVELOPMENT.md`、`docs/TESTING.md`、`CONTRIBUTING.md`、`README.md`、`CHANGELOG.md` |
+
+## 验收记录
+
+| 日期 | 复验 sha | 合并 | 评审者 | 报告 | 结论 |
+|------|----------|------|--------|------|------|
+| 2026-09-20 | `a0d5ef6` | `22fe7fe`（#25） | 独立 agent（无上下文，未参与实现） | [`docs/verification/2026-09-20-REQ-006.md`](../verification/2026-09-20-REQ-006.md) | **AC-1…AC-6 全部成立**（共五轮复验：首轮与二轮 AC-6 不成立 → 两轮修复 → 三轮通过；CI 首次真实运行又暴露门禁自身缺陷 → 修复批次语义与两处加固 → 收尾轮与第 5 轮复核通过；其中 AC-6 条款变更经需求 owner 批准并留痕） |
 
 ## 备注
 
