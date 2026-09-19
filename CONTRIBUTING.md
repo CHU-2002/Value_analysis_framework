@@ -58,7 +58,7 @@ git push -u origin feat/periodic-update
 git checkout feat/periodic-update
 git checkout -b feat/periodic-update-download
 # ... 修改并提交 ...
-make verify                                   # 提交前自检（与 CI 等价）
+make verify                      # 提交前自检：本地可复现的全部门禁
 git push -u origin feat/periodic-update-download
 gh pr create --base feat/periodic-update --fill
 
@@ -107,9 +107,12 @@ Closes #42
    才把目标写成 `main`，并必须附独立验收报告。
 2. 保持 PR 聚焦：一个 PR 解决一个问题。较大的改动请拆分为可独立审阅的 PR。
 3. 填写 PR 模板（仓库会自动加载）。
-4. 确保本地验证通过（等价于 CI）：
+4. 确保本地验证通过。`make verify` 覆盖 CI 里**可在本地复现**的检查项
+   （编译/空白检查 + 全量测试 + 覆盖率门禁 + 追溯门禁 + 测试 scope 检查）；
+   依赖 PR 上下文的检查（`pr-title`、`pr-body`、`acceptance-gate`、`regression-gate`）
+   只能由 CI 执行，本地预演方式见 `make gates`。
    ```bash
-   make verify   # = make lint + make cov：全量测试 + 覆盖率门禁 + 编译/空白检查
+   make verify
    ```
 5. 至少完成一次自查后再请求 review；CI 通过且至少 1 个 review 批准后才能合并。
 6. 合并前解决所有 review 评论，保持分支与 `main` 同步。
@@ -180,12 +183,12 @@ Closes #42
 - 修改公共接口（schema、命令、解析器）时，同步更新合同测试
 
 ```bash
-make verify   # 全量测试 + 覆盖率门禁；日常迭代可用 make unit 只跑快层
+make verify   # 本地全部门禁：lint + 全量测试 + 覆盖率 + 追溯 + scope；日常迭代可用 make unit
 ```
 
 额外要求：
 
-- 覆盖率不得低于 74%（基线 76.77%）；门禁与基线见 [docs/TESTING.md](docs/TESTING.md) §5
+- 覆盖率不得低于 74%（基线 76.35%）；门禁与基线见 [docs/TESTING.md](docs/TESTING.md) §6
 - 测试文件用注释标注 `# 覆盖需求：REQ-NNN`，并写明覆盖到的 `AC-n`
 - 「要么全用新结果，要么整体退回旧报告」等既有原则要有合同测试守护
 

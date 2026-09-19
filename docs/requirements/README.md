@@ -75,7 +75,10 @@ REQ-NNN                 ARCHITECTURE / *_PLAN          issue → feat/* → PR
 
 ## 7. 变更与废弃
 
-- **修改验收标准**：属于需求变更，必须在条目内新增 `AC-n` 或显式标注被替换的旧条款，并同步更新关联测试。不允许偷偷改小标准让测试通过。
+- **修改验收标准**：属于需求变更，必须在条目内新增 `AC-n` 或显式标注被替换的旧条款，并同步更新关联测试。
+  不允许偷偷改小标准让测试通过。若修改**收窄**了判据（例如原条款按字面不可满足），
+  条目内必须留下变更记录：原条款原文、变更原因、新条款、批准人（需求 owner），
+  并告知独立评审者复核——静默收窄视为违规。
 - **范围扩大**：新开一条 `REQ-NNN`，用 `depends-on` 关联，不要把两条需求揉进一条。
 - **放弃**：状态置 `superseded` 并填写 `supersedes` / `superseded-by`，或 `rejected` 并写明理由。
 
@@ -108,7 +111,7 @@ Issue 在**验收通过后**才关闭（`verified`），不在 PR 合并时自�
 |----|------|------|
 | [REQ-001](REQ-001-periodic-report-discovery.md) | 定期报告发现与下载 | `verified` |
 | [REQ-002](REQ-002-comparable-periods.md) | 同比可比期与按期次章节包 | `verified` |
-| [REQ-003](REQ-003-run-history-ledger.md) | 分析迭代台账（run-store） | `implemented` |
-| [REQ-004](REQ-004-period-delta-analysis.md) | 定期报告增量更新分析与变化报告 | `implemented` |
+| [REQ-003](REQ-003-run-history-ledger.md) | 分析迭代台账（run-store） | `verified` |
+| [REQ-004](REQ-004-period-delta-analysis.md) | 定期报告增量更新分析与变化报告 | `verified` |
 | [REQ-005](REQ-005-periodic-update-docs.md) | 增量更新文档与下游接线 | `implemented` |
 | [REQ-006](REQ-006-requirement-test-dev-flow.md) | 需求-测试-开发流程与三道门 | `in-progress` |

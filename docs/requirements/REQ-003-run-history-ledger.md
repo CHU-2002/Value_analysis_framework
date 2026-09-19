@@ -1,7 +1,7 @@
 ---
 id: REQ-003
 title: 分析迭代台账（run-store）
-status: implemented
+status: verified
 priority: P1
 owner: CHU-2002
 created: 2026-09-20
@@ -78,6 +78,12 @@ supersedes: TBD
 | 实现 PR | #16（`feat(runs): run-store 台账、框架指纹与状态判定器`，已合入 `ab635c8`） |
 | 测试 | `tests/test_version.py`、`tests/test_runs_ledger.py`、`tests/test_analysis_status.py` |
 | 文档更新 | 待 REQ-005 |
+
+## 验收记录
+
+| 日期 | 基线 sha | 评审者 | 报告 | 结论 |
+|------|----------|--------|------|------|
+| 2026-09-20 | `397687f` | 独立 agent（无上下文，未参与实现） | [`docs/verification/2026-09-20-REQ-003-004-005.md`](../verification/2026-09-20-REQ-003-004-005.md) | **8/8 AC 通过**（含快照不可变、adopt 后仍 `structured`、failed 不判 `up_to_date` 的实测复现） |
 
 ## 备注
 

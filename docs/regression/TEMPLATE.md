@@ -2,8 +2,8 @@
 date: YYYY-MM-DD
 covered-until: <main 上的 sha>
 reviewer: TBD
-full-suite: "1389 passed, 3 skipped"
-coverage: "76.77%"
+full-suite: "1440 passed, 3 skipped"
+coverage: "76.35%"
 ---
 
 <!--
@@ -26,6 +26,10 @@ make verify
 ```
 
 结果：
+
+## 逐条验收
+
+<!-- 至少给出本批需求的 AC 结论，或链接对应的 docs/verification/ 报告。 -->
 
 ## 结论
 

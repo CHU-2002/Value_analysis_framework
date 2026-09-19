@@ -200,3 +200,55 @@ def test_regression_gate_loads_records_and_picks_latest(tmp_path):
     records = regression_gate.load_records(tmp_path)
     assert len(records) == 2, "模板不应被当作记录"
     assert regression_gate.latest_record(records)["covered-until"] == "bbb"
+
+
+def test_acceptance_gate_scopes_acs_per_requirement(tmp_path):
+    """回归：A 需求的未打勾 AC 不得连累 B 需求的同号 AC。"""
+    report = tmp_path / "batch.md"
+    report.write_text(
+        "---\nreviewer: independent-agent\nindependence: independent\n"
+        "requirements: REQ-003, REQ-005\nfull-suite: 见正文\n---\n\n"
+        "1389 passed\n\n"
+        "### REQ-003 台账\n\n- [x] **AC-1**：成立\n\n"
+        "### REQ-005 文档\n\n- [ ] **AC-1**：不成立\n",
+        encoding="utf-8",
+    )
+    problems = acceptance_gate.evaluate("REQ-003, REQ-005\n", [report])
+    assert not any("REQ-003 的 AC-1" in problem for problem in problems), problems
+    assert any("REQ-005 的 AC-1" in problem for problem in problems), problems
+
+
+def test_acceptance_gate_requires_per_requirement_section(tmp_path):
+    report = tmp_path / "batch.md"
+    report.write_text(
+        "---\nreviewer: r\nindependence: independent\n"
+        "requirements: REQ-003, REQ-005\nfull-suite: 见正文\n---\n\n1389 passed\n\n"
+        "### REQ-003 台账\n\n- [x] **AC-1**：成立\n",
+        encoding="utf-8",
+    )
+    problems = acceptance_gate.evaluate("REQ-003, REQ-005\n", [report])
+    assert any("没有 REQ-005 的逐条验收内容" in problem for problem in problems), problems
+
+
+def test_regression_record_must_not_be_an_empty_shell(tmp_path):
+    shell = tmp_path / "2026-09-21.md"
+    shell.write_text(
+        "---\ndate: 2026-09-21\ncovered-until: abc123\nreviewer: someone\n"
+        "full-suite: 1436 passed\n---\n\n# 回归\n\n## 全量测试\n\n1436 passed\n",
+        encoding="utf-8",
+    )
+    records = regression_gate.load_records(tmp_path)
+    problems = regression_gate.validate_record(records[0])
+    assert any("逐条验收" in problem for problem in problems), problems
+
+
+def test_regression_record_accepts_a_complete_one(tmp_path):
+    good = tmp_path / "2026-09-21.md"
+    good.write_text(
+        "---\ndate: 2026-09-21\ncovered-until: abc123\nreviewer: someone\n"
+        "full-suite: 1436 passed\n---\n\n# 回归\n\n## 全量测试\n\n1436 passed\n\n"
+        "## 逐条验收\n\n- [x] **AC-1**：通过\n",
+        encoding="utf-8",
+    )
+    records = regression_gate.load_records(tmp_path)
+    assert regression_gate.validate_record(records[0]) == []

@@ -66,6 +66,12 @@ REQ-003 引入了 run-store、REQ-004 引入了增量流程，但**既有命令�
 | 测试 | `tests/test_update_docs_contract.py`（契约：命令必须经 `runs.py resolve` 取 run_dir，不得把公司目录直接交给 resolver） |
 | 文档更新 | `docs/ARCHITECTURE.md`、`README.md`、`CHANGELOG.md` |
 
+## 验收记录
+
+| 日期 | 基线 sha | 评审者 | 报告 | 结论 |
+|------|----------|--------|------|------|
+| 2026-09-20 | `397687f` | 独立 agent（无上下文，未参与实现） | [`docs/verification/2026-09-20-REQ-003-004-005.md`](../verification/2026-09-20-REQ-003-004-005.md) | **3/5 通过；AC-1、AC-2、AC-5 不成立**：`/valuation` 与 `/portfolio-strategy` 及其 coordinator 仍把公司目录交给不跟随 `latest.json` 的 resolver（run-store 布局下 `unavailable`），且缺双布局端到端测试。issue #20 保持开启，不置 `verified` |
+
 ## 备注
 
 与本需求相关的两批改动已合入 `main`：`scripts/results/prepare.py` 透传 `framework`（#16/#17），

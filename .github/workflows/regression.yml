@@ -1,8 +1,8 @@
 name: Batched Regression (main)
 
-# main 不要求每次合并都跑全量回归，但攒够阈值（脚本里默认 3 条功能合入）必须补一次。
+# main 不要求每次合并都跑全量回归，但每累积阈值（脚本里默认 3 个特性合入）必须补一次。
 # 本工作流是「兜底提醒」：每周在 main 上跑一次全量，并把可直接填写的回归记录草稿写进摘要。
-# 真正的卡口在 CI 的 regression-gate（develop → main 的 PR 上）。
+# 真正的卡口在 CI 的 regression-gate（特性分支 → main 的 PR 上）。
 
 on:
   schedule:

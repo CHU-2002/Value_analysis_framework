@@ -101,7 +101,8 @@ REQ-NNN  →   DoR   →   feat/<特性>  ←── 子 PR（门①：CI 全量 
 ## 9. 本地校验
 
 ```bash
-make verify      # lint + 全量测试 + 覆盖率门禁 + 追溯门禁 + scope 检查（提交前必跑）
+make verify      # 本地可复现的全部门禁：lint + 全量测试 + 覆盖率 + 追溯 + scope + 回归门禁
+make gates       # PR 上下文相关门禁（pr-title / pr-body / acceptance-gate）的本地预演说明
 make gates       # 查看三道门在本地怎么自检
 make scope       # 看整体测试 scope 与预算使用率
 make help        # 全部目标
@@ -143,20 +144,21 @@ python scripts/regression_gate.py --new     # 打印可直接填写的记录草�
 3. **合并后立刻**把台账状态推到 `implemented`，回填 PR 编号。
 4. 逐条核对验收标准；全部通过 → `verified` 并关闭 Issue；
    不通过 → 记录缺口，状态回退 `in-progress`，并新开 `REQ-NNN` 或补 PR。
-5. 若实现方式与设计文档不符，改设计文档，**不要改小验收标准**。
+5. 若实现方式与设计文档不符，改设计文档，**不要改小验收标准**。确需修改验收标准时走需求变更流程：
+   条目内留原条款原文、原因、新条款与 owner 批准，并请独立评审者复核（静默收窄视为违规）。
 
 ## 14. 度量
 
 | 指标 | 现行门禁 / 基线 | 出处 |
 |------|------------------|------|
-| 测试覆盖率 | ≥ 74%（基线 76.30%） | CI、`make cov` |
-| 测试 scope | ≤ 40 文件、≤ 1600 用例（当前 32 / 1436） | `docs/TEST_SCOPE.md`、`make scope-check` |
+| 测试覆盖率 | ≥ 74%（基线 76.35%） | CI、`make cov` |
+| 测试 scope | ≤ 40 文件、≤ 1600 用例（当前 32 / 1443） | `docs/TEST_SCOPE.md`、`make scope-check` |
 | 需求追溯 | 台账 ↔ 条目 ↔ 测试引用一致 | `tests/test_requirement_traceability.py` |
 | PR 描述 | 需求编号 + 研发自测（手工）非空 | `scripts/pr_body_guard.py` |
 | 独立验收 | 报告覆盖本批 REQ 且 AC 全打勾 | `scripts/acceptance_gate.py` |
 | 批量回归 | 每 3 个特性合入必须留档 | `scripts/regression_gate.py` |
 | PR 标题 | Conventional Commits，≤ 72 字符 | CI `pr-title` |
-| 全量测试耗时 | 约 54s（1433 passed / 3 skipped） | `make cov` |
+| 全量测试耗时 | 约 54s（1440 passed / 3 skipped） | `make cov` |
 
 ## 15. 反模式
 

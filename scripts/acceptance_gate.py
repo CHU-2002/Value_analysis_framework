@@ -22,6 +22,8 @@ REQ_RE = re.compile(r"REQ-\d{3}")
 AC_RE = re.compile(r"\*\*AC-(\d+)\*\*")
 FRONT_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 PASSED_RE = re.compile(r"\d+\s+passed")
+# 报告按需求分节时的小标题，如 "### REQ-003 run-store 台账"
+REQ_SECTION_RE = re.compile(r"^#{2,4}\s*(REQ-\d{3})\b.*$", re.MULTILINE)
 REQUIRED_FIELDS = ("reviewer", "independence", "requirements", "full-suite")
 # 只动这些路径的 PR 属于「台账/文档回填」，不要求独立验收报告。
 DOCS_ONLY_PREFIXES = ("docs/", "CHANGELOG.md")
@@ -47,6 +49,41 @@ def requirement_ac_ids(req_id: str) -> list:
     if not matches:
         return []
     return AC_RE.findall(matches[0].read_text(encoding="utf-8"))
+
+
+def req_sections(text: str) -> dict:
+    """若报告按需求分节，返回 {REQ 编号: 该节正文}；否则返回空字典。
+
+    必须分节校验：否则 A 需求的 `- [ ]` 会连累 B 需求的同号 AC。
+    """
+    matches = list(REQ_SECTION_RE.finditer(text))
+    if not matches:
+        return {}
+    sections = {}
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        sections[match.group(1)] = sections.get(match.group(1), "") + text[match.end():end]
+    return sections
+
+
+def texts_for_requirement(texts: dict, req: str) -> list:
+    """挑出「与 req 有关、且只该按 req 解释」的报告片段。
+
+    - 报告按需求分节：只取 req 自己那一节；
+    - 报告未分节：只在报告声明了 req 时，整份报告算作 req 的证据。
+    """
+    picked = []
+    for text in texts.values():
+        declared = set(REQ_RE.findall(text))
+        if req not in declared:
+            continue
+        sections = req_sections(text)
+        if sections:
+            if req in sections:
+                picked.append(sections[req])
+        else:
+            picked.append(text)
+    return picked
 
 
 def checked(body: str, ac: str) -> bool:
@@ -132,13 +169,17 @@ def evaluate(body: str, reports: list, paths=None) -> list:
         problems.append(f"验收报告未覆盖本批需求：{', '.join(missing)}（需由独立评审者补验）")
 
     if not PASSED_RE.search(merged):
-        problems.append("验收报告没有记录全量测试结果（需写明形如「1433 passed」的结果）")
+        problems.append("验收报告没有记录全量测试结果（需写明形如「1436 passed」的结果）")
 
     for req in batch:
+        scoped = texts_for_requirement(texts, req)
+        if not scoped:
+            problems.append(f"验收报告没有 {req} 的逐条验收内容（需为它单独分节或单独成篇）")
+            continue
         for ac in requirement_ac_ids(req):
-            if any(unchecked(text, ac) for text in texts.values()):
+            if any(unchecked(text, ac) for text in scoped):
                 problems.append(f"{req} 的 AC-{ac} 在验收报告中未打勾（仍是 `- [ ]`）")
-            elif not any(checked(text, ac) for text in texts.values()):
+            elif not any(checked(text, ac) for text in scoped):
                 problems.append(f"{req} 的 AC-{ac} 缺少结论（需写 `- [x] AC-{ac} …`）")
     return problems
 

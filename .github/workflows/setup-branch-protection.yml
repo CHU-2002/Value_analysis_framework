@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: "要保护的分支（main 或 develop）"
+        description: "要保护的分支（如 main；特性分支要保护也可填分支名）"
         required: true
         default: "main"
         type: string

@@ -25,6 +25,8 @@ REGRESSION_DIR = ROOT / "docs" / "regression"
 FRONT_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 FEATURE_RE = re.compile(r"^feat(\(|:|!)")
 MERGE_RE = re.compile(r"^Merge pull request")
+REQ_RE = re.compile(r"REQ-\d{3}")
+RECORD_REQUIRED_FIELDS = ("date", "covered-until", "reviewer", "full-suite")
 THRESHOLD = 3
 
 
@@ -102,6 +104,23 @@ def evaluate(records: list, subjects: list, threshold: int = THRESHOLD) -> list:
     ]
 
 
+def validate_record(record: dict) -> list:
+    """校验回归记录本身不是空壳。"""
+    path = record["path"]
+    text = path.read_text(encoding="utf-8")
+    problems = []
+    for field in RECORD_REQUIRED_FIELDS:
+        if not record.get(field) or record[field].upper() == "TBD":
+            problems.append(f"{path.name} 的 front matter 缺少有效的 `{field}`")
+    if "## 全量测试" not in text or not re.search(r"\d+\s+passed", text):
+        problems.append(f"{path.name} 没有记录全量测试结果（需含「## 全量测试」与 passed 数字）")
+    if "## 逐条验收" not in text:
+        problems.append(
+            f"{path.name} 缺少「## 逐条验收」小节：至少要给出本批需求的 AC 结论或验收报告链接"
+        )
+    return problems
+
+
 def draft(main_ref: str) -> str:
     sha = subprocess.run(
         ["git", "rev-parse", "--short", main_ref],
@@ -125,7 +144,7 @@ def draft(main_ref: str) -> str:
         "reviewer: TBD（必须是没有参与本批实现的独立评审者）\n"
         "independence: independent\n"
         "requirements: TBD（本批涉及的 REQ-NNN，逗号分隔）\n"
-        f"full-suite: TBD（形如 1433 passed / 3 skipped，覆盖率 76.30%）\n"
+        f"full-suite: TBD（形如 1440 passed / 3 skipped，覆盖率 76.35%）\n"
         "coverage: TBD\n"
         "---\n"
         "\n"
@@ -178,6 +197,8 @@ def main() -> int:
             cwd=ROOT, capture_output=True, text=True,
         ).stdout.split()[0]
     problems = evaluate(records, commit_subjects(since, args.main_ref), args.threshold)
+    if not problems and record:
+        problems = validate_record(record)
     if problems:
         print("main 批量回归门禁未通过：\n")
         for problem in problems:

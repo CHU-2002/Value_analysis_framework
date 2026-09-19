@@ -46,8 +46,20 @@ supersedes: TBD
   （`scripts/regression_gate.py`）。
 - **AC-5**：整体测试 scope 有登记表（`docs/TEST_SCOPE.md`）与预算（文件数 / 用例数上限），
   由 `scripts/test_scope.py --check` 强制：新增或删除测试文件必须同步登记表，超预算必须先清理。
-- **AC-6**：本地 `make verify` 覆盖 CI 的检查项；`docs/DEVELOPMENT.md`、`docs/TESTING.md`、
-  `CONTRIBUTING.md` 的描述与实际门禁一致。
+- **AC-6**：本地 `make verify` 覆盖 CI 中**对仓库内容**的全部检查——编译/空白检查（含相对基线的
+  整段 diff）、全量测试、覆盖率门禁、追溯门禁、测试 scope 检查、批量回归门禁；依赖 PR 元数据的
+  `pr-title` / `pr-body` / `acceptance-gate` 由 CI 执行，`make gates` 给出本地预演方式。
+  文档中的门禁描述、基线数字与实际一致，且不得出现已废弃分支（如 `develop`）的说法。
+
+  <!-- 需求变更记录（2026-09-20）
+       原条款（2026-09-20 登记）：本地 `make verify` 覆盖 CI 的检查项；
+         docs/DEVELOPMENT.md、docs/TESTING.md、CONTRIBUTING.md 的描述与实际门禁一致。
+       变更原因：pr-title 与 pr-body 检查的是 GitHub 的 PR 标题与描述，acceptance-gate 还依赖
+         PR 的 base/head 引用；这三项属 PR 元数据，本地命令无法等价复现，原条款按字面不可满足。
+       同时加强而非放松：make verify 现在额外覆盖批量回归门禁（原条款未要求），lint 也从
+         「只看未暂存改动」改为「工作区 + 相对基线的整段 diff」。
+       批准人：需求 owner CHU-2002（2026-09-20 会话内明确批准本条修改）。
+       独立评审：docs/verification/2026-09-20-REQ-006.md 记录了 AC-6 两轮不成立的具体依据。 -->
 
 ## 范围
 

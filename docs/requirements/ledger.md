@@ -10,8 +10,8 @@
 |----|------|------|--------|-------|---------|----------|
 | [REQ-001](REQ-001-periodic-report-discovery.md) | 定期报告发现与下载 | `verified` | P1 | N/A | #13 | `tests/test_discover_report.py` `tests/test_download_report.py` `tests/test_periods.py` |
 | [REQ-002](REQ-002-comparable-periods.md) | 同比可比期与按期次章节包 | `verified` | P1 | N/A | #15 | `tests/test_comparable_periods.py` `tests/test_prepare_primary_period.py` |
-| [REQ-003](REQ-003-run-history-ledger.md) | 分析迭代台账（run-store） | `implemented` | P1 | #18 | #16 | `tests/test_version.py` `tests/test_runs_ledger.py` `tests/test_analysis_status.py` |
-| [REQ-004](REQ-004-period-delta-analysis.md) | 定期报告增量更新分析与变化报告 | `implemented` | P1 | #19 | #17 | `tests/test_period_delta_module.py` `tests/test_change_report.py` `tests/test_prepare_prior_analysis.py` |
+| [REQ-003](REQ-003-run-history-ledger.md) | 分析迭代台账（run-store） | `verified` | P1 | #18 | #16 | `tests/test_version.py` `tests/test_runs_ledger.py` `tests/test_analysis_status.py` |
+| [REQ-004](REQ-004-period-delta-analysis.md) | 定期报告增量更新分析与变化报告 | `verified` | P1 | #19 | #17 | `tests/test_period_delta_module.py` `tests/test_change_report.py` `tests/test_prepare_prior_analysis.py` |
 | [REQ-005](REQ-005-periodic-update-docs.md) | 增量更新文档与下游接线 | `implemented` | P2 | #20 | #22, #23 | `tests/test_update_docs_contract.py` |
 | [REQ-006](REQ-006-requirement-test-dev-flow.md) | 需求-测试-开发流程与三道门 | `in-progress` | P1 | TBD | TBD | `tests/test_release_gates.py` `tests/test_requirement_traceability.py` |
 
@@ -21,7 +21,7 @@
 
 | 里程碑 | 目标 | 包含需求 | 状态 |
 |--------|------|----------|------|
-| 定期报告增量更新 v1 | 从「单次全量分析」升级为「按最新期次增量更新 + 可追溯迭代台账」 | REQ-003 → REQ-004 → REQ-005 | REQ-001/002 `verified`；REQ-003/004/005 已合入，待逐条验收 |
+| 定期报告增量更新 v1 | 从「单次全量分析」升级为「按最新期次增量更新 + 可追溯迭代台账」 | REQ-003 → REQ-004 → REQ-005 | REQ-001…004 `verified`；REQ-005 独立验收 **3/5 未通过**，issue #20 保持开启 |
 
 对应 GitHub Milestone：`periodic-update-v1`。
 
@@ -49,4 +49,4 @@
 | `--light` 结转模式 | `docs/PERIODIC_UPDATE_PLAN.md` §12.1 | 需先量化「哪些模块可安全结转」 |
 | `runs/` 保留策略与 PDF 引用计数回收 | `docs/PERIODIC_UPDATE_PLAN.md` §12.2 | 依赖 REQ-003 落地后再评估 |
 | 港股 / 美股定期报告 PDF 通路 | `docs/PERIODIC_UPDATE_PLAN.md` §12.3 | 数据源与披露规则未定 |
-| 覆盖率洼地补测（`valuation_engine.py` 34%、`portfolio_engine.py` 47%、`split_data_pack.py` 45%、`value_analysis_engine.py` 65%、`report_to_html.py` / `md_to_mobile_html.py` / `generate_available_fields.py` 0%） | `make cov` 基线 2026-09-20，总覆盖率 76.77% | 需先判定这些模块是否属于「一次性脚本」，再决定补测或标注豁免 |
+| 覆盖率洼地补测（`valuation_engine.py` 34%、`portfolio_engine.py` 47%、`split_data_pack.py` 45%、`value_analysis_engine.py` 65%、`report_to_html.py` / `md_to_mobile_html.py` / `generate_available_fields.py` 0%） | `make cov` 基线 2026-09-20，总覆盖率 76.35% | 需先判定这些模块是否属于「一次性脚本」，再决定补测或标注豁免 |

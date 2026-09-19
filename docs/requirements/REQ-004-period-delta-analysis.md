@@ -1,7 +1,7 @@
 ---
 id: REQ-004
 title: 定期报告增量更新分析与变化报告
-status: implemented
+status: verified
 priority: P1
 owner: CHU-2002
 created: 2026-09-20
@@ -74,6 +74,12 @@ supersedes: TBD
 | 实现 PR | #17（`feat(update): period_delta 模块、变化报告与 /update-analysis`，已合入 `f5317f3`） |
 | 测试 | `tests/test_period_delta_module.py`、`tests/test_change_report.py`、`tests/test_prepare_prior_analysis.py` |
 | 文档更新 | 待 REQ-005 |
+
+## 验收记录
+
+| 日期 | 基线 sha | 评审者 | 报告 | 结论 |
+|------|----------|--------|------|------|
+| 2026-09-20 | `397687f` | 独立 agent（无上下文，未参与实现） | [`docs/verification/2026-09-20-REQ-003-004-005.md`](../verification/2026-09-20-REQ-003-004-005.md) | **8/8 AC 通过**（含 `period_delta` 三方一致、`prior_analysis` 优先选入、双目录命令逐字节一致） |
 
 ## 备注
 
