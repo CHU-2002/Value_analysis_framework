@@ -123,9 +123,10 @@ def build_manifest(
     artifacts: Iterable[dict[str, Any]] = (),
     status: str = "running",
     schema_version: str = "1.0",
+    framework: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     input_list = list(inputs)
-    return {
+    manifest: dict[str, Any] = {
         "schema": "investment.manifest",
         "schema_version": schema_version,
         "run_id": run_id,
@@ -136,6 +137,11 @@ def build_manifest(
         "inputs": input_list,
         "artifacts": list(artifacts),
     }
+    # Additive: omitted entirely when not supplied, so manifests built without a
+    # framework block stay byte-for-byte identical to previous releases.
+    if framework is not None:
+        manifest["framework"] = framework
+    return manifest
 
 
 def write_manifest(manifest: dict[str, Any], output_path: str | Path) -> None:
