@@ -22,6 +22,75 @@ try:
 except ImportError:  # Support importing the package with scripts/ on sys.path.
     from config import validate_stock_code
 
+try:
+    from scripts.periods import filename_to_period, is_valid_period
+except ImportError:  # Support importing the package with scripts/ on sys.path.
+    from periods import filename_to_period, is_valid_period
+
+
+def _period_arg(value: str) -> str:
+    """Argparse type for ``--primary-period``: normalize and reject unknowns."""
+
+    normalized = str(value).strip().upper()
+    if not is_valid_period(normalized):
+        raise argparse.ArgumentTypeError(
+            f"invalid period {value!r}: expected one of YYYYQ1, YYYYH1, YYYYQ3, YYYYFY"
+        )
+    return normalized
+
+
+def _normalize_primary_period(primary_period: str | None) -> str:
+    """Return the canonical primary period, or ``""`` when none was requested."""
+
+    if primary_period is None:
+        return ""
+    normalized = str(primary_period).strip().upper()
+    if not is_valid_period(normalized):
+        raise ValueError(f"Invalid primary period: {primary_period!r}")
+    return normalized
+
+
+def _read_recorded_period(pdf_sections_path: Path) -> str:
+    """Read ``metadata.period`` from a pdf_sections JSON file (``""`` if absent)."""
+
+    try:
+        payload = json.loads(pdf_sections_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, dict):
+        return ""
+    recorded = metadata.get("period")
+    return recorded.strip().upper() if isinstance(recorded, str) else ""
+
+
+def _select_pdf_sections(inputs_root: Path, primary_period: str) -> tuple[Path, list[str]]:
+    """Choose the pdf_sections evidence source for this run.
+
+    A per-period file (``pdf_sections_{period}.json``) wins when the caller
+    asked for that primary period and the file exists. Otherwise the legacy
+    ``pdf_sections.json`` is used; if it declares a different period than the
+    requested primary period a warning is recorded so consumers can see the
+    evidence does not match the run's primary period.
+    """
+
+    warnings: list[str] = []
+    legacy = inputs_root / "pdf_sections.json"
+    per_period = inputs_root / f"pdf_sections_{primary_period}.json" if primary_period else None
+    if per_period is not None and per_period.is_file():
+        return per_period, warnings
+
+    if primary_period and legacy.is_file():
+        recorded = _read_recorded_period(legacy)
+        if recorded and recorded != primary_period:
+            warnings.append(
+                f"period mismatch: pdf_sections.json metadata.period={recorded!r} "
+                f"does not match primary_period={primary_period!r}"
+            )
+    return legacy, warnings
+
 
 def prepare_run(
     output_dir: str | Path,
@@ -31,8 +100,14 @@ def prepare_run(
     market: str = "CN",
     run_id: str | None = None,
     max_chars: int = 24000,
+    primary_period: str | None = None,
 ) -> dict[str, object]:
-    """Create all deterministic inputs needed by module Agents."""
+    """Create all deterministic inputs needed by module Agents.
+
+    Inputs are read from ``<output_dir>/inputs/`` when that directory exists
+    (the run-store snapshot layout) and from ``<output_dir>/`` otherwise. The
+    produced evidence/manifest/contexts structure is identical either way.
+    """
 
     root = Path(output_dir).resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -45,24 +120,39 @@ def prepare_run(
     for module in MODULE_CONFIG:
         (modules_dir / module).mkdir(exist_ok=True)
 
-    data_pack = root / "data_pack_market.md"
-    pdf_sections = root / "pdf_sections.json"
-    footnote_report = root / "data_pack_report.md"
-    annual_reports = sorted(root.glob("*.pdf"))
+    normalized_primary = _normalize_primary_period(primary_period)
+    inputs_dir = root / "inputs"
+    inputs_root = inputs_dir if inputs_dir.is_dir() else root
+
+    data_pack = inputs_root / "data_pack_market.md"
+    footnote_report = inputs_root / "data_pack_report.md"
+    annual_reports = sorted(inputs_root.glob("*.pdf"))
+    pdf_sections, warnings = _select_pdf_sections(inputs_root, normalized_primary)
+
     sources = [
         {"source_id": "market_data", "path": str(data_pack)},
         {"source_id": "pdf_sections", "path": str(pdf_sections)},
         {"source_id": "pdf_footnotes", "path": str(footnote_report)},
     ]
+    # ``annual_report:{stem}`` is a hard contract: evidence ids are embedded in
+    # completed runs, so the source_id never changes -- only metadata is added.
+    report_periods: dict[str, str] = {}
     for report in annual_reports:
-        sources.append({"source_id": f"annual_report:{report.stem}", "path": str(report)})
+        source_id = f"annual_report:{report.stem}"
+        sources.append({"source_id": source_id, "path": str(report)})
+        period = filename_to_period(report.name)
+        if period:
+            report_periods[source_id] = period
 
     resolved_run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     subject = {"ticker": validate_stock_code(ticker), "company": company, "market": market}
-    input_paths = [
-        describe_input(source["path"], source_id=source["source_id"])
-        for source in sources
-    ]
+    input_paths = []
+    for source in sources:
+        item = describe_input(source["path"], source_id=source["source_id"])
+        period = report_periods.get(source["source_id"])
+        if period:
+            item["period"] = period
+        input_paths.append(item)
     input_digest = input_set_digest(input_paths)
 
     evidence_index = build_evidence_index(
@@ -71,6 +161,10 @@ def prepare_run(
         subject=subject,
         input_digest=input_digest,
     )
+    for source_meta in evidence_index.get("sources", []):
+        period = report_periods.get(source_meta.get("source_id"))
+        if period:
+            source_meta["period"] = period
     evidence_path = evidence_dir / "index.json"
     evidence_path.write_text(json.dumps(evidence_index, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -120,6 +214,11 @@ def prepare_run(
         ],
         status="prepared",
     )
+    # Additive metadata only: ``schema_version`` stays "1.0" for old consumers.
+    if normalized_primary:
+        manifest["primary_period"] = normalized_primary
+    if warnings:
+        manifest["warnings"] = warnings
     manifest_path = root / "run_manifest.json"
     write_manifest(manifest, manifest_path)
     return {
@@ -129,6 +228,8 @@ def prepare_run(
         "d6_trigger": str(d6_trigger_path),
         "d6_triggered": d6_trigger["triggered"],
         "contexts": context_paths,
+        "primary_period": normalized_primary,
+        "warnings": warnings,
     }
 
 
@@ -140,6 +241,15 @@ def main() -> None:
     parser.add_argument("--market", default="CN")
     parser.add_argument("--run-id")
     parser.add_argument("--max-chars", type=int, default=24000)
+    parser.add_argument(
+        "--primary-period",
+        type=_period_arg,
+        default=None,
+        help=(
+            "Primary report period for this run (e.g. 2026H1). Selects the "
+            "matching pdf_sections_{period}.json and is recorded in the manifest"
+        ),
+    )
     args = parser.parse_args()
 
     result = prepare_run(
@@ -149,6 +259,7 @@ def main() -> None:
         market=args.market,
         run_id=args.run_id,
         max_chars=args.max_chars,
+        primary_period=args.primary_period,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
