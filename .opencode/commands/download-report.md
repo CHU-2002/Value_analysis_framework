@@ -12,8 +12,10 @@ Parse the user input from `$ARGUMENTS` into three parts:
 - For 年报, default behavior is to download the **most recent 3 fiscal years**.
 - Single-year download is still supported by explicitly providing a year.
 - For 中报 / 一季报 / 三季报, default remains single-period download.
-- With `--latest` (or `--report-type auto`), the script discovers the **newest published period of any type**.
-- With `--since <period>` (e.g. `2026Q1`), it downloads every published period at or after that period, which is how a missing-period catch-up is performed.
+- `--report-type` may be omitted: it defaults to 年报, or to `auto` when `--latest` / `--since` is used.
+- With `--latest`, the script discovers the **newest published period of any type**; combine it with a concrete `--report-type` to restrict to that type.
+- With `--since <period>` (e.g. `2026Q1`), it downloads every published period at or after that period, which is how a missing-period catch-up is performed. Periods already recorded in `sources_index.json` (and still on disk) are skipped unless `--force` is given.
+- `--url` cannot be combined with `--latest` / `--since` / `--report-type auto`; the script rejects that combination. It also rejects `--year` / `--recent-years` in periodic mode, `--latest` together with `--since`, a future `--since`, and `--force` outside periodic mode, instead of silently ignoring them.
 
 ### Market Detection
 
@@ -49,6 +51,8 @@ CNINFO is queried for every A-share regular report, not only annual reports:
 
 The period identifier (`2026Q1` / `2026H1` / `2026Q3` / `2026FY`) is parsed from the announcement title. For A-shares, `Q1` / `H1` / `Q3` are year-to-date cumulative disclosures.
 
+Discovery only keeps announcements whose `secCode` matches the requested company, follows CNINFO pagination, and ignores non-PDF attachments, so full-text search hits from other issuers cannot occupy this company's period slots.
+
 ### Preferred path for A-share reports: CNINFO first
 
 `scripts/download_report.py` uses:
@@ -61,10 +65,15 @@ The period identifier (`2026Q1` / `2026H1` / `2026Q3` / `2026FY`) is parsed from
 When the user asks for "最新一期" / "latest" or does not name a year, discover the newest published period first:
 
 ```bash
+# newest period of any type
 python3 scripts/discover_report.py --stock-code "<formatted_stock_code>" --report-type auto
+# equivalent: --latest with no concrete type (defaults to any type)
+python3 scripts/discover_report.py --stock-code "<formatted_stock_code>" --latest
+# newest period of one type
+python3 scripts/discover_report.py --stock-code "<formatted_stock_code>" --latest --report-type 中报
 ```
 
-The structured result reports the resolved `period` (e.g. `2026H1`) and `report_type`.
+The structured result reports the resolved `period` (e.g. `2026H1`) and `report_type`. "Newest" means newest **fiscal period**, not newest announcement date.
 
 ### Supplementary path: 10jqka stock page
 
@@ -107,7 +116,9 @@ Collect matching PDF URLs and their titles.
 From the candidate PDFs, select the best match:
 
 ### Exclude results containing these keywords:
-摘要, 审计报告, 公告, 利润分配, 可持续发展, 股东大会, ESG, summary, auditor, dividend, 更正, 补充, 意见, 内部控制, 英文, 取消, 提示性, 业绩说明会, 问询函, H股
+摘要, 审计报告, 公告, 利润分配, 可持续发展, 股东大会, ESG, summary, auditor, dividend, 更正, 补充, 意见, 内部控制, 英文, 取消, 提示性, 业绩说明会, 问询函
+
+Titles marked `H股` are excluded unless they also mention `A股`, because the H-share-only version is not the A-share filing.
 
 ### Prefer results that:
 1. Title contains `{year}` and the matching report keyword (e.g. `2025年年度报告`, `2026年半年度报告`) WITHOUT `摘要`
@@ -135,6 +146,7 @@ python3 scripts/download_report.py \
   --save-dir "<save_dir_inside_project>"
 
 # Catch up every period published at or after 2026Q1
+# (already-held periods are skipped; use --force to re-download them)
 python3 scripts/download_report.py \
   --stock-code "<formatted_stock_code>" \
   --report-type auto \
@@ -156,23 +168,27 @@ python3 scripts/download_report.py \
   --save-dir "<save_dir_inside_project>"
 ```
 
-In periodic mode (`--latest` / `--since` / `--report-type auto`) the script also writes `sources_index.json` in `--save-dir` (override with `--sources-index`): a `period -> filename + sha256 + announcement date` index used by downstream incremental analysis.
+In periodic mode (`--latest` / `--since` / `--report-type auto`) the script writes `sources_index.json` in `--save-dir` (override with `--sources-index`): a `period -> filename + size + sha256 + announcement date` index used by downstream incremental analysis. Fields added over time (`size_bytes`, `last_download_status`) are optional and backward compatible. A period is skipped only when its recorded PDF still exists, is non-empty, matches the recorded size, and was not left behind by a failed download.
 
-If you already have a vetted direct PDF URL, you may still pass `--url "<PDF_URL>"` explicitly.
+If you already have a vetted direct PDF URL, you may still pass `--url "<PDF_URL>"` explicitly (single file, not periodic mode).
 
 ### Parse the output
 
-The script prints a structured block between `---RESULT---` and `---END---`. Parse these fields:
+Both scripts print a structured block between `---RESULT---` and `---END---`.
+
+`scripts/download_report.py` fields:
 - `status`: `SUCCESS`, `PARTIAL`, or `FAILED`
 - `filepath`: absolute path to the downloaded file (single-file results only)
 - `filepaths`: all downloaded absolute paths
 - `filesize`: file size in bytes
 - `latest_period`: newest published period found (`2026H1`, `2025FY`, ...)
-- `periods_requested` / `periods_completed` / `periods_failed`: comma-separated period lists in periodic mode
+- `periods_requested` / `periods_completed` / `periods_failed` / `periods_skipped`: comma-separated period lists in periodic mode
 - `requested_years` / `completed_years` / `failed_years`: year-based equivalents
 - `message`: status message
 
-`PARTIAL` means some requested periods or years failed; treat it as degraded and inspect `periods_failed` / `failed_years`. The upper-level skill must not treat `PARTIAL` as success.
+`scripts/discover_report.py` fields: `status`, `stock_page_url`, `report_url`, `title`, `date`, `period`, `report_type`, `candidate_count`, `message`.
+
+`PARTIAL` means some requested periods or years failed; treat it as degraded and inspect `periods_failed` / `failed_years`. The upper-level skill must not treat `PARTIAL` as success. Note that `discover_report.py` and `download_report.py` define their exit codes differently: in `download_report.py` periodic mode, exit `1` covers both "no published period found" and "some period failed".
 
 ### Report to user
 

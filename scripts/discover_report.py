@@ -2,7 +2,7 @@
 """Discover A-share financial report PDF URLs with CNINFO-first fallbacks."""
 
 import argparse
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import html
 import re
 import sys
@@ -16,6 +16,7 @@ try:
         parse_period,
         parse_period_from_title,
         period_sort_key,
+        report_type_keywords,
     )
 except ImportError:  # Support importing with scripts/ on sys.path.
     from periods import (
@@ -24,6 +25,7 @@ except ImportError:  # Support importing with scripts/ on sys.path.
         parse_period,
         parse_period_from_title,
         period_sort_key,
+        report_type_keywords,
     )
 
 
@@ -116,6 +118,19 @@ def build_spaced_company_name(company_name):
     return " ".join(normalized)
 
 
+def fetch_company_name(stock_code, timeout=DEFAULT_TIMEOUT):
+    """Best-effort company name lookup for the CNINFO keyword fallback."""
+
+    try:
+        response = requests.get(
+            build_stockpage_url(stock_code), headers=BASE_HEADERS, timeout=timeout
+        )
+        response.raise_for_status()
+    except requests.RequestException:
+        return ""
+    return extract_company_name(response.text)
+
+
 def is_summary_title(title):
     lowered = title.lower()
     return "摘要" in title or "summary" in lowered
@@ -182,15 +197,35 @@ def build_recent_date_range(lookback_months=18, today=None):
     return f"{start.isoformat()}~{end.isoformat()}"
 
 
+CNINFO_TZ = timezone(timedelta(hours=8))
+
+
 def format_cninfo_timestamp(timestamp_ms):
+    """Format a CNINFO epoch-ms announcement time as its Beijing calendar date.
+
+    CNINFO timestamps are Beijing midnight; interpreting them as UTC shifts the
+    date back one day and would also mis-rank same-day original/corrected forms.
+    """
+
     if not timestamp_ms:
         return ""
-    return datetime.utcfromtimestamp(timestamp_ms / 1000).strftime("%Y-%m-%d")
+    return datetime.fromtimestamp(timestamp_ms / 1000, tz=CNINFO_TZ).strftime("%Y-%m-%d")
+
+
+def _announcements(payload):
+    """Return a usable announcement list for any malformed CNINFO payload."""
+
+    if not isinstance(payload, dict):
+        return []
+    announcements = payload.get("announcements")
+    if not isinstance(announcements, list):
+        return []
+    return [item for item in announcements if isinstance(item, dict)]
 
 
 def extract_cninfo_candidates(payload):
     candidates = []
-    for announcement in payload.get("announcements") or []:
+    for announcement in _announcements(payload):
         adjunct_url = announcement.get("adjunctUrl")
         if not adjunct_url:
             continue
@@ -232,9 +267,14 @@ def discover_cninfo_report(stock_code, company_name, year, report_type, timeout=
             timeout=timeout,
         )
         response.raise_for_status()
-        candidates = extract_cninfo_candidates(response.json())
-        if candidates:
-            all_candidates.extend(candidates)
+        all_candidates.extend(extract_cninfo_candidates(response.json()))
+        # A keyword can return raw announcements that all fail the title filters
+        # (e.g. only the English version of the interim report). Keep trying the
+        # remaining keywords until one yields a report the scorer accepts, rather
+        # than stopping at "some announcements came back".
+        if select_best_candidate(
+            all_candidates, year, report_type, allow_summary_fallback=False
+        ):
             break
 
     deduped = []
@@ -247,13 +287,28 @@ def discover_cninfo_report(stock_code, company_name, year, report_type, timeout=
     return deduped
 
 
-def extract_cninfo_period_candidates(payload):
-    """Turn CNINFO announcements into period-tagged full-report candidates."""
+def extract_cninfo_period_candidates(payload, stock_code=None):
+    """Turn CNINFO announcements into period-tagged full-report candidates.
+
+    ``tabName=fulltext`` is a full-text search, so when ``stock_code`` is given
+    any announcement whose ``secCode`` belongs to another issuer is dropped —
+    otherwise a peer's report could occupy one of this company's period slots.
+    """
+
+    wanted_code = None
+    if stock_code is not None:
+        wanted_code = extract_numeric_code(stock_code)
 
     candidates = []
-    for announcement in payload.get("announcements") or []:
+    for announcement in _announcements(payload):
         adjunct_url = announcement.get("adjunctUrl")
         if not adjunct_url:
+            continue
+        if announcement.get("adjunctType") not in (None, "", "PDF"):
+            continue
+
+        sec_code = announcement.get("secCode")
+        if wanted_code and sec_code and str(sec_code).strip() != wanted_code:
             continue
 
         title = normalize_title(announcement.get("announcementTitle", ""))
@@ -284,6 +339,79 @@ def _period_candidate_rank(candidate):
     return (candidate.get("date") or "", "更新后" in candidate.get("title", ""))
 
 
+def _query_cninfo_periods(stock_code, keywords, *, lookback_months, timeout, today, max_pages=10):
+    """Query CNINFO for period-tagged reports, following pagination.
+
+    CNINFO caps a page at 30 records regardless of the requested ``pageSize``
+    (verified against the live endpoint), so the request asks for 30 and a full
+    page is a trustworthy "there may be more" signal when the response omits its
+    pagination fields.
+    """
+
+    page_size = 30
+    se_date = build_recent_date_range(lookback_months, today=today)
+    candidates = []
+    for keyword in keywords:
+        scanned = 0
+        for page in range(1, max_pages + 1):
+            response = requests.post(
+                CNINFO_QUERY_URL,
+                headers=CNINFO_HEADERS,
+                data={
+                    "pageNum": page,
+                    "pageSize": page_size,
+                    "tabName": "fulltext",
+                    "stock": "",
+                    "searchkey": keyword,
+                    "column": get_cninfo_column(stock_code),
+                    "category": CNINFO_ALL_REGULAR_CATEGORIES,
+                    "seDate": se_date,
+                },
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            candidates.extend(extract_cninfo_period_candidates(payload, stock_code=stock_code))
+
+            announcements = _announcements(payload)
+            scanned += len(announcements)
+            total_pages = payload.get("totalpages") if isinstance(payload, dict) else None
+            total_records = payload.get("totalRecordNum") if isinstance(payload, dict) else None
+            has_more = payload.get("hasMore") if isinstance(payload, dict) else None
+
+            if type(total_records) is int and total_records > 0:
+                more_pages = scanned < total_records
+            elif isinstance(has_more, bool):
+                more_pages = has_more
+            elif type(total_pages) is int and total_pages > 0:
+                # ``totalpages`` is floored by the server, so it is only a hint.
+                more_pages = page < total_pages
+            else:
+                more_pages = len(announcements) >= page_size
+
+            if not announcements:
+                if more_pages:
+                    print(
+                        f"Warning: stopped on an empty page while "
+                        f"totalRecordNum={total_records}; some announcements may not "
+                        f"have been scanned",
+                        file=sys.stderr,
+                    )
+                break
+            if not more_pages:
+                break
+            if page >= max_pages:
+                print(
+                    f"Warning: stopped at the page cap ({max_pages}); some older "
+                    f"announcements may not have been scanned",
+                    file=sys.stderr,
+                )
+                break
+        if candidates:
+            break
+    return candidates
+
+
 def discover_periods(
     stock_code,
     company_name="",
@@ -295,9 +423,11 @@ def discover_periods(
 ):
     """Discover the newest published report for every period in the window.
 
-    Returns a list of period-tagged candidates sorted newest-period-first.
-    Non-A-share codes and unknown report types return an empty list rather than
-    raising, so callers can decide how to degrade.
+    Returns a list of period-tagged candidates sorted newest-period-first (by
+    fiscal period, not by announcement date). Non-A-share codes and unknown
+    report types return an empty list rather than raising, so callers can
+    decide how to degrade. When no candidates are found with the code keyword,
+    the 10jqka company name is fetched lazily and used as a second keyword.
     """
 
     if not is_a_share_stock_code(stock_code):
@@ -307,27 +437,30 @@ def discover_periods(
     if wanted is not None and wanted not in REPORT_TYPES:
         return []
 
-    candidates = []
-    for keyword in build_cninfo_search_keywords(stock_code, company_name):
-        response = requests.post(
-            CNINFO_QUERY_URL,
-            headers=CNINFO_HEADERS,
-            data={
-                "pageNum": 1,
-                "pageSize": 100,
-                "tabName": "fulltext",
-                "stock": "",
-                "searchkey": keyword,
-                "column": get_cninfo_column(stock_code),
-                "category": CNINFO_ALL_REGULAR_CATEGORIES,
-                "seDate": build_recent_date_range(lookback_months, today=today),
-            },
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        candidates = extract_cninfo_period_candidates(response.json())
-        if candidates:
-            break
+    keywords = build_cninfo_search_keywords(stock_code, company_name)
+    candidates = _query_cninfo_periods(
+        stock_code,
+        keywords,
+        lookback_months=lookback_months,
+        timeout=timeout,
+        today=today,
+    )
+
+    if not candidates and not normalize_company_name(company_name):
+        fallback_name = fetch_company_name(stock_code, timeout=timeout)
+        extra_keywords = [
+            keyword
+            for keyword in build_cninfo_search_keywords(stock_code, fallback_name)
+            if keyword not in keywords
+        ]
+        if extra_keywords:
+            candidates = _query_cninfo_periods(
+                stock_code,
+                extra_keywords,
+                lookback_months=lookback_months,
+                timeout=timeout,
+                today=today,
+            )
 
     by_period = {}
     for candidate in candidates:
@@ -342,6 +475,7 @@ def discover_periods(
         key=lambda candidate: period_sort_key(candidate["period"]),
         reverse=True,
     )
+
 
 
 def discover_latest_period(
@@ -373,16 +507,12 @@ def should_prefer_cninfo(stock_code, report_type):
 
 
 def get_required_keywords(report_type):
-    normalized = normalize_report_type(report_type)
-    if normalized == "年报":
-        return ["年度报告", "年报"]
-    if normalized == "中报":
-        return ["半年度报告", "中报"]
-    if normalized == "一季报":
-        return ["第一季度报告", "一季报"]
-    if normalized == "三季报":
-        return ["第三季度报告", "三季报"]
-    return [normalized]
+    """Title labels accepted for a report type, shared with ``periods``."""
+
+    keywords = report_type_keywords(report_type)
+    if keywords:
+        return list(keywords)
+    return [normalize_report_type(report_type)]
 
 
 def is_excluded_title(title):
@@ -404,10 +534,13 @@ def is_excluded_title(title):
         "提示性",
         "业绩说明会",
         "问询函",
-        "H股",
     ]
     lowered = title.lower()
-    return any(keyword.lower() in lowered for keyword in excluded_keywords)
+    if any(keyword.lower() in lowered for keyword in excluded_keywords):
+        return True
+    # H-share-only versions of a regular report are not the A-share filing.
+    # "A股" is allowed alongside "H股" so an A+H combined title is kept.
+    return "h股" in lowered and "a股" not in lowered
 
 
 def score_candidate(candidate, year, report_type):
@@ -419,6 +552,12 @@ def score_candidate(candidate, year, report_type):
 
     keywords = get_required_keywords(report_type)
     if not any(keyword in title for keyword in keywords):
+        return None
+    # Substring matching alone lets "半年度报告"/"半年报" satisfy the annual
+    # keywords ("年度报告"/"年报"), and a title mentioning two years can borrow
+    # the wrong one. Require the shared parser to agree on type *and* year.
+    parsed = parse_period_from_title(title, report_type)
+    if parsed is None or parsed[:4] != str(year):
         return None
     if str(year) not in title:
         return None
@@ -557,8 +696,11 @@ def parse_args(argv=None):
     parser.add_argument("--year", help="Fiscal year, e.g. 2025 (not needed with --latest)")
     parser.add_argument(
         "--report-type",
-        default="年报",
-        help="年报/中报/一季报/三季报, or 'auto' for the newest published regular report",
+        default=None,
+        help=(
+            "年报/中报/一季报/三季报, or 'auto' for the newest published regular "
+            "report of any type (default: 年报, or auto when --latest is given)"
+        ),
     )
     parser.add_argument(
         "--latest",
@@ -604,17 +746,22 @@ def run_latest_discovery(args):
 def main(argv=None):
     args = parse_args(argv)
 
+    # No explicit type: --latest means "newest of any type", otherwise keep the
+    # historical 年报 default.
+    if args.report_type is None:
+        args.report_type = "auto" if args.latest else "年报"
+
     if args.latest or _is_auto_report_type(args.report_type):
         try:
             run_latest_discovery(args)
-        except ValueError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            print_result(False, message=str(exc))
-            sys.exit(EXIT_BAD_ARGUMENTS)
         except requests.RequestException as exc:
             print(f"Error: {exc}", file=sys.stderr)
             print_result(False, message=str(exc))
             sys.exit(EXIT_NETWORK_FAILURE)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            print_result(False, message=str(exc))
+            sys.exit(EXIT_BAD_ARGUMENTS)
 
     if not args.year:
         print("Error: --year is required unless --latest or --report-type auto is used", file=sys.stderr)
@@ -627,14 +774,14 @@ def main(argv=None):
             year=args.year,
             report_type=args.report_type,
         )
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        print_result(False, message=str(exc))
-        sys.exit(EXIT_BAD_ARGUMENTS)
     except requests.RequestException as exc:
         print(f"Error: {exc}", file=sys.stderr)
         print_result(False, message=str(exc))
         sys.exit(EXIT_NETWORK_FAILURE)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        print_result(False, message=str(exc))
+        sys.exit(EXIT_BAD_ARGUMENTS)
 
     if not best:
         message = (

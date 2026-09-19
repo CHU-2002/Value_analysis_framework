@@ -15,6 +15,7 @@ from download_report import (
     EXIT_PDF_VALIDATION_FAILURE,
     EXIT_SUCCESS,
     build_filename,
+    covered_periods,
     determine_years_to_download,
     download_annual_report,
     get_headers,
@@ -478,20 +479,164 @@ class TestResolveAutoTargets:
     @patch("download_report.discover_periods")
     def test_without_since_returns_only_latest(self, mock_discover):
         mock_discover.return_value = PERIODIC_TARGETS
-        targets, latest = resolve_auto_targets("000858")
+        targets, latest, skipped = resolve_auto_targets("000858")
         assert [target["period"] for target in targets] == ["2026H1"]
         assert latest["period"] == "2026H1"
+        assert skipped == []
 
     @patch("download_report.discover_periods")
     def test_since_includes_every_newer_period(self, mock_discover):
         mock_discover.return_value = PERIODIC_TARGETS
-        targets, latest = resolve_auto_targets("000858", since="2026Q1")
+        targets, _, _ = resolve_auto_targets("000858", since="2026Q1")
         assert [target["period"] for target in targets] == ["2026H1", "2026Q1"]
 
     @patch("download_report.discover_periods")
     def test_no_published_period(self, mock_discover):
         mock_discover.return_value = []
-        assert resolve_auto_targets("000858") == ([], None)
+        assert resolve_auto_targets("000858") == ([], None, [])
+
+    @patch("discover_report.requests.post")
+    def test_since_widens_the_lookback_window_end_to_end(self, mock_post):
+        # Exercise the real discover_periods so the assertion checks the query
+        # window that is actually sent, not a restatement of the formula.
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {
+            "announcements": [
+                {
+                    "announcementTitle": "五粮液：2020年年度报告",
+                    "announcementTime": 1609459200000,
+                    "adjunctUrl": "finalpage/2021-01-01/fy2020.PDF",
+                    "secCode": "000858",
+                    "adjunctType": "PDF",
+                }
+            ]
+        }
+        mock_post.return_value = response
+
+        resolve_auto_targets("000858", since="2020Q1", lookback_months=18)
+
+        se_date = mock_post.call_args.kwargs["data"]["seDate"]
+        assert se_date.split("~")[0] <= "2020-01-01"
+
+    @patch("download_report.discover_periods")
+    def test_covered_periods_are_skipped(self, mock_discover):
+        mock_discover.return_value = PERIODIC_TARGETS
+        targets, _, skipped = resolve_auto_targets(
+            "000858", since="2026Q1", covered={"2026Q1"}
+        )
+        assert [target["period"] for target in targets] == ["2026H1"]
+        assert [candidate["period"] for candidate in skipped] == ["2026Q1"]
+
+    @patch("download_report.discover_periods")
+    def test_type_filter_is_passed_through_and_latest_respects_it(self, mock_discover):
+        mock_discover.return_value = [
+            candidate for candidate in PERIODIC_TARGETS if candidate["period"] == "2026Q1"
+        ]
+        _, latest, _ = resolve_auto_targets("000858", report_type="年报")
+        assert latest["period"] == "2026Q1"
+        assert mock_discover.call_args.kwargs["report_type"] == "年报"
+
+
+class TestCoveredPeriods:
+    def test_missing_index_returns_empty(self, tmp_path):
+        assert covered_periods(str(tmp_path / "nope.json")) == set()
+
+    def test_only_periods_with_existing_files_are_covered(self, tmp_path):
+        import json
+
+        present = tmp_path / "present.pdf"
+        present.write_bytes(b"%PDF-1.4")
+        index_path = tmp_path / "sources_index.json"
+        index_path.write_text(
+            json.dumps(
+                {
+                    "periods": {
+                        "2026H1": {"filepath": str(present)},
+                        "2026Q1": {"filepath": str(tmp_path / "gone.pdf")},
+                        "2025FY": "not-a-dict",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert covered_periods(str(index_path)) == {"2026H1"}
+
+    def test_malformed_index_does_not_crash(self, tmp_path):
+        index_path = tmp_path / "sources_index.json"
+        index_path.write_text('{"periods": "oops"}', encoding="utf-8")
+        assert covered_periods(str(index_path)) == set()
+
+    def test_failed_entry_is_not_covered_so_it_is_retried(self, tmp_path):
+        import json
+
+        present = tmp_path / "present.pdf"
+        present.write_bytes(b"%PDF-1.4")
+        index_path = tmp_path / "sources_index.json"
+        index_path.write_text(
+            json.dumps(
+                {
+                    "periods": {
+                        "2026H1": {
+                            "filepath": str(present),
+                            "last_download_status": "failed",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert covered_periods(str(index_path)) == set()
+
+    def test_empty_or_size_mismatched_files_are_not_covered(self, tmp_path):
+        import json
+
+        empty = tmp_path / "empty.pdf"
+        empty.write_bytes(b"")
+        wrong_size = tmp_path / "wrong.pdf"
+        wrong_size.write_bytes(b"%PDF-1.4 truncated")
+        index_path = tmp_path / "sources_index.json"
+        index_path.write_text(
+            json.dumps(
+                {
+                    "periods": {
+                        "2026H1": {"filepath": str(empty)},
+                        "2026Q1": {"filepath": str(wrong_size), "size_bytes": 999999},
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert covered_periods(str(index_path)) == set()
+
+    def test_relative_filepath_resolves_against_index_directory(self, tmp_path):
+        import json
+
+        (tmp_path / "600858_2026_中报.pdf").write_bytes(b"%PDF-1.4")
+        index_path = tmp_path / "sources_index.json"
+        index_path.write_text(
+            json.dumps({"periods": {"2026H1": {"filepath": "600858_2026_中报.pdf"}}}),
+            encoding="utf-8",
+        )
+        assert covered_periods(str(index_path)) == {"2026H1"}
+
+    def test_index_for_another_stock_is_ignored(self, tmp_path):
+        import json
+
+        present = tmp_path / "present.pdf"
+        present.write_bytes(b"%PDF-1.4")
+        index_path = tmp_path / "sources_index.json"
+        index_path.write_text(
+            json.dumps(
+                {
+                    "stock_code": "000858",
+                    "periods": {"2026H1": {"filepath": str(present)}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert covered_periods(str(index_path), stock_code="600519") == set()
+        assert covered_periods(str(index_path), stock_code="000858") == {"2026H1"}
 
 
 class TestWriteSourcesIndex:
@@ -665,3 +810,377 @@ class TestAutoDownloadMain:
             ])
 
         assert exc_info.value.code == EXIT_NETWORK_FAILURE
+
+
+class TestAutoModeArgumentConflicts:
+    def test_url_with_last_is_rejected(self, tmp_path):
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--url", "https://static.cninfo.com.cn/finalpage/x.PDF",
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--latest",
+                "--save-dir", str(tmp_path),
+            ])
+        assert exc_info.value.code == EXIT_BAD_ARGUMENTS
+
+    @patch("download_report.discover_periods")
+    def test_recent_years_in_auto_mode_is_rejected(self, mock_discover, tmp_path):
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--recent-years", "3",
+                "--save-dir", str(tmp_path),
+            ])
+        assert exc_info.value.code == EXIT_BAD_ARGUMENTS
+        mock_discover.assert_not_called()
+
+    @patch("download_report.discover_periods")
+    def test_report_type_defaults_to_annual_outside_auto_mode(self, mock_discover, tmp_path):
+        mock_discover.return_value = []
+        with pytest.raises(SystemExit):
+            main(["--stock-code", "000858", "--year", "2025", "--save-dir", str(tmp_path)])
+        # Legacy path, so periodic discovery must not run.
+        mock_discover.assert_not_called()
+
+
+class TestAutoModeIncrementalBehaviour:
+    @patch("download_report.discover_periods")
+    @patch("download_report.download_annual_report", side_effect=_write_fake_pdf)
+    def test_already_held_periods_are_skipped(self, mock_download, mock_discover, tmp_path, capsys):
+        import json
+
+        mock_discover.return_value = PERIODIC_TARGETS
+        held = tmp_path / "000858_2026_一季报.pdf"
+        held.write_bytes(b"%PDF-1.4 old")
+        (tmp_path / "sources_index.json").write_text(
+            json.dumps({"periods": {"2026Q1": {"filepath": str(held)}}}),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--since", "2026Q1",
+                "--save-dir", str(tmp_path),
+            ])
+
+        assert exc_info.value.code == EXIT_SUCCESS
+        assert mock_download.call_count == 1
+        out = capsys.readouterr().out
+        assert "periods_skipped: 2026Q1" in out
+
+    @patch("download_report.discover_periods")
+    @patch("download_report.download_annual_report", side_effect=_write_fake_pdf)
+    def test_force_redownloads_held_periods(self, mock_download, mock_discover, tmp_path):
+        import json
+
+        mock_discover.return_value = PERIODIC_TARGETS
+        held = tmp_path / "000858_2026_一季报.pdf"
+        held.write_bytes(b"%PDF-1.4 old")
+        (tmp_path / "sources_index.json").write_text(
+            json.dumps({"periods": {"2026Q1": {"filepath": str(held)}}}),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--since", "2026Q1",
+                "--force",
+                "--save-dir", str(tmp_path),
+            ])
+
+        assert exc_info.value.code == EXIT_SUCCESS
+        assert mock_download.call_count == 2
+
+    @patch("download_report.discover_periods")
+    @patch("download_report.download_annual_report", side_effect=_write_fake_pdf)
+    def test_all_periods_present_is_a_no_op_success(self, mock_download, mock_discover, tmp_path, capsys):
+        import json
+
+        mock_discover.return_value = PERIODIC_TARGETS
+        paths = {}
+        for target in PERIODIC_TARGETS:
+            pdf = tmp_path / f"{target['period']}.pdf"
+            pdf.write_bytes(b"%PDF-1.4 old")
+            paths[target["period"]] = {"filepath": str(pdf)}
+        (tmp_path / "sources_index.json").write_text(
+            json.dumps({"periods": paths}), encoding="utf-8"
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--since", "2026Q1",
+                "--save-dir", str(tmp_path),
+            ])
+
+        assert exc_info.value.code == EXIT_SUCCESS
+        mock_download.assert_not_called()
+        out = capsys.readouterr().out
+        assert "All periods already present" in out
+
+    @patch("download_report.discover_periods")
+    @patch("download_report.download_annual_report", side_effect=_write_fake_pdf)
+    def test_malformed_existing_index_does_not_crash(self, mock_download, mock_discover, tmp_path):
+        mock_discover.return_value = PERIODIC_TARGETS
+        (tmp_path / "sources_index.json").write_text('{"periods": "oops"}', encoding="utf-8")
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--latest",
+                "--save-dir", str(tmp_path),
+            ])
+
+        assert exc_info.value.code == EXIT_SUCCESS
+
+    @patch("download_report.discover_periods")
+    @patch("download_report.download_annual_report")
+    def test_invalid_url_in_batch_is_recorded_not_fatal(self, mock_download, mock_discover, tmp_path, capsys):
+        mock_discover.return_value = [
+            {**PERIODIC_TARGETS[0], "url": "https://evil.example.com/x.doc"},
+            PERIODIC_TARGETS[1],
+        ]
+        mock_download.side_effect = _write_fake_pdf
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--since", "2026Q1",
+                "--save-dir", str(tmp_path),
+            ])
+
+        assert exc_info.value.code == EXIT_NETWORK_FAILURE
+        out = capsys.readouterr().out
+        assert "status: PARTIAL" in out
+        assert "periods_failed: 2026H1" in out
+        assert "periods_completed: 2026Q1" in out
+        # The valid period was still downloaded.
+        assert (tmp_path / "000858_2026_一季报.pdf").exists()
+
+    @patch("download_report.discover_periods")
+    @patch("download_report.download_annual_report")
+    def test_failed_redownload_does_not_leave_stale_sha256(self, mock_download, mock_discover, tmp_path):
+        import json
+
+        mock_discover.return_value = [PERIODIC_TARGETS[1]]
+        missing = tmp_path / "gone.pdf"
+        (tmp_path / "sources_index.json").write_text(
+            json.dumps(
+                {
+                    "periods": {
+                        "2026Q1": {
+                            "filepath": str(missing),
+                            "sha256": "deadbeef",
+                            "filename": "gone.pdf",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        mock_download.return_value = (False, "network error", 0)
+
+        with pytest.raises(SystemExit):
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--since", "2026Q1",
+                "--save-dir", str(tmp_path),
+            ])
+
+        payload = json.loads((tmp_path / "sources_index.json").read_text(encoding="utf-8"))
+        assert "2026Q1" not in payload["periods"]
+
+    @patch("download_report.discover_periods")
+    @patch("download_report.download_annual_report", side_effect=_write_fake_pdf)
+    def test_sources_index_creates_missing_directory(self, mock_download, mock_discover, tmp_path):
+        mock_discover.return_value = [PERIODIC_TARGETS[0]]
+        nested = tmp_path / "nested" / "index.json"
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--latest",
+                "--sources-index", str(nested),
+                "--save-dir", str(tmp_path),
+            ])
+
+        assert exc_info.value.code == EXIT_SUCCESS
+        assert nested.exists()
+
+
+class TestAutoModeArgGuards:
+    @patch("download_report.discover_periods")
+    def test_year_in_auto_mode_is_rejected(self, mock_discover, tmp_path):
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--year", "2025",
+                "--save-dir", str(tmp_path),
+            ])
+        assert exc_info.value.code == EXIT_BAD_ARGUMENTS
+        mock_discover.assert_not_called()
+
+    def test_force_outside_auto_mode_is_rejected(self, tmp_path):
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "年报",
+                "--year", "2025",
+                "--force",
+                "--save-dir", str(tmp_path),
+            ])
+        assert exc_info.value.code == EXIT_BAD_ARGUMENTS
+
+    @patch("download_report.discover_periods")
+    def test_latest_and_since_together_are_rejected(self, mock_discover, tmp_path):
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--latest",
+                "--since", "2026Q1",
+                "--save-dir", str(tmp_path),
+            ])
+        assert exc_info.value.code == EXIT_BAD_ARGUMENTS
+        mock_discover.assert_not_called()
+
+    def test_since_in_the_future_is_rejected(self, tmp_path, capsys):
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--since", "2099Q1",
+                "--save-dir", str(tmp_path),
+            ])
+        assert exc_info.value.code == EXIT_BAD_ARGUMENTS
+        assert "is in the future" in capsys.readouterr().err
+
+    def test_malformed_since_period_is_rejected(self, tmp_path):
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--since", "2026Q2",
+                "--save-dir", str(tmp_path),
+            ])
+        assert exc_info.value.code == EXIT_BAD_ARGUMENTS
+
+
+class TestFailedRefreshIsRetried:
+    @patch("download_report.discover_periods")
+    @patch("download_report.download_annual_report")
+    def test_failed_forced_refresh_is_not_reported_as_up_to_date(
+        self, mock_download, mock_discover, tmp_path, capsys
+    ):
+        mock_discover.return_value = [PERIODIC_TARGETS[0]]
+
+        # run 1: successful download records the period.
+        mock_download.side_effect = _write_fake_pdf
+        with pytest.raises(SystemExit) as first:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--latest",
+                "--save-dir", str(tmp_path),
+            ])
+        assert first.value.code == EXIT_SUCCESS
+
+        # run 2: a forced refresh fails; the old file stays on disk.
+        mock_download.side_effect = lambda *args, **kwargs: (False, "boom", 0)
+        with pytest.raises(SystemExit) as second:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--latest",
+                "--force",
+                "--save-dir", str(tmp_path),
+            ])
+        assert second.value.code == EXIT_NETWORK_FAILURE
+
+        # run 3: the failed entry must be retried, not reported as up to date.
+        mock_download.reset_mock()
+        mock_download.side_effect = _write_fake_pdf
+        with pytest.raises(SystemExit) as third:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--latest",
+                "--save-dir", str(tmp_path),
+            ])
+        assert third.value.code == EXIT_SUCCESS
+        assert mock_download.call_count == 1
+        assert "All periods already present" not in capsys.readouterr().out
+
+
+class TestCrossStockIndexIsolation:
+    def test_write_does_not_merge_periods_from_another_stock(self, tmp_path):
+        import json
+
+        index_path = tmp_path / "sources_index.json"
+        write_sources_index(
+            index_path,
+            stock_code="600887",
+            latest_period="2025FY",
+            entries=[{"period": "2025FY", "filepath": str(tmp_path / "other.pdf")}],
+        )
+        write_sources_index(
+            index_path,
+            stock_code="000858",
+            latest_period="2026H1",
+            entries=[{"period": "2026H1", "filepath": str(tmp_path / "ours.pdf")}],
+        )
+
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+        assert payload["stock_code"] == "000858"
+        assert set(payload["periods"]) == {"2026H1"}
+
+
+class TestCoveredPeriodsSizeMatch:
+    def test_matching_size_and_missing_size_are_both_covered(self, tmp_path):
+        import json
+
+        sized = tmp_path / "sized.pdf"
+        sized.write_bytes(b"%PDF-1.4 sized")
+        legacy = tmp_path / "legacy.pdf"
+        legacy.write_bytes(b"%PDF-1.4 legacy")
+        index_path = tmp_path / "sources_index.json"
+        index_path.write_text(
+            json.dumps(
+                {
+                    "periods": {
+                        "2026H1": {"filepath": str(sized), "size_bytes": sized.stat().st_size},
+                        "2026Q1": {"filepath": str(legacy)},
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert covered_periods(str(index_path)) == {"2026H1", "2026Q1"}
+
+    def test_failed_annotation_with_relative_path_keeps_entry(self, tmp_path):
+        import json
+
+        pdf = tmp_path / "600858_2026_中报.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        index_path = tmp_path / "sources_index.json"
+        write_sources_index(
+            index_path,
+            stock_code="000858",
+            latest_period="2026H1",
+            entries=[{"period": "2026H1", "filepath": pdf.name}],
+            failed_periods=["2026H1"],
+        )
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+        assert payload["periods"]["2026H1"]["last_download_status"] == "failed"

@@ -157,7 +157,7 @@ python3 scripts/download_report.py --stock-code 600887 --report-type auto --sinc
 ```
 
 - 结构化 `---RESULT---` 块新增 `latest_period / periods_requested / periods_completed / periods_failed`，旧字段保持。
-- 下载后写 `sources/pdf/sources_index.json`：`period → 文件名 + sha256 + 公告日 + 标题 + source`。
+- 下载后写 `sources/pdf/sources_index.json`：`period → 文件名 + size + sha256 + 公告日 + 标题 + source`（新增字段均为可选、向后兼容）。
 
 ### 5.4 测试
 

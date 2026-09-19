@@ -12,12 +12,14 @@ from periods import (
     is_valid_period,
     list_periods_between,
     make_period,
+    months_since,
     normalize_report_type,
     parse_period,
     parse_period_from_title,
     period_sort_key,
     period_to_filename,
     previous_period,
+    report_type_keywords,
     single_quarter_base,
     sort_periods,
 )
@@ -65,6 +67,10 @@ class TestMakeParsePeriod:
     def test_parse_period_round_trip(self):
         assert parse_period("2026H1") == (2026, "中报")
 
+    def test_parse_period_is_case_insensitive(self):
+        assert parse_period("2026q1") == (2026, "一季报")
+        assert is_valid_period("2026h1") is True
+
     def test_parse_period_rejects_garbage(self):
         with pytest.raises(ValueError):
             parse_period("2026-X")
@@ -75,21 +81,36 @@ class TestMakeParsePeriod:
         assert is_valid_period("FY2026") is False
         assert is_valid_period(None) is False
 
+    def test_months_since_covers_older_periods(self):
+        from datetime import date
+
+        assert months_since("2026Q1", today=date(2026, 9, 19)) == 9
+        assert months_since("2020Q1", today=date(2026, 9, 19)) == 81
+        assert months_since("2026Q3", today=date(2026, 9, 19)) == 9
+
+    def test_report_type_keywords_shared_with_title_parsing(self):
+        assert "三季度报告" in report_type_keywords("三季报")
+        assert "半年报" in report_type_keywords("中报")
+        assert "年報" in report_type_keywords("年报")
+        assert report_type_keywords("季报") == ()
+
 
 class TestPeriodOrdering:
     def test_sort_key_is_chronological_within_year(self):
-        keys = [period_sort_key(period) for period in ("2026Q1", "2026H1", "2026Q3", "2026FY")]
-        assert keys == sorted(keys)
+        assert period_sort_key("2026Q1") == (2026, 1)
+        assert period_sort_key("2026H1") == (2026, 2)
+        assert period_sort_key("2026Q3") == (2026, 3)
+        assert period_sort_key("2026FY") == (2026, 4)
 
     def test_sort_periods_newest_first(self):
         periods = ["2025FY", "2026Q1", "2024FY", "2026H1", "bogus"]
         assert sort_periods(periods) == ["2026H1", "2026Q1", "2025FY", "2024FY"]
 
-    def test_list_periods_between_inclusive(self):
+    def test_list_periods_between_inclusive_newest_first(self):
         assert list_periods_between("2025FY", "2026H1") == [
-            "2025FY",
-            "2026Q1",
             "2026H1",
+            "2026Q1",
+            "2025FY",
         ]
 
     def test_list_periods_between_accepts_reversed_bounds(self):

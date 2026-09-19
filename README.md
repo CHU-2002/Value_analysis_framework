@@ -111,7 +111,7 @@ export TUSHARE_TOKEN='your_token_here'
 # 最新一期（自动判定 2026H1 / 2026Q1 / 2025FY ...）
 .venv/bin/python scripts/download_report.py --stock-code 600887 --report-type auto --save-dir output/600887_伊利
 
-# 补齐某期次之后的所有已发布期次，并写 sources_index.json
+# 补齐某期次之后的所有已发布期次，并写 sources_index.json（已有期次自动跳过，--force 强制重下）
 .venv/bin/python scripts/download_report.py --stock-code 600887 --report-type auto --since 2026Q1 --save-dir output/600887_伊利
 
 # 只看最新一期是什么
