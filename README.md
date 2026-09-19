@@ -217,7 +217,7 @@ Value_analysis_framework/
 │   ├── download_report.py        # 定期报告 PDF 下载（年报/中报/一季报/三季报）
 │   ├── periods.py                # 期次标识（2026Q1/H1/Q3/FY）解析与推算
 │   ├── version.py                # 框架版本与提示词/代码指纹
-│   ├── runs.py                   # run-store：new/resolve/finish/adopt/export
+│   ├── runs.py                   # run-store：new/resolve/finish/adopt/export/downstream
 │   ├── analysis_status.py        # 更新判定：最新 / 需增量 / 需全量重跑
 │   ├── pdf_preprocessor.py       # 年报章节提取（按期次产出）
 │   ├── value_analysis_engine.py  # 价值分析预计算

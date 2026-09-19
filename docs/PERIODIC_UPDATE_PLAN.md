@@ -353,7 +353,7 @@ legacy 扁平目录（无 manifest）标 `legacy_layout`；`/business-analysis` 
 | 一季报 / 三季报内容单薄，强行分析会失真 | 变化不大的维度沿用上次年报证据并标注；变化报告显式写「本期未披露」 |
 | 四模块全量重跑成本高 | 一期正确性优先；`--light` 结转模式留作二期可选，不在一期放宽 resolver 约束 |
 | 快照磁盘占用（默认真实复制） | 用复制保证旧 run 不被原地刷新污染（实现期评审发现硬链接会被 `pdf_sections.json` / `data_pack_market.md` 的原地覆盖写击穿）；`--hardlink` 仅作显式 opt-in |
-| run-store 重构触及全部命令路径 | 用 `runs.py resolve` 统一解析 + `resolve_qualitative` 双入参兼容；PR3 先合、命令接线放 PR5，期间旧布局仍可读 |
+| run-store 重构触及全部命令路径 | 用 `runs.py resolve` 统一解析出 run 目录；`resolve_qualitative` 只接受 run 目录或 legacy 扁平目录（**不解析 `latest.json`**）。`/value-analysis` 已接线；`/valuation` 与 `/buy-sell-plan` 尚未接线，期间旧布局仍可读 |
 | 根目录镜像 `published/` 与 run 产物不一致 | 合同测试断言哈希一致；`published/` 明确标注为派生、不作为输入 |
 
 ---
