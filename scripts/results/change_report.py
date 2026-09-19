@@ -34,15 +34,39 @@ def _require_type(result: dict[str, Any], expected: str) -> None:
         )
 
 
-def _load_optional(path: str | Path | None, expected_type: str) -> dict[str, Any] | None:
+def _load_optional(
+    path: str | Path | None,
+    expected_type: str,
+    *,
+    strict: bool = True,
+    missing: list[str] | None = None,
+    errors: list[dict[str, str]] | None = None,
+) -> dict[str, Any] | None:
+    """Load an optional result, recording (or raising) when it is unusable.
+
+    ``strict=False`` downgrades a missing/wrong-typed/malformed file into a
+    recorded diagnostic instead of failing the whole change report.
+    """
+
     if path is None:
         return None
     candidate = Path(path)
     if not candidate.is_file():
+        if strict:
+            raise ValueError(f"file not found: {candidate}")
+        if missing is not None:
+            missing.append(str(candidate))
         return None
-    result = load_result(candidate)
-    _require_type(result, expected_type)
-    return result
+    try:
+        result = load_result(candidate)
+        _require_type(result, expected_type)
+        return result
+    except ValueError as exc:
+        if strict:
+            raise
+        if errors is not None:
+            errors.append({"path": str(candidate), "error": str(exc)})
+        return None
 
 
 def _card(result: dict[str, Any] | None, *, max_claims: int, max_evidence: int) -> dict[str, Any] | None:
@@ -67,8 +91,19 @@ def build_change_report_context(
 
     delta = load_result(delta_result_path)
     _require_type(delta, "qualitative.period_delta")
+    missing_inputs: list[str] = []
+    load_errors: list[dict[str, str]] = []
+    # This run's own synthesis is authoritative: a broken one is an error.
     synthesis = _load_optional(synthesis_result_path, "qualitative.synthesis")
-    prior = _load_optional(prior_synthesis_path, "qualitative.synthesis")
+    # The previous run's synthesis is advisory: a missing or stale one must
+    # degrade the report, not make the update impossible.
+    prior = _load_optional(
+        prior_synthesis_path,
+        "qualitative.synthesis",
+        strict=False,
+        missing=missing_inputs,
+        errors=load_errors,
+    )
 
     evidence_index = json.loads(Path(evidence_index_path).read_text(encoding="utf-8"))
     if not isinstance(evidence_index, dict) or evidence_index.get("schema") != "investment.evidence_index":
@@ -149,6 +184,14 @@ def build_change_report_context(
         prior_claims: int,
         synthesis_claims: int,
     ) -> dict[str, Any]:
+        synthesis_card = (
+            _card(synthesis, max_claims=synthesis_claims, max_evidence=8)
+            if with_synthesis
+            else None
+        )
+        prior_card = (
+            _card(prior, max_claims=prior_claims, max_evidence=10) if with_prior else None
+        )
         payload: dict[str, Any] = {
             "schema": CHANGE_REPORT_CONTEXT_SCHEMA,
             "schema_version": CHANGE_REPORT_CONTEXT_VERSION,
@@ -157,20 +200,24 @@ def build_change_report_context(
             "report_period": report_period,
             "comparable_period": comparable_period,
             "period_delta": _card(delta, max_claims=12, max_evidence=16),
-            "synthesis": (
-                _card(synthesis, max_claims=synthesis_claims, max_evidence=8)
-                if with_synthesis
-                else None
-            ),
-            "prior_synthesis": (
-                _card(prior, max_claims=prior_claims, max_evidence=10) if with_prior else None
-            ),
+            "synthesis": synthesis_card,
+            "prior_synthesis": prior_card,
             "reconciliation": reconciliation,
+            # Part of the written JSON, so it is measured by the budget below.
+            "degraded": {
+                "prior_synthesis_dropped": prior is not None and prior_card is None,
+                "synthesis_dropped": synthesis is not None and synthesis_card is None,
+                "prior_evidence_unavailable": (
+                    0 if prior_card is None else prior_evidence_unavailable
+                ),
+                "missing_inputs": list(missing_inputs),
+                "unusable_inputs": list(load_errors),
+            },
             "instructions": {
                 "must_state_comparison_basis": True,
                 "must_diff_previous_conclusions": True,
                 "must_cite_evidence": True,
-                "cumulative_vs_single_quarter": "Q1/H1/Q3 are year-to-date cumulative; derive single quarters by subtraction and state it.",
+                "cumulative_vs_single_quarter": "Q1/H1/Q3 are year-to-date cumulative; derive single quarters by subtraction and state it. When the input lacks the required prior cumulative period, write 无法计算 instead of inventing a quarter.",
                 "missing_section_wording": "本期未披露",
                 "cite_prior_via": "Cite previous conclusions through prior_analysis:* evidence ids; the previous run's own evidence ids belong to that run's index and may be unavailable here.",
                 "source_of_truth": "period_delta and the supplied deterministic metrics; never recalculate",
@@ -216,11 +263,6 @@ def build_change_report_context(
             "the period-delta result alone exceeds the budget"
         )
 
-    payload["degraded"] = {
-        "prior_synthesis_dropped": prior is not None and payload["prior_synthesis"] is None,
-        "synthesis_dropped": synthesis is not None and payload["synthesis"] is None,
-        "prior_evidence_unavailable": prior_evidence_unavailable,
-    }
     return payload
 
 

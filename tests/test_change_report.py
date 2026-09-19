@@ -165,6 +165,8 @@ class TestBuildChangeReportContext:
             "prior_synthesis_dropped": False,
             "synthesis_dropped": False,
             "prior_evidence_unavailable": 0,
+            "missing_inputs": [],
+            "unusable_inputs": [],
         }
 
     def test_optional_inputs_absent(self, tmp_path):
@@ -179,6 +181,8 @@ class TestBuildChangeReportContext:
             "prior_synthesis_dropped": False,
             "synthesis_dropped": False,
             "prior_evidence_unavailable": 0,
+            "missing_inputs": [],
+            "unusable_inputs": [],
         }
 
     def test_rejects_non_delta_result(self, tmp_path):
@@ -352,3 +356,94 @@ class TestPriorEvidenceDowngrade:
 
         assert payload["degraded"]["prior_evidence_unavailable"] == 0
         assert payload["prior_synthesis"]["evidence"]
+
+
+class TestBudgetAndDegradationSemantics:
+    @staticmethod
+    def _size(payload):
+        return len(json.dumps(payload, ensure_ascii=False, indent=2)) + 1
+
+    def test_degraded_block_is_counted_in_the_budget(self, tmp_path):
+        index = _write_index(tmp_path)
+        delta = _write(tmp_path, "delta.json", _delta_result())
+        synthesis = _write(tmp_path, "synthesis.json", _synthesis_result(RUN_ID, ("market_data:3:001",)))
+        prior = _write(tmp_path, "prior.json", _synthesis_result(PRIOR_RUN_ID))
+
+        full = build_change_report_context(
+            delta_result_path=delta,
+            evidence_index_path=index,
+            synthesis_result_path=synthesis,
+            prior_synthesis_path=prior,
+        )
+        budget = full["budget"]["actual_chars"] - 50
+        tight = build_change_report_context(
+            delta_result_path=delta,
+            evidence_index_path=index,
+            synthesis_result_path=synthesis,
+            prior_synthesis_path=prior,
+            max_chars=budget,
+        )
+
+        assert self._size(tight) <= budget
+        assert tight["budget"]["actual_chars"] == self._size(tight)
+
+    def test_given_but_missing_synthesis_is_an_error(self, tmp_path):
+        index = _write_index(tmp_path)
+        delta = _write(tmp_path, "delta.json", _delta_result())
+        with pytest.raises(ValueError, match="file not found"):
+            build_change_report_context(
+                delta_result_path=delta,
+                evidence_index_path=index,
+                synthesis_result_path=tmp_path / "nope.json",
+            )
+
+    def test_missing_prior_is_reported_not_fatal(self, tmp_path):
+        index = _write_index(tmp_path)
+        delta = _write(tmp_path, "delta.json", _delta_result())
+
+        payload = build_change_report_context(
+            delta_result_path=delta,
+            evidence_index_path=index,
+            prior_synthesis_path=tmp_path / "nope.json",
+        )
+
+        assert payload["degraded"]["missing_inputs"] == [str(tmp_path / "nope.json")]
+        assert payload["prior_synthesis"] is None
+
+    def test_wrong_type_prior_is_downgraded(self, tmp_path):
+        index = _write_index(tmp_path)
+        delta = _write(tmp_path, "delta.json", _delta_result())
+        wrong = _write(tmp_path, "wrong.json", _delta_result())  # period_delta, not synthesis
+
+        payload = build_change_report_context(
+            delta_result_path=delta,
+            evidence_index_path=index,
+            prior_synthesis_path=wrong,
+        )
+
+        assert payload["prior_synthesis"] is None
+        assert payload["degraded"]["unusable_inputs"]
+        assert "qualitative.synthesis" in payload["degraded"]["unusable_inputs"][0]["error"]
+
+    def test_prior_evidence_count_is_zero_when_card_is_dropped(self, tmp_path):
+        index = _write_index(tmp_path)
+        delta = _write(tmp_path, "delta.json", _delta_result())
+        prior_payload = _synthesis_result(PRIOR_RUN_ID)
+        prior_payload["evidence"][0]["locator"] = {"path": "/old/x.json", "section": "summary", "chunk": 1}
+        prior_payload["evidence"][0]["quote"] = "旧快照摘录"
+        prior = _write(tmp_path, "prior.json", prior_payload)
+
+        # A budget that fits the delta but forces the prior card out entirely.
+        minimal = build_change_report_context(
+            delta_result_path=delta, evidence_index_path=index
+        )["budget"]["actual_chars"]
+        payload = build_change_report_context(
+            delta_result_path=delta,
+            evidence_index_path=index,
+            prior_synthesis_path=prior,
+            max_chars=minimal,
+        )
+
+        assert payload["prior_synthesis"] is None
+        assert payload["degraded"]["prior_synthesis_dropped"] is True
+        assert payload["degraded"]["prior_evidence_unavailable"] == 0

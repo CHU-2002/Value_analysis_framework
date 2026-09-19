@@ -285,7 +285,7 @@ class TestPriorAnalysisBudget:
         assert len(prior_ids) == len(MODULE_CONFIG["period_delta"]["prior_analysis"])
         assert bundle["selection"]["missing_prior_analysis"] == []
 
-    def test_wide_index_leaves_room_for_market_and_pdf(self, tmp_path):
+    def test_wide_index_saturates_the_limit_without_losing_other_sources(self, tmp_path):
         index_path = tmp_path / "index.json"
         index_path.write_text(json.dumps(self._wide_index(), ensure_ascii=False), encoding="utf-8")
 
@@ -298,5 +298,76 @@ class TestPriorAnalysisBudget:
         )
 
         sources = {item["source_id"] for item in bundle["evidence"]}
-        assert "market_data" in sources or "pdf_sections" in sources
-        assert len(bundle["evidence"]) <= 12
+        # 6 prior sections + 12 other candidates exceed the limit of 12, so the
+        # limit must be exactly saturated while still covering this period's data.
+        assert len(bundle["evidence"]) == 12
+        assert "prior_analysis" in sources
+        assert sources & {"market_data", "pdf_sections"}
+
+    def test_omitted_prior_sections_are_reported(self, tmp_path):
+        index_path = tmp_path / "index.json"
+        index_path.write_text(json.dumps(self._wide_index(), ensure_ascii=False), encoding="utf-8")
+
+        bundle = build_module_context(
+            "period_delta",
+            evidence_index_path=index_path,
+            max_chars=24000,
+            max_evidence=3,
+            run_id=RUN_ID,
+            subject=SUBJECT,
+        )
+
+        prior_ids = [
+            item["evidence_id"] for item in bundle["evidence"] if item["source_id"] == "prior_analysis"
+        ]
+        assert len(prior_ids) == 3
+        omitted = set(MODULE_CONFIG["period_delta"]["prior_analysis"]) - {
+            evidence_id.split(":")[1] for evidence_id in prior_ids
+        }
+        assert set(bundle["selection"]["missing_prior_analysis"]) == omitted
+        assert omitted
+
+    def test_other_modules_do_not_carry_prior_keys(self, tmp_path):
+        index_path = tmp_path / "index.json"
+        index_path.write_text(json.dumps(self._wide_index(), ensure_ascii=False), encoding="utf-8")
+        bundle = build_module_context(
+            "business_moat", evidence_index_path=index_path, max_chars=24000, run_id=RUN_ID, subject=SUBJECT
+        )
+        assert "prior_analysis_sections" not in bundle["selection"]
+        assert "missing_prior_analysis" not in bundle["selection"]
+
+
+class TestUpdateFlowDocumentation:
+    """The documented update flow must match the tools it calls."""
+
+    def test_documented_sections_path_matches_the_tool_default(self):
+        from pdf_preprocessor import resolve_output_path
+
+        # The tool writes next to the PDF by default; the flow must use exactly
+        # this path for both the parser and the run snapshot.
+        assert (
+            resolve_output_path("/x/sources/pdf/600887_2026_半年报.pdf", "2026H1", None)
+            == "/x/sources/pdf/pdf_sections_2026H1.json"
+        )
+
+        coordinator = (ROOT / "shared/qualitative/coordinator_update.md").read_text(encoding="utf-8")
+        assert "sources/pdf_sections/" not in coordinator
+        assert coordinator.count("sources/pdf/pdf_sections_{period}.json") >= 2  # step2 --output, step3 --input
+        assert "pdf_sections_{period}.json" in coordinator  # layout diagram
+        assert "tushare_collector.py" in coordinator
+
+        for command_dir in (".claude/commands", ".opencode/commands"):
+            command = (ROOT / command_dir / "update-analysis.md").read_text(encoding="utf-8")
+            assert "sources/pdf_sections/" not in command
+            assert "sources/pdf/pdf_sections_{period}.json" in command
+            assert "tushare_collector.py" in command
+
+    def test_documented_exit_codes_match_the_detector(self):
+        coordinator = (ROOT / "shared/qualitative/coordinator_update.md").read_text(encoding="utf-8")
+        # inputs_changed maps to a full rerun (exit 3), not to a plain new report.
+        assert "退出码 `1`：存在**新报告**" in coordinator
+        assert "输入变化" in coordinator.split("退出码 `3`")[1].split("\n")[0]
+        for command_dir in (".claude/commands", ".opencode/commands"):
+            command = (ROOT / command_dir / "update-analysis.md").read_text(encoding="utf-8")
+            assert "| 1 | a new report is available |" in command
+            assert "changed inputs" in command

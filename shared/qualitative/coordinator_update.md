@@ -53,8 +53,8 @@ python3 scripts/analysis_status.py --company-dir "{company_dir}" --ticker "{tick
 ```
 
 - 退出码 `0`：已是最新，向用户说明并停止。
-- 退出码 `1`：存在新报告或输入变化 → 走增量更新。
-- 退出码 `3`：需要全量重跑（框架/协议变化，或记录损坏）→ 仍使用新 run，并在变化报告中说明触发原因。
+- 退出码 `1`：存在**新报告** → 走增量更新。
+- 退出码 `3`：需要全量重跑（框架/协议变化、输入变化，或记录损坏/未完成）→ 仍使用新 run，并在变化报告中说明触发原因。
 - 退出码 `2`：参数错误。
 
 ---
@@ -73,15 +73,26 @@ python3 scripts/download_report.py \
 - 返回 `PARTIAL` / `FAILED` 时先向用户报告缺失期次，再决定是否以降级模式继续。
 - 至少要有本期（最新已发布期次）的 PDF；缺少上年同期 PDF 时仍可做同比，因为数据包含有上年同期列。
 
+### Step 1B：刷新数据包（必须在 `runs.py new` 之前完成）
+
+```bash
+python3 scripts/tushare_collector.py --code "{ts_code}" --output "{company_dir}/data_pack_market.md"
+```
+
+本步骤不可省略：`period_delta` 的同比与单季拆分完全依赖数据包中的本期列。若跳过，`runs.py new` 快照到的仍是上一期数据，同比/单季会静默降级为 `null`/`无法计算`。
+
 ## Step 2：章节解析
 
 对**本期**报告（以及需要对照的上年同期报告）分别执行：
 
 ```bash
-python3 scripts/pdf_preprocessor.py --pdf "{company_dir}/sources/pdf/<本期报告>.pdf" --period "<本期期次>"
+python3 scripts/pdf_preprocessor.py \
+  --pdf "{company_dir}/sources/pdf/<本期报告>.pdf" \
+  --period "<本期期次>" \
+  --output "{company_dir}/sources/pdf/pdf_sections_{period}.json"
 ```
 
-产物为 `pdf_sections_{period}.json`；脚注提取按 `coordinator_v2.md` Step 1C 的清单产出 `data_pack_report.md`。
+`--output` 必须显式给出：`pdf_preprocessor` 的默认输出是 **PDF 同目录**的 `pdf_sections_{period}.json`，而下一步 `runs.py new` 按 **basename** 快照输入，因此路径必须与 Step 3 完全一致。产物为 `pdf_sections_{period}.json`；脚注提取按 `coordinator_v2.md` Step 1C 的清单产出 `data_pack_report.md`。
 
 ## Step 3：签发 run
 
@@ -96,7 +107,7 @@ python3 scripts/runs.py new \
   --supersedes "<上一 run_id>" \
   --input "{company_dir}/data_pack_market.md" \
   --input "{company_dir}/sources/pdf/<本期报告>.pdf" \
-  --input "{company_dir}/sources/pdf_sections/<本期期次>.json"
+  --input "{company_dir}/sources/pdf/pdf_sections_{period}.json"
 ```
 
 把输出的 run 目录记为 `{run_dir}`。该 run 的输入是**私有快照**，此后产生的行情刷新不会污染它。
@@ -237,9 +248,10 @@ python3 scripts/runs.py finish \
 ├── record.json                       # 分析记录卡
 ├── history.jsonl                     # 追加式台账
 ├── sources/
-│   ├── pdf/{period}.pdf
-│   ├── pdf_sections/{period}.json
-│   └── pdf/sources_index.json        # period → 文件 + size + sha256 + 公告日
+│   └── pdf/
+│       ├── {period}.pdf
+│       ├── pdf_sections_{period}.json
+│       └── sources_index.json        # period → 文件 + size + sha256 + 公告日
 └── runs/{run_id}/
     ├── run.json
     ├── inputs/                       # run 私有输入快照

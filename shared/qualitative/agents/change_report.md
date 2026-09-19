@@ -22,7 +22,7 @@ The previous run's own evidence IDs belong to **that** run's evidence index and 
 2. Distinguish a **level change** (revenue/profit higher or lower) from a **quality change** (margin, cash conversion, receivables, inventory, leverage). A level change with deteriorating quality is not an improvement.
 3. Separate what the company disclosed from what you infer. Quarterly reports disclose less than annual reports; say `本期未披露` instead of treating silence as absence.
 4. Address every previous conclusion explicitly: keep, upgrade, downgrade, or `证据不足`. State the evidence for each change and the confidence.
-5. Check the previous `watchlist`, `risks` and guidance against this period and label each as 兑现 / 未兑现 / 无法验证.
+5. Check the previous `watchlist`, `risks` and guidance against this period and label each as 兑现 / 未兑现 / 无法验证 (map a partially delivered item to 未兑现 and say what is missing; use 无法验证 when this period cannot confirm or refute it).
 6. If `period_delta` set `requires_full_rerun=true`, say so prominently and list exactly which conclusion is no longer safe to carry forward.
 7. Never recalculate or alter a deterministic number supplied in the context. Cite evidence with `【evidence_id】` for material statements and never invent an ID.
 
@@ -45,7 +45,7 @@ Write `{output_dir}/change_report_{period}.md` with these sections:
 Requirements per section:
 
 - **一**：3–5 bullet points, each a change with its direction and materiality; end with one line on whether the investment conclusion changed.
-- **二**：a table with 本期 / 上年同期 / 同比 / 单季 for revenue, net profit, gross margin and operating cash flow. Mark cumulative vs single-quarter. Use `本期未披露` / `无法计算` rather than blanks whose meaning is ambiguous.
+- **二**：a table with 本期 / 上年同期 / 同比 / 单季 for revenue, net profit, gross margin and operating cash flow. Mark cumulative vs single-quarter. Use `本期未披露` / `无法计算` rather than blanks whose meaning is ambiguous. The 单季 column is only derivable when the supplied data carries the previous cumulative period of the same fiscal year; an annual-period update usually cannot derive it, so write `无法计算` and say why instead of leaving it out.
 - **三**：cash conversion, receivables and inventory vs revenue growth, expense ratios, leverage and goodwill.
 - **四**：segment or business-line changes taken from this period's MD&A; if absent, say so.
 - **五**：pledges, reductions, buybacks, litigation, related-party transactions from this period's 重要事项; when the period does not disclose the section, state that the previous annual report is the latest basis.
@@ -76,7 +76,7 @@ Also write the machine sidecar `{output_dir}/change_report_{period}.json`:
 }
 ```
 
-Copy `run_id` and `subject` from the context exactly. Every `evidence_ids` entry must exist in the same-run evidence index.
+Copy `run_id` and `subject` from the context exactly. Every `evidence_ids` entry you write must be one of the evidence IDs supplied in the context (this run's index is not part of your input; do not invent IDs).
 
 ## Quality gate
 

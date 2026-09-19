@@ -284,12 +284,22 @@ def build_module_context(
                 "keywords": config["keywords"],
                 "evidence_coverage": retained_coverage,
                 "missing_pdf_sections": [key for key in config["pdf_sections"] if key not in parsed_pdf],
-                "prior_analysis_sections": config.get("prior_analysis", []),
-                "missing_prior_analysis": [
-                    key
-                    for key in config.get("prior_analysis", [])
-                    if retained_coverage.get(f"prior_analysis:{key}") == "missing"
-                ],
+                **(
+                    {
+                        "prior_analysis_sections": config["prior_analysis"],
+                        # ``omitted`` means the prior conclusion was available in
+                        # the index but did not fit the budget: that is a visible
+                        # gap too, not a silent success.
+                        "missing_prior_analysis": [
+                            key
+                            for key in config["prior_analysis"]
+                            if retained_coverage.get(f"prior_analysis:{key}")
+                            in {"missing", "omitted"}
+                        ],
+                    }
+                    if config.get("prior_analysis")
+                    else {}
+                ),
             },
         }
         if run_id is not None:

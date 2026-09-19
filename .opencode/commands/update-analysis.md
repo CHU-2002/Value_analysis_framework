@@ -16,8 +16,8 @@ python3 scripts/analysis_status.py --company-dir "{company_dir}" --ticker "{tick
 | Exit code | Meaning | Action |
 |-----------|---------|--------|
 | 0 | already up to date | report this to the user and stop; do not re-run analysis |
-| 1 | new report or changed inputs | continue with the incremental flow |
-| 3 | framework/schema changed or record broken | continue, but the change report must state that the prior basis was invalidated |
+| 1 | a new report is available | continue with the incremental flow |
+| 3 | changed inputs, framework/schema change, incomplete run, or broken record | continue, but the change report must state that the prior basis was invalidated |
 | 2 | invocation error | fix the invocation |
 
 - No analysis record at all → run `/business-analysis {stock_code}` first to establish a baseline, then return here. Never fabricate an incremental update without a record.
@@ -38,11 +38,20 @@ python3 scripts/download_report.py \
 - Already-held periods are skipped; add `--force` only when the user asks for a re-download.
 - If the result is `PARTIAL` or `FAILED`, stop and tell the user which periods are missing before continuing.
 
+### Step 1B: Refresh the market data pack (before opening the run)
+```bash
+python3 scripts/tushare_collector.py --code "{ticker}" --output "{company_dir}/data_pack_market.md"
+```
+Do not skip this: `period_delta` derives every 同比 / 单季 figure from the pack's current-period columns. Without it the run snapshots the previous period's numbers and those metrics silently degrade to `null` / `无法计算`.
+
 ### Step 2: Parse report sections per period
 ```bash
-python3 scripts/pdf_preprocessor.py --pdf "{company_dir}/sources/pdf/<period report>.pdf" --period "<period>"
+python3 scripts/pdf_preprocessor.py \
+  --pdf "{company_dir}/sources/pdf/<period report>.pdf" \
+  --period "<period>" \
+  --output "{company_dir}/sources/pdf/pdf_sections_{period}.json"
 ```
-Outputs `pdf_sections_{period}.json`. Extract footnotes into `data_pack_report.md` as described in `coordinator_v2.md` Step 1C when the period discloses them (quarterly reports usually do not).
+`--output` must be explicit: the tool's default is `pdf_sections_{period}.json` **next to the PDF**, and `runs.py new` snapshots inputs by basename, so this path must match Step 3 exactly. Extract footnotes into `data_pack_report.md` as described in `coordinator_v2.md` Step 1C when the period discloses them (quarterly reports usually do not).
 
 ### Step 3: Open a new run
 ```bash
