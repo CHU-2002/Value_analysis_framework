@@ -11,9 +11,15 @@ Before executing, verify these files exist in output/{code}_{company}/:
 - **Structured qualitative results** — preferred; `qualitative_report.md` is a fallback only in directories without `run_manifest.json` when the resolver selects `source=legacy`.
 - **data_pack_market.md** — required. If missing, same as above.
 
+Resolve the run directory first. `resolve_qualitative` accepts a **run directory** (one containing `run_manifest.json`) or a legacy flat directory — it does **not** follow `latest.json`, so passing the company directory would silently fall back to `source=legacy`/`unavailable`. When `{output_dir}/latest.json` exists, resolve the latest run and store the printed path as `{run_dir}`:
+```bash
+.venv/bin/python scripts/runs.py resolve --company-dir "{output_dir}" --latest
+```
+Without `latest.json`, set `{run_dir}` = `{output_dir}` (legacy flat layout).
+
 Resolve and validate the qualitative source:
 ```bash
-.venv/bin/python -m scripts.results.resolve_qualitative --output-dir "{output_dir}" --ticker "{ticker}" --output "{output_dir}/qualitative_input.json"
+.venv/bin/python -m scripts.results.resolve_qualitative --output-dir "{run_dir}" --ticker "{ticker}" --output "{run_dir}/qualitative_input.json"
 ```
 Status 3 means no consumable qualitative source; stop and request `/business-analysis {ticker}`. Status 2 is an invocation error.
 
@@ -33,7 +39,7 @@ Read strategies/value/valuation/coordinator.md for the full pipeline specificati
 - Read strategies/value/valuation/phase2_valuation.md for qualitative adjustment instructions
 - Read strategies/value/valuation/references/valuation_methods.md for methodology reference
 - Read strategies/value/valuation/references/report_template.md for output format
-- Read output/{code}_{company}/qualitative_input.json for validated qualitative parameters, claims, risks, and evidence
+- Read {run_dir}/qualitative_input.json for validated qualitative parameters, claims, risks, and evidence
 - Read qualitative_report.md only when `source=legacy`
 - Read output/{code}_{company}/valuation_computed.md for all computed numbers
 - Apply qualitative adjustments: D1 revenue quality → growth rate, D2 moat → terminal growth, D3 cycle → scenario weights, D4 management → governance discount

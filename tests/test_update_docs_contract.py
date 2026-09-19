@@ -148,3 +148,28 @@ def test_implementation_record_names_the_main_touched_files():
         ".opencode/commands/value-analysis.md",
     ):
         assert needle in plan, needle
+
+
+# --- REQ-005: 下游命令 / 协调器必须先把 latest.json 解析成 run_dir ---
+
+RUN_DIR_DOCS = [
+    ".claude/commands/value-analysis.md",
+    ".claude/commands/valuation.md",
+    ".opencode/commands/valuation.md",
+    ".claude/commands/portfolio-strategy.md",
+    ".opencode/commands/portfolio-strategy.md",
+    "strategies/value/valuation/coordinator.md",
+    "strategies/portfolio/coordinator.md",
+]
+
+
+@pytest.mark.parametrize("doc", RUN_DIR_DOCS)
+def test_downstream_docs_resolve_the_run_directory(doc):
+    """把公司目录直接交给 resolver 会在 run-store 布局下静默退回 unavailable。"""
+    content = (ROOT / doc).read_text(encoding="utf-8")
+
+    assert "runs.py resolve --company-dir" in content, doc
+    assert "{run_dir}" in content, doc
+    assert 'resolve_qualitative --output-dir "{run_dir}"' in content, doc
+    assert 'resolve_qualitative --output-dir "{output_dir}"' not in content, doc
+    assert 'resolve_qualitative --output-dir "{company_output_dir}"' not in content, doc

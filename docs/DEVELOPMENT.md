@@ -150,14 +150,14 @@ python scripts/regression_gate.py --new     # 打印可直接填写的记录草�
 
 | 指标 | 现行门禁 / 基线 | 出处 |
 |------|------------------|------|
-| 测试覆盖率 | ≥ 74%（基线 76.37%） | CI、`make cov` |
-| 测试 scope | ≤ 40 文件、≤ 1600 用例（当前 32 / 1447） | `docs/TEST_SCOPE.md`、`make scope-check` |
+| 测试覆盖率 | ≥ 74%（基线 76.44%） | CI、`make cov` |
+| 测试 scope | ≤ 40 文件、≤ 1600 用例（当前 33 / 1459） | `docs/TEST_SCOPE.md`、`make scope-check` |
 | 需求追溯 | 台账 ↔ 条目 ↔ 测试引用一致 | `tests/test_requirement_traceability.py` |
 | PR 描述 | 需求编号 + 研发自测（手工）非空 | `scripts/pr_body_guard.py` |
 | 独立验收 | 报告覆盖本批 REQ 且 AC 全打勾 | `scripts/acceptance_gate.py` |
 | 批量回归 | 每 3 个特性合入必须留档 | `scripts/regression_gate.py` |
 | PR 标题 | Conventional Commits，≤ 72 字符 | CI `pr-title` |
-| 全量测试耗时 | 约 58s（1444 passed / 3 skipped） | `make cov` |
+| 全量测试耗时 | 约 55s（1456 passed / 3 skipped） | `make cov` |
 
 ## 15. 反模式
 
