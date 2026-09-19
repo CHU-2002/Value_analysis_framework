@@ -29,7 +29,7 @@ If the company directory has iteration state (`record.json` / `latest.json`), ch
 - exit `0` (up to date) → continue.
 - Route by `reasons[].code` rather than by exit code alone:
   - `new_report` / `framework_changed` / `schema_changed` / `inputs_changed` / `run_failed` → recommend `/update-analysis {stock_code}` first.
-  - `downstream_stale` only means the frozen valuation inputs belong to an older period; `/update-analysis` will **not** clear it. Continue here, disclose it, and clear it after this run finishes with `python3 scripts/runs.py downstream --company-dir "{output_dir}" --fresh all`. Note the aggregate `downstream.stale` disappears only once **every** component is marked fresh — clearing `value_computed` alone leaves `analysis_status` at `stale:downstream_stale`.
+  - `downstream_stale` only means the frozen valuation inputs belong to an older period; `/update-analysis` will **not** clear it. Continue here, disclose it, and clear only the component this command refreshes: `python3 scripts/runs.py downstream --company-dir "{output_dir}" --fresh value_computed`. `buy_sell_basis` is produced by `/buy-sell-plan`, not here, so the aggregate `downstream.stale` intentionally stays `true` (and `analysis_status` keeps reporting `stale:downstream_stale`) until the buy/sell plan is refreshed too — run `--fresh all` only after that.
 - If the user chooses to continue on a stale period, state in the report that the analysis is based on an older period and record it as a data-freshness limitation. Never silently consume stale conclusions.
 
 Resolve the qualitative source first:

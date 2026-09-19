@@ -128,7 +128,7 @@ cp "{output_dir}/data_pack_market.md" "{output_dir}/data_pack_market_current.md"
 .venv/bin/python scripts/tushare_collector.py --code "{ticker}" --output "{output_dir}/data_pack_market_current.md" --refresh-market
 ```
 
-保留 manifest 固定的原始 `data_pack_market.md`，只刷新副本。下游定性仍以原 run 为准；若发现影响定性判断的新财报，重新执行 `/business-analysis`。
+保留 manifest 固定的原始 `data_pack_market.md`，只刷新副本。下游定性仍以原 run 为准；若发现影响定性判断的新财报，**在 run-store 布局下执行 `/update-analysis {stock_code}`**（不要重跑 `/business-analysis`：它会写扁平布局并静默丢弃增量 run）；只有 legacy 扁平目录才回退到 `/business-analysis`。本步骤本身不重做完整 business-analysis。
 
 ### 目标
 - 刷新当前股价与总市值

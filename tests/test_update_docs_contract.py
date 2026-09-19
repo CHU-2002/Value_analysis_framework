@@ -97,3 +97,23 @@ def test_docs_list_every_runs_subcommand():
 
     for content in (architecture, readme):
         assert "downstream" in content
+
+
+def test_market_refresh_does_not_suggest_a_full_rerun_under_a_run_store():
+    content = (ROOT / "strategies/value/coordinator.md").read_text(encoding="utf-8")
+
+    assert "重新执行 `/business-analysis`" not in content
+    assert "/update-analysis {stock_code}" in content
+    # The refresh step still must not redo the full analysis.
+    assert "不重做完整 business-analysis" in content
+
+
+@pytest.mark.parametrize("command_dir", [".claude/commands", ".opencode/commands"])
+def test_value_analysis_clears_only_the_component_it_refreshes(command_dir):
+    content = (ROOT / command_dir / "value-analysis.md").read_text(encoding="utf-8")
+
+    # /value-analysis produces value_computed only; buy_sell_basis belongs to
+    # /buy-sell-plan, so the aggregate must stay stale until both are refreshed.
+    assert "--fresh value_computed" in content
+    assert content.index("--fresh value_computed") < content.index("--fresh all")
+    assert "buy_sell_basis" in content
