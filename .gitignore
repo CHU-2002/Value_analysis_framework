@@ -55,3 +55,4 @@ video/
 claude-progress.txt
 CLAUDE.md
 feature_list.json
+.coverage

@@ -7,10 +7,27 @@
 
 > 上游龟龟框架 v1 → v3 的架构演进见 [CHANGELOG_V2.md](CHANGELOG_V2.md)。
 
+- 需求管理：`docs/requirements/`（编号规则、状态机、优先级、`TEMPLATE.md`、需求台账 `ledger.md`），
+  首批登记 REQ-001…REQ-005，并接入 GitHub Issue / 标签 / 里程碑
+- 测试管理：`docs/TESTING.md` 测试策略、`pytest.ini`（严格 marker 与分层）、
+  按文件自动分层的 marker（`unit` / `contract` / `e2e` / `integration`）、覆盖率门禁 ≥ 74%（基线 76.37%）
+- 需求↔测试追溯门禁 `tests/test_requirement_traceability.py`：台账与需求条目一致性、
+  无悬空 `REQ-NNN` 引用、已交付需求必须有测试引用
+- 开发流程：`docs/DEVELOPMENT.md`（就绪定义 DoR、完成定义 DoD、拆分与验收流程）、
+  `Makefile` 本地校验入口（`make help` / `verify` / `cov` / `unit` / `trace`）
 ## [Unreleased]
 
 ### Added
 
+- 分支模型与三道门：一个特性一条特性分支，子 PR 合入特性分支（CI 跑全量 +
+  `pr-body` 校验研发自测栏），特性分支**直接合入 `main`** 且必须带独立验收报告
+  （`scripts/acceptance_gate.py`）；`main` 每累积 3 个特性必须补一份批量全量回归记录
+  （`scripts/regression_gate.py`），不维护长期集成分支
+- 测试 scope 登记与预算：`docs/TEST_SCOPE.md`（32 支文件 / 1447 用例）与 `scripts/test_scope.py`，
+  CI 的 `test-scope` 作业校验登记表与上限；控制 CI 成本走整体 scope 维护，不裁剪单个 PR 的范围
+- 独立验收报告模板 `docs/verification/TEMPLATE.md`、批量回归记录模板 `docs/regression/TEMPLATE.md`、
+  PR 模板新增「需求编号 / 研发自测（手工）/ 验收报告」栏位
+- `make` 新增 `scope` / `scope-write` / `scope-check` / `gates` 目标；`verify` 覆盖全部本地门禁
 - 可执行买卖计划：基于固定估值基准生成四档分批买入限价、资金比例与极端高估卖出价，并支持行情确认、成交状态和硬退出事件
 - 触发式买卖计划命令 `/buy-sell-plan`：主流程只产出报告与冻结估值，用户阅读报告后再决定是否采集当时行情生成计划，不自动生成 `buy_sell_market.json`/`buy_sell_plan.*`
 - 成熟的工程化文档：README、CONTRIBUTING、CODE_OF_CONDUCT、SECURITY、PR 与 Issue 模板

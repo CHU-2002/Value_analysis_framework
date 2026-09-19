@@ -1,3 +1,5 @@
+
+# 覆盖需求：REQ-004（增量更新分析）—— AC-1 契约三方一致、AC-2 prior_analysis 优先选入
 """Contract and context tests for the qualitative.period_delta module."""
 
 import json

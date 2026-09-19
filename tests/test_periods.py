@@ -1,3 +1,5 @@
+
+# 覆盖需求：REQ-001（定期报告发现与下载）—— AC-3 期次标识与 (year, type) 双向互转
 """Tests for scripts/periods.py"""
 
 import os

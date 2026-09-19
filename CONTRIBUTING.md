@@ -4,6 +4,7 @@
 
 ## 目录
 
+- [需求、测试与开发](#需求测试与开发)
 - [开发环境](#开发环境)
 - [分支模型](#分支模型)
 - [提交规范](#提交规范)
@@ -29,7 +30,11 @@ bash init.sh
 
 ## 分支模型
 
-`main` 分支受保护，**所有改动必须通过 Pull Request 合入**，禁止直接 push。
+`main` 受保护，**所有改动必须通过 Pull Request 合入**，禁止直接 push。
+
+工作方式是**一个特性一条特性分支**：该特性的子 PR 都开向这条特性分支（目标分支写特性分支名），
+特性做完后整支**直接合入 `main`**，并删除特性分支。不维护长期集成分支。
+判据与三道门见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
 | 分支前缀 | 用途 | 示例 |
 |----------|------|------|
@@ -43,12 +48,22 @@ bash init.sh
 工作流：
 
 ```bash
+# 1) 起一条特性分支（一个特性一条）
 git checkout main
 git pull
-git checkout -b feat/your-change
+git checkout -b feat/periodic-update
+git push -u origin feat/periodic-update
+
+# 2) 子任务：从特性分支切出，PR 开向特性分支
+git checkout feat/periodic-update
+git checkout -b feat/periodic-update-download
 # ... 修改并提交 ...
-git push -u origin feat/your-change
-gh pr create --fill
+make verify                      # 提交前自检：本地可复现的全部门禁
+git push -u origin feat/periodic-update-download
+gh pr create --base feat/periodic-update --fill
+
+# 3) 特性做完：特性分支 → main，附独立验收报告（门②）
+gh pr create --base main --head feat/periodic-update --fill
 ```
 
 ## 提交规范
@@ -88,14 +103,16 @@ Closes #42
 
 ## Pull Request 流程
 
-1. 从最新 `main` 切出主题分支。
+1. 子任务从**特性分支**切出，PR 的目标分支写**特性分支**；只有「特性分支 → `main`」的 PR
+   才把目标写成 `main`，并必须附独立验收报告。
 2. 保持 PR 聚焦：一个 PR 解决一个问题。较大的改动请拆分为可独立审阅的 PR。
 3. 填写 PR 模板（仓库会自动加载）。
-4. 确保本地验证通过：
+4. 确保本地验证通过。`make verify` 覆盖 CI 里**可在本地复现**的检查项
+   （编译/空白检查 + 全量测试 + 覆盖率门禁 + 追溯门禁 + 测试 scope 检查）；
+   依赖 PR 上下文的检查（`pr-title`、`pr-body`、`acceptance-gate`、`regression-gate`）
+   只能由 CI 执行，本地预演方式见 `make gates`。
    ```bash
-   .venv/bin/python -m pytest -q
-   .venv/bin/python -m compileall -q scripts tests
-   git diff --check
+   make verify
    ```
 5. 至少完成一次自查后再请求 review；CI 通过且至少 1 个 review 批准后才能合并。
 6. 合并前解决所有 review 评论，保持分支与 `main` 同步。
@@ -107,17 +124,37 @@ Closes #42
 
 | 检查 | 内容 |
 |------|------|
-| `pytest (3.10)` / `pytest (3.12)` | 全量测试 |
+| `pytest (3.10)` / `pytest (3.12)` | **全量**测试 + 覆盖率门禁（≥ 74%） |
 | `lint` | 编译检查与空白/冲突标记检查 |
+| `test-scope` | 测试 scope 登记表是否最新、是否超预算 |
 | `pr-title` | PR 标题符合 Conventional Commits，且不超过 72 字符 |
+| `pr-body` | PR 描述必须有需求编号与**研发自测（手工）**栏 |
+| `acceptance-gate` | 仅「特性分支 → `main`」：必须有独立验收报告且每条 AC 打勾 |
+| `regression-gate` | 仅「特性分支 → `main`」：main 每累积 3 个特性必须有批量回归记录 |
 | `ci-success` | 汇总以上检查，作为分支保护唯一必需的状态检查 |
 
 合并条件（由分支保护强制）：
 
-- `ci-success` 通过；
+- `ci-success` 通过（含 `pr-body`；「特性分支 → `main`」还含 `acceptance-gate` 与 `regression-gate`）；
 - 至少 1 个 review 批准，且 CODEOWNERS 指定的审阅人已批准；
 - 所有 review 对话已解决；
 - 分支与 `main` 同步（`strict` 模式）。
+
+## 需求、测试与开发
+
+三者用需求编号连成闭环，各有独立权威文档：
+
+| 部分 | 权威文档 | 你要交的产物 |
+|------|----------|--------------|
+| 需求 | [`docs/requirements/README.md`](docs/requirements/README.md) | `REQ-NNN` 条目 + [台账](docs/requirements/ledger.md) 一行，验收标准必须可判定 |
+| 测试 | [`docs/TESTING.md`](docs/TESTING.md) | 覆盖新行为的测试，文件里标注 `# 覆盖需求：REQ-NNN` |
+| 开发 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | 主题分支 + Conventional Commits + 聚焦的 PR，正文写 `REQ-NNN` |
+
+闭环：**需求登记 → 验收标准定稿 → 实现（PR）→ 测试追溯 → 逐条验收 → 台账状态推进**。
+就绪定义（DoR）与完成定义（DoD）见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
+
+[tests/test_requirement_traceability.py](tests/test_requirement_traceability.py) 在 CI 中强制这条链：
+台账漏登记、编号对不上、已交付需求没有测试引用，都会直接失败。
 
 ## 管理员与分支保护
 
@@ -146,8 +183,14 @@ Closes #42
 - 修改公共接口（schema、命令、解析器）时，同步更新合同测试
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
+make verify   # 本地全部门禁：lint + 全量测试 + 覆盖率 + 追溯 + scope；日常迭代可用 make unit
 ```
+
+额外要求：
+
+- 覆盖率不得低于 74%（基线 76.37%）；门禁与基线见 [docs/TESTING.md](docs/TESTING.md) §6
+- 测试文件用注释标注 `# 覆盖需求：REQ-NNN`，并写明覆盖到的 `AC-n`
+- 「要么全用新结果，要么整体退回旧报告」等既有原则要有合同测试守护
 
 ## 文档
 
@@ -162,6 +205,7 @@ Closes #42
 
 - [ ] 改动目标清晰，范围聚焦，无无关文件
 - [ ] 与现有架构和约定一致
+- [ ] 需求台账与状态已同步推进，测试里标注了 `REQ-NNN`
 - [ ] 测试覆盖新行为与失败路径，且全部通过
 - [ ] 无硬编码密钥、调试输出或临时代码
 - [ ] 错误信息可操作，不会静默失败

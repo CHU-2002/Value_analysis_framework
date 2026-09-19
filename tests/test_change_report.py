@@ -1,3 +1,5 @@
+
+# 覆盖需求：REQ-004（增量更新分析）—— AC-4 失效证据降级而非拒绝、AC-5 变化报告产出
 """Tests for scripts/results/change_report.py context builder."""
 
 import json
