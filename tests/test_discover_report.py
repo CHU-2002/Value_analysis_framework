@@ -180,12 +180,18 @@ class TestDiscoverReportFallbacks:
 
 
 class TestMain:
+    @patch("discover_report.requests.post")
     @patch("discover_report.requests.get")
-    def test_success_flow(self, mock_get, capsys):
+    def test_success_flow(self, mock_get, mock_post, capsys):
         response = MagicMock()
         response.text = SAMPLE_HTML
         response.raise_for_status = MagicMock()
         mock_get.return_value = response
+
+        cninfo_response = MagicMock()
+        cninfo_response.raise_for_status = MagicMock()
+        cninfo_response.json.return_value = {"announcements": []}
+        mock_post.return_value = cninfo_response
 
         with pytest.raises(SystemExit) as exc_info:
             main(["--stock-code", "000858", "--year", "2025", "--report-type", "年报"])
@@ -195,23 +201,36 @@ class TestMain:
         assert "status: SUCCESS" in out
         assert "report_url: https://notice.10jqka.com.cn/api/pdf/4db6de71171448c1.pdf" in out
 
+    @patch("discover_report.requests.post")
     @patch("discover_report.requests.get")
-    def test_no_match_exit_code(self, mock_get):
+    def test_no_match_exit_code(self, mock_get, mock_post):
         response = MagicMock()
         response.text = SAMPLE_HTML
         response.raise_for_status = MagicMock()
         mock_get.return_value = response
+
+        # CNINFO must be mocked too; a real POST would escape to the network.
+        cninfo_response = MagicMock()
+        cninfo_response.raise_for_status = MagicMock()
+        cninfo_response.json.return_value = {"announcements": []}
+        mock_post.return_value = cninfo_response
 
         with pytest.raises(SystemExit) as exc_info:
             main(["--stock-code", "000858", "--year", "2024", "--report-type", "年报"])
 
         assert exc_info.value.code == EXIT_NO_MATCH
 
+    @patch("discover_report.requests.post")
     @patch("discover_report.requests.get")
-    def test_network_failure_exit_code(self, mock_get):
+    def test_network_failure_exit_code(self, mock_get, mock_post):
         import requests
 
         mock_get.side_effect = requests.exceptions.ConnectionError("network down")
+
+        cninfo_response = MagicMock()
+        cninfo_response.raise_for_status = MagicMock()
+        cninfo_response.json.return_value = {"announcements": []}
+        mock_post.return_value = cninfo_response
 
         with pytest.raises(SystemExit) as exc_info:
             main(["--stock-code", "000858", "--year", "2025", "--report-type", "年报"])
