@@ -106,10 +106,10 @@ export TUSHARE_TOKEN='your_token_here'
 #    完整步骤见 shared/qualitative/coordinator_update.md 与 /update-analysis
 ```
 
-- 每次分析是一个**不可变 run**，落在 `output/{code}_{company}/runs/{run_id}/`，输入是 run 私有快照；行情刷新与新报告不会污染历史 run。
+- `/update-analysis` 的增量 run 与 `scripts/runs.py adopt` 接管的基线 run 是**不可变 run**，落在 `output/{code}_{company}/runs/{run_id}/`，输入是 run 私有快照；行情刷新与新报告不会污染历史 run。（基线 `/business-analysis` 仍写扁平布局，可用 `runs.py adopt` 转成 run。）
 - `history.jsonl` 是追加式台账，`latest.json` 是当前生效指针，`record.json` 是给人看的分析记录卡。
 - 变化报告（`change_report_{period}.md`）是独立交付物：只说明最近一段时间经营状况发生了怎样的改变，以及上一版结论是否改变。
-- 增量更新后 `value_computed.json` / `buy_sell_basis.json` 仍属旧财报期，`analysis_status` 会返回 `stale:downstream_stale`（退出码 1）；重跑 `/value-analysis` 与 `/buy-sell-plan` 后用 `scripts/runs.py downstream --fresh all` 清除标记，状态才回到 `up_to_date`。买卖计划不会自动改写。
+- 增量更新后 `value_computed.json` / `buy_sell_basis.json` 仍属旧财报期，`analysis_status` 会返回 `stale:downstream_stale`（退出码 1）；重跑 `/value-analysis` 与 `/buy-sell-plan` 后用 `scripts/runs.py downstream --company-dir "{company_dir}" --fresh all` 清除标记，状态才回到 `up_to_date`。买卖计划不会自动改写。
 
 ### 直接跑 Python 脚本
 

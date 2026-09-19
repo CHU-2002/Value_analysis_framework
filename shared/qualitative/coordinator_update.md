@@ -220,9 +220,17 @@ python3 scripts/runs.py finish \
 
 ## Step 10：下游新鲜度
 
-- `record.json` 的 `downstream.stale` 置为 `true`，提示 `value_computed.json` 与 `buy_sell_basis.json` 基于旧期次。
+- `record.json` 的 `downstream.stale` 置为 `true`，提示 `value_computed.json` 与 `buy_sell_basis.json` 基于旧期次；`analysis_status` 会返回 `stale:downstream_stale`（退出码 1）。
 - **不要自动改写买卖计划**：冻结基准仍属旧财报期，需用户显式运行 `/value-analysis` 与 `/buy-sell-plan`。
-- 向用户交付：更新后的结论路径、变化报告路径、期次、`requires_full_rerun` 状态、下游待刷新提示。
+- 用户重跑上述命令后，用以下命令清除标记（否则状态会永久停留在退出码 1）：
+
+```bash
+python3 scripts/runs.py downstream --company-dir "{company_dir}" --fresh value_computed
+# 买卖计划也刷新后：
+python3 scripts/runs.py downstream --company-dir "{company_dir}" --fresh all
+```
+
+- 向用户交付：更新后的结论路径、变化报告路径、期次、`requires_full_rerun` 状态、下游待刷新提示与清除方式。
 
 ---
 

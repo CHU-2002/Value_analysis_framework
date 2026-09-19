@@ -9,7 +9,7 @@
 3. **上下文有预算**：每个 Agent 只接收与其职责相关的有界上下文，并记录裁剪状态。
 4. **整组原子回退**：结构化结果集不完整时整体回退到旧 Markdown，绝不混用参数。
 5. **可复现**：run manifest 记录输入与产物的 SHA-256，消费者校验同源、同主体、同输入。
-6. **迭代可追溯**：每次运行是不可变的 run，带框架指纹与覆盖期次，写入追加式台账；跨 run 只通过 `supersedes` 与变化报告发生关系。
+6. **迭代可追溯**：增量运行（`/update-analysis`）与被 `adopt` 接管的基线运行是不可变 run，带框架指纹与覆盖期次，写入追加式台账；跨 run 只通过 `supersedes` 与变化报告发生关系。
 
 ## 分层结构
 
@@ -95,14 +95,14 @@ prepare
 | `governance` | D4 管理层与治理 | 始终 |
 | `mda_quality` | D5 MD&A 解读 | 始终 |
 | `holding_structure` | D6 控股结构 | 条件（`d6_trigger.json`） |
-| `period_delta` | D7 定期报告经营变化 | 仅 `/update-analysis` 增量 run |
+| `period_delta` | D7 定期报告经营变化 | 仅 `/update-analysis` 增量 run 的模块 Agent（`prepare` 会为每个 run 生成 `contexts/period_delta.json`，基线 run 不跑该 Agent） |
 
 ### 2B. 定期报告增量更新（`/update-analysis`）
 
 当最新一期定期报告发布时，不重写历史，而是新开一个 run：
 
 ```
-analysis_status ─▶ no_record | up_to_date | stale(new_report|framework_changed|inputs_changed) | broken
+analysis_status ─▶ no_record | legacy_layout | up_to_date | stale(new_report|framework_changed|schema_changed|inputs_changed|run_failed|downstream_stale) | broken | unsupported_market
       │
       ▼
 download_report（--report-type auto / --since，跳过已持有期次）
@@ -137,16 +137,16 @@ company_dir/
   latest.json      # 当前生效 run 指针
   record.json      # 分析记录卡（覆盖期次、框架、下游新鲜度）
   history.jsonl    # 追加式台账，每个 run 一行
-  sources/         # 原始输入（PDF / 期次章节 / sources_index.json）
+  sources/pdf/     # 原始输入（PDF、`pdf_sections_{period}.json`、`sources_index.json`）
   runs/{run_id}/
     run.json       # kind / primary_period / supersedes / framework
     inputs/        # run 私有输入快照（默认真实复制；--hardlink 才用硬链接）
     evidence/ contexts/ modules/ synthesis/ + 报告
 ```
 
-- `scripts/version.py` 提供 `FRAMEWORK_VERSION`、`prompt_fingerprint`（策略与提示词文件哈希）、`code_fingerprint`（git commit + 仅指纹相关路径的 dirty 状态）与 `schema_versions`，写入 manifest 的 `framework` 块与台账。
+- `scripts/version.py` 提供 `FRAMEWORK_VERSION`、`prompt_fingerprint`（策略与提示词文件哈希）、`code_fingerprint`（git commit + 仅指纹相关路径的 dirty 状态，含 `docs/BUY_SELL_CONTRACT.md`）与 `schema_versions`，写入 manifest 的 `framework` 块与台账。
 - `scripts/runs.py` 提供 `new` / `resolve` / `finish` / `adopt` / `export`；输入快照**默认真实复制**（`--hardlink` 仅在确认源文件永不被原地改写时才使用），因此行情刷新与新报告不会污染历史 run，旧 run 永久可校验。
-- `scripts/runs.py adopt` 把既有的扁平目录接管为基线 run（默认非破坏，`--prune` 才清理旧布局），并同步重写 manifest / `evidence/index.json` / `contexts/*.json` 中的输入摘要并重盖产物哈希，接管后仍可被 `resolve_qualitative` 消费。
+- `scripts/runs.py adopt` 把既有的扁平目录接管为基线 run（默认非破坏，`--prune` 才清理旧布局），并同步重写 manifest / `evidence/index.json` / `contexts/*.json` 中的输入摘要、仅对被改写的产物重盖哈希；若源目录的产物与 manifest 记录不一致则**拒绝接管**（不洗白既有篡改）。接管后仍可被 `resolve_qualitative` 消费。
 - `scripts/analysis_status.py` 是「要不要重跑、跑哪一级」的唯一决策点：退出码 `0` 最新、`1` 需增量更新、`3` 需全量重跑、`2` 参数错误；`--root --all --json` 输出全仓重跑清单。
 - `scripts/runs.py downstream --fresh` 是唯一能清除 `downstream.stale` 的入口；缺少它时增量工作流会永久停留在退出码 1（该缺口由实现期评会发现并补齐）。
 
@@ -253,7 +253,7 @@ python3 scripts/analysis_status.py --root output --all --json
 | `output/{code}_{company}/record.json` | 分析记录卡（覆盖期次、框架、下游新鲜度） |
 | `output/{code}_{company}/history.jsonl` | 追加式运行台账 |
 | `output/{code}_{company}/runs/{run_id}/` | 不可变 run（含 `inputs/` 快照） |
-| `output/{code}_{company}/sources/` | 原始输入（PDF、期次章节、`sources_index.json`） |
+| `output/{code}_{company}/sources/pdf/` | 原始输入（PDF、`pdf_sections_{period}.json`、`sources_index.json`） |
 | `output/portfolio_{timestamp}/` | 组合运行目录 |
 | `output/.collector_cache/` | Tushare 采集缓存 |
 | `contexts/` `modules/` `synthesis/` `evidence/` | 单个 run 内的标准产物 |

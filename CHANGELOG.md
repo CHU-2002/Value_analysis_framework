@@ -22,7 +22,7 @@
 - 定期报告增量更新分析的设计与实施计划 `docs/PERIODIC_UPDATE_PLAN.md`（季度/半年/年报增量更新、经营变化报告、run-store 迭代台账）
 - 定期报告（一季报/半年报/三季报/年报）发现与下载：CNINFO 四类公告分类接入、期次标识 `scripts/periods.py`、最新期次探测 `--latest`/`--report-type auto`、期次补齐 `--since` 与 `sources_index.json`
 - 可比期数据与期次章节：数据包财务报表新增「上年同期」可比列（用于同比与单季拆分）、`pdf_preprocessor.py --period` 按期次产出 `pdf_sections_{period}.json`、`prepare --primary-period` 选定主期次证据
-- 运行台账与框架指纹：`scripts/version.py`（`FRAMEWORK_VERSION`、提示词/代码指纹、schema 版本）、`scripts/runs.py`（`new`/`resolve`/`finish`/`adopt`/`export`、run 私有输入快照、`history.jsonl`/`latest.json`/`record.json`）、`scripts/analysis_status.py`（更新判定与全仓重跑清单）、manifest 加性 `framework` 块
+- 运行台账与框架指纹：`scripts/version.py`（`FRAMEWORK_VERSION`、提示词/代码指纹、schema 版本）、`scripts/runs.py`（`new`/`resolve`/`finish`/`adopt`/`export`/`downstream`、run 私有输入快照、`history.jsonl`/`latest.json`/`record.json`）、`scripts/analysis_status.py`（更新判定与全仓重跑清单）、manifest 加性 `framework` 块
 - 定期报告增量更新：`qualitative.period_delta`（D7）模块与 `shared/qualitative/agents/modules/period_delta.md`、`prior_analysis` 证据源、`scripts/results/change_report.py` 与变化报告提示词、协调器 `shared/qualitative/coordinator_update.md`、命令 `/update-analysis`
 - 结构化定性结果管线：`scripts/results/`（schema、manifest、evidence、context、prepare、reconcile、synthesis、resolver）
 - 价值分析模块 `strategies/value/` 与预计算引擎 `scripts/value_analysis_engine.py`
@@ -48,6 +48,8 @@
 - 年份路径按「实际请求的年份」校验解析结果，避免把别年份年报存成目标年份文件
 - 跨股票共用 `sources_index.json` 时不再合并期次；失败标注的相对路径按索引所在目录解析
 
+- 台账指纹范围补齐 `prompts/**`、`.claude/skills/**` 与 `docs/BUY_SELL_CONTRACT.md`，避免未提交的提示词/合同改动不被判定为框架变更
+- `runs.py adopt` 现在只对被改写的产物重盖哈希，并在源目录产物与 manifest 不符时拒绝接管；新增 `runs.py downstream --fresh` 用于清除 `downstream.stale`
 - 修复 `test_discover_report` 未 mock `requests.post` 导致 CNINFO 真实请求逃逸、CI 因 403 失败的问题
 
 - 修正 HK 式年报章节识别：当无 A 股 `第X节` 分区标记时，优先独立成行的真实标题，避免 MDA 误取「董事会报告书」、GOV 误取业务回顾中的泛词「公司治理」；补充董事长报告书、企业管治报告、受限资产等关键词，P2 恢复可识别
