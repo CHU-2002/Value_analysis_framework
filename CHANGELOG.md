@@ -19,6 +19,7 @@
 - CODEOWNERS 与可配置管理员名单 `.github/admins.yml`，管理员可直接合并 PR
 - 一键应用 main 分支保护的工作流 `setup-branch-protection`（必需 CI + 必需 review + 管理员放行）
 - 架构文档 `docs/ARCHITECTURE.md`
+- 定期报告增量更新分析的设计与实施计划 `docs/PERIODIC_UPDATE_PLAN.md`（季度/半年/年报增量更新、经营变化报告、run-store 迭代台账）
 - 结构化定性结果管线：`scripts/results/`（schema、manifest、evidence、context、prepare、reconcile、synthesis、resolver）
 - 价值分析模块 `strategies/value/` 与预计算引擎 `scripts/value_analysis_engine.py`
 - 组合策略模块 `strategies/portfolio/` 与引擎 `scripts/portfolio_engine.py`
