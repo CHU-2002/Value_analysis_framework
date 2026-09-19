@@ -35,7 +35,7 @@
 1. 可消费的定性输入：优先四个核心 `modules/*/result.json`，兼容回退到 `{output_dir}/qualitative_report.md`
 2. `{output_dir}/data_pack_market.md` — Tushare 数据包
 
-执行 `.venv/bin/python -m scripts.results.resolve_qualitative --output-dir "{output_dir}" --ticker "{ticker}" --output "{output_dir}/qualitative_input.json"`。退出状态 3 视为定性输入缺失，退出状态 2 表示命令参数错误；不得混用不完整 JSON 结果集和旧报告参数。
+先解析 run 目录：resolver 不会自己跟随 `latest.json`，直接把公司目录传进去会静默退回 `source=legacy`/`unavailable`。`{output_dir}/latest.json` 存在时执行 `.venv/bin/python scripts/runs.py resolve --company-dir "{output_dir}" --latest` 并记输出为 `{run_dir}`，否则 `{run_dir}` = `{output_dir}`；随后执行 `.venv/bin/python -m scripts.results.resolve_qualitative --output-dir "{run_dir}" --ticker "{ticker}" --output "{run_dir}/qualitative_input.json"`。退出状态 3 视为定性输入缺失，退出状态 2 表示命令参数错误；不得混用不完整 JSON 结果集和旧报告参数。
 
 | 条件 | 操作 |
 |------|------|
@@ -116,7 +116,7 @@ python3 scripts/valuation_engine.py --code {ts_code} --output-dir {output_dir}
 1. `strategies/value/valuation/phase2_valuation.md` — 定性调整执行指令
 2. `strategies/value/valuation/references/valuation_methods.md` — 方法论参考
 3. `strategies/value/valuation/references/report_template.md` — 报告模板
-4. `{output_dir}/qualitative_input.json` — 经校验的结构化定性输入或旧报告回退指针
+4. `{run_dir}/qualitative_input.json` — 经校验的结构化定性输入或旧报告回退指针
 5. `{output_dir}/valuation_computed.md` — Python 计算结果
 6. `{output_dir}/data_pack_market.md` — 原始数据包（备查）
 
@@ -188,6 +188,6 @@ Python初步估值: {python_central} {币种}/股
 {strategy_dir}  = {workspace}/strategies/value/valuation
 {output_dir}    = {workspace}/output/{code}_{company}
 {computed}      = {output_dir}/valuation_computed.md
-{qualitative}   = {output_dir}/qualitative_input.json
+{qualitative}   = {run_dir}/qualitative_input.json
 {report}        = {output_dir}/{company}_{code}_估值报告.md
 ```

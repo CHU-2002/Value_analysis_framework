@@ -78,12 +78,12 @@
 |---------|-------------|---------|-------|
 | 价值分析 | `output/{code}_{company}/{company}_{code}_价值分析报告.md` | 护城河(强/较强/中/弱)、诚信评级、防守层评级 | 最高 |
 | 估值报告（可选） | `output/{code}_{company}/{company}_{code}_估值报告.md` | 估值区间、当前价格相对内在价值 | 辅助 |
-| 定性分析 | `output/{code}_{company}/qualitative_input.json` | moat_rating、management_rating、integrity_rating、质量警告 | 辅助 |
+| 定性分析 | `{run_dir}/qualitative_input.json`（run-store 布局在 run 目录下） | moat_rating、management_rating、integrity_rating、质量警告 | 辅助 |
 
-扫描每个公司目录时，先执行：
+扫描每个公司目录时，先解析该公司的 run 目录（resolver 不会自己跟随 `latest.json`，把公司目录直接传进去会静默退回 `source=legacy`/`unavailable`）：`{company_output_dir}/latest.json` 存在时执行 `.venv/bin/python scripts/runs.py resolve --company-dir "{company_output_dir}" --latest` 并记输出为 `{run_dir}`，否则 `{run_dir}` = `{company_output_dir}`；随后执行：
 
 ```bash
-.venv/bin/python -m scripts.results.resolve_qualitative --output-dir "{company_output_dir}" --ticker "{ticker}" --output "{company_output_dir}/qualitative_input.json"
+.venv/bin/python -m scripts.results.resolve_qualitative --output-dir "{run_dir}" --ticker "{ticker}" --output "{run_dir}/qualitative_input.json"
 ```
 
 退出码 3 表示该标的没有可消费的定性结果，记录为“待分析”后继续扫描；退出码 2 表示调用参数错误，必须修正命令。`source=structured` 时读取模块参数和 reconciliation，模块所有者的参数优先于 synthesis；`source=legacy` 时才解析 `legacy_report.path`。价值分析与估值报告的评级仍来自各自报告，不能从定性结果推断。
@@ -141,7 +141,7 @@
 |---------|---------|--------|---------|
 | 价值分析报告 | `output/{code}_{company}/*_价值分析报告.md` | 标记为"可用" | 标记为"待分析" |
 | 估值报告 | `output/{code}_{company}/*_估值报告.md` | 标记为"可用" | 标记为"待分析" |
-| 定性分析结果 | `output/{code}_{company}/qualitative_input.json`（resolver 生成） | 按 source 标记来源 | source=unavailable 时标记"待分析" |
+| 定性分析结果 | `{run_dir}/qualitative_input.json`（resolver 生成；run-store 布局在 run 目录下） | 按 source 标记来源 | source=unavailable 时标记"待分析" |
 
 > 组合策略可以使用可用的报告作为标的选择依据。缺失报告的标的会标注推荐分析优先级。
 

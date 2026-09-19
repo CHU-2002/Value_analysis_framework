@@ -7,7 +7,7 @@
 ## 输入
 
 1. `{output_dir}/value_computed.md` — Python 预计算结果（**主锚，数字默认来源**）
-2. `{output_dir}/qualitative_input.json` — 经校验的结构化定性输入或旧报告回退指针
+2. `{run_dir}/qualitative_input.json` — 经校验的结构化定性输入或旧报告回退指针（run-store 布局下在 run 目录里，由 `runs.py resolve` 取得）
 3. `{output_dir}/data_pack_market_current.md` — 刷新后的市场与财务数据包；副本缺失时使用原始 `data_pack_market.md` 并披露时效性，不改写原包
 4. `{output_dir}/data_pack_report.md` — 年报附注提取（若存在）
 5. `strategies/value/references/value_principles.md` — 方法论参考

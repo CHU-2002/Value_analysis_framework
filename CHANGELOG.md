@@ -10,7 +10,7 @@
 - 需求管理：`docs/requirements/`（编号规则、状态机、优先级、`TEMPLATE.md`、需求台账 `ledger.md`），
   首批登记 REQ-001…REQ-005，并接入 GitHub Issue / 标签 / 里程碑
 - 测试管理：`docs/TESTING.md` 测试策略、`pytest.ini`（严格 marker 与分层）、
-  按文件自动分层的 marker（`unit` / `contract` / `e2e` / `integration`）、覆盖率门禁 ≥ 74%（基线 76.37%）
+  按文件自动分层的 marker（`unit` / `contract` / `e2e` / `integration`）、覆盖率门禁 ≥ 74%（基线 76.4%）
 - 需求↔测试追溯门禁 `tests/test_requirement_traceability.py`：台账与需求条目一致性、
   无悬空 `REQ-NNN` 引用、已交付需求必须有测试引用
 - 开发流程：`docs/DEVELOPMENT.md`（就绪定义 DoR、完成定义 DoD、拆分与验收流程）、
@@ -19,11 +19,16 @@
 
 ### Added
 
+- 下游接线修复（REQ-005）：`/valuation`、`/portfolio-strategy` 与两个 coordinator 改为先经
+  `scripts/runs.py resolve --company-dir ... --latest` 解析 `run_dir`，再把 run 目录交给
+  `resolve_qualitative`——此前直接把公司目录传进去，在 run-store 布局下会静默退回
+  `source=unavailable`。契约测试由只钉 `/value-analysis` 扩展到 7 份下游文档，
+  并新增双布局端到端测试 `tests/test_two_layout_e2e.py`
 - 分支模型与三道门：一个特性一条特性分支，子 PR 合入特性分支（CI 跑全量 +
   `pr-body` 校验研发自测栏），特性分支**直接合入 `main`** 且必须带独立验收报告
   （`scripts/acceptance_gate.py`）；`main` 每累积 3 个特性必须补一份批量全量回归记录
   （`scripts/regression_gate.py`），不维护长期集成分支
-- 测试 scope 登记与预算：`docs/TEST_SCOPE.md`（32 支文件 / 1447 用例）与 `scripts/test_scope.py`，
+- 测试 scope 登记与预算：`docs/TEST_SCOPE.md`（33 支文件 / 1461 用例）与 `scripts/test_scope.py`，
   CI 的 `test-scope` 作业校验登记表与上限；控制 CI 成本走整体 scope 维护，不裁剪单个 PR 的范围
 - 独立验收报告模板 `docs/verification/TEMPLATE.md`、批量回归记录模板 `docs/regression/TEMPLATE.md`、
   PR 模板新增「需求编号 / 研发自测（手工）/ 验收报告」栏位

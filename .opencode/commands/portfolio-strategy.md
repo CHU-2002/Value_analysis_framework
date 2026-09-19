@@ -11,10 +11,10 @@ Treat `$ARGUMENTS` as the user profile plus an optional `--full` or `--increment
 
 Read `strategies/portfolio/coordinator.md` and execute the complete pipeline. Build the profile, macro assessment, seven-class strategic allocation, tactical selection, risk checks, and final report.
 
-When scanning each `output/{code}_{company}` directory, run:
+When scanning each `output/{code}_{company}` directory, resolve that company's run directory first — `resolve_qualitative` does **not** follow `latest.json`, so passing the company directory would silently fall back to `source=legacy`/`unavailable`. When `{company_output_dir}/latest.json` exists, run `.venv/bin/python scripts/runs.py resolve --company-dir "{company_output_dir}" --latest` and store the printed path as `{run_dir}`; otherwise set `{run_dir}` = `{company_output_dir}`. Then run:
 
 ```bash
-.venv/bin/python -m scripts.results.resolve_qualitative --output-dir "{company_output_dir}" --ticker "{ticker}" --output "{company_output_dir}/qualitative_input.json"
+.venv/bin/python -m scripts.results.resolve_qualitative --output-dir "{run_dir}" --ticker "{ticker}" --output "{run_dir}/qualitative_input.json"
 ```
 
 Exit status 3 means the company analysis is unavailable and should be marked for research; status 2 is an invocation error and must be fixed. Prefer module-owned parameters when `source=structured`. Parse `qualitative_report.md` only when the resolver selects `source=legacy`. Value defensive ratings still come from the value-analysis report and must not be inferred from qualitative modules.

@@ -7,6 +7,7 @@ These tests pin the two paths that an independent review found inconsistent.
 
 # 覆盖需求：REQ-005（增量更新文档与下游接线）—— AC-1 命令必须经 runs.py resolve
 # 取 run_dir，不得把公司目录直接交给 resolver；AC-2 双布局下命令仍可用
+import re
 from pathlib import Path
 
 import pytest
@@ -148,3 +149,85 @@ def test_implementation_record_names_the_main_touched_files():
         ".opencode/commands/value-analysis.md",
     ):
         assert needle in plan, needle
+
+
+# --- REQ-005: 下游命令 / 协调器必须先把 latest.json 解析成 run_dir ---
+
+RUN_DIR_DOCS = [
+    ".claude/commands/value-analysis.md",
+    ".claude/commands/valuation.md",
+    ".opencode/commands/valuation.md",
+    ".claude/commands/portfolio-strategy.md",
+    ".opencode/commands/portfolio-strategy.md",
+    "strategies/value/valuation/coordinator.md",
+    "strategies/portfolio/coordinator.md",
+]
+
+
+@pytest.mark.parametrize("doc", RUN_DIR_DOCS)
+def test_downstream_docs_resolve_the_run_directory(doc):
+    """把公司目录直接交给 resolver 会在 run-store 布局下静默退回 unavailable。"""
+    content = (ROOT / doc).read_text(encoding="utf-8")
+
+    assert "runs.py resolve --company-dir" in content, doc
+    assert "{run_dir}" in content, doc
+    assert 'resolve_qualitative --output-dir "{run_dir}"' in content, doc
+    assert 'resolve_qualitative --output-dir "{output_dir}"' not in content, doc
+    assert 'resolve_qualitative --output-dir "{company_output_dir}"' not in content, doc
+
+
+# --- REQ-005 全局守卫：提示词/规范树不得把定性输入写成扁平公司路径 ---
+#
+# 用全局扫描而不是维护文件清单：本轮修复之所以漏掉 4 处，正是因为只按清单改。
+# 扫描范围覆盖提示词与规范树；「从零开始的完整分析」生产者按设计写扁平布局，
+# 因此**显式**列在 BASELINE_PRODUCER_DOCS 里豁免，而不是靠扫描根隐式漏掉。
+PROMPT_TREES = ("strategies", "shared/qualitative", ".claude/commands", ".opencode/commands")
+
+BASELINE_PRODUCER_DOCS = {
+    ".claude/commands/business-analysis.md",
+    ".opencode/commands/business-analysis.md",
+    "shared/qualitative/coordinator_v2.md",
+}
+
+# 末位用负向断言收口，避免 `…qualitative_input.json.md` 这类误报；
+# 四个前缀分支都要能命中（含 `output/{directory_code}_*/` 这种路径）。
+FLAT_QUALITATIVE_RE = re.compile(
+    r"(?:\{output_dir\}|\{company_output_dir\}|output/\{code\}_\{company\}|"
+    r"output/\{directory_code\}_\*)/qualitative_input\.json(?![A-Za-z0-9_.-])"
+)
+
+
+def test_flat_qualitative_regex_matches_only_flat_paths():
+    flat = [
+        "{output_dir}/qualitative_input.json",
+        "{company_output_dir}/qualitative_input.json",
+        "output/{code}_{company}/qualitative_input.json",
+        "output/{directory_code}_*/qualitative_input.json",
+    ]
+    allowed = [
+        "{run_dir}/qualitative_input.json",
+        "qualitative_input.json",
+        "{output_dir}/qualitative_input.json.md",
+        "{output_dir}/qualitative_input.jsonx",
+    ]
+    for sample in flat:
+        assert FLAT_QUALITATIVE_RE.search(sample), sample
+    for sample in allowed:
+        assert not FLAT_QUALITATIVE_RE.search(sample), sample
+
+
+def test_prompt_docs_never_use_a_flat_qualitative_input_path():
+    offenders = []
+    for tree in PROMPT_TREES:
+        for doc in sorted((ROOT / tree).rglob("*.md")):
+            rel = doc.relative_to(ROOT).as_posix()
+            if rel in BASELINE_PRODUCER_DOCS:
+                continue
+            for match in FLAT_QUALITATIVE_RE.finditer(doc.read_text(encoding="utf-8")):
+                offenders.append(f"{rel}: {match.group(0)}")
+    assert not offenders, (
+        "以下提示词/规范仍把定性输入写成扁平公司路径（run-store 布局下不存在）：\n  "
+        + "\n  ".join(offenders)
+        + "\n应改为 `{run_dir}/qualitative_input.json`（由 runs.py resolve 取得）；"
+        "若该文件是基线生产者，请加入 BASELINE_PRODUCER_DOCS 并说明理由"
+    )

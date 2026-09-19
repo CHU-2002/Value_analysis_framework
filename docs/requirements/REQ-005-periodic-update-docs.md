@@ -63,7 +63,7 @@ REQ-003 引入了 run-store、REQ-004 引入了增量流程，但**既有命令�
 |----|------|
 | 设计文档 | `docs/PERIODIC_UPDATE_PLAN.md` §10（PR5）、§8.6 |
 | 实现 PR | #22（`docs(update): 定期报告增量更新的文档与下游接线`）、#23（`docs(update): 补齐 run-store 门禁与 PR5 复核残留`） |
-| 测试 | `tests/test_update_docs_contract.py`（契约：命令必须经 `runs.py resolve` 取 run_dir，不得把公司目录直接交给 resolver） |
+| 测试 | `tests/test_update_docs_contract.py`（7 份下游文档的 run_dir 契约）、`tests/test_two_layout_e2e.py`（双布局 + 增量 run 端到端） |
 | 文档更新 | `docs/ARCHITECTURE.md`、`README.md`、`CHANGELOG.md` |
 
 ## 验收记录

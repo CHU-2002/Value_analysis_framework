@@ -33,7 +33,7 @@ Examples:
 ## Prerequisites
 - 建议先对你关注的个股运行 `/business-analysis` 和 `/value-analysis`（需要更细的估值时加跑 `/valuation`）
 - 如未分析，策略报告会标注"待分析"，并给出分析优先级
-- 扫描每个带有效 `run_manifest.json` 或可验证 ticker 目录名的公司目录时运行 `.venv/bin/python -m scripts.results.resolve_qualitative --output-dir "{company_output_dir}" --ticker "{ticker}" --output "{company_output_dir}/qualitative_input.json"`；退出码 3 表示该标的定性结果不可用并应标记“待分析”，退出码 2 表示命令参数错误；仅在 resolver 选择 `source=legacy` 时解析 `qualitative_report.md`
+- 扫描每个带有效 `run_manifest.json` 或可验证 ticker 目录名的公司目录时，先解析该公司的 run 目录：resolver 不会自己跟随 `latest.json`，把公司目录直接传进去会静默退回 `source=legacy`/`unavailable`；`{company_output_dir}/latest.json` 存在时运行 `.venv/bin/python scripts/runs.py resolve --company-dir "{company_output_dir}" --latest` 并把输出路径记为 `{run_dir}`，否则令 `{run_dir}` = `{company_output_dir}`；随后运行 `.venv/bin/python -m scripts.results.resolve_qualitative --output-dir "{run_dir}" --ticker "{ticker}" --output "{run_dir}/qualitative_input.json"`；退出码 3 表示该标的定性结果不可用并应标记“待分析”，退出码 2 表示命令参数错误；仅在 resolver 选择 `source=legacy` 时解析 `qualitative_report.md`
 
 ## Output Location
 `output/portfolio_{timestamp}/`
