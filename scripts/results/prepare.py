@@ -107,12 +107,17 @@ def prepare_run(
     run_id: str | None = None,
     max_chars: int = 24000,
     primary_period: str | None = None,
+    prior_analysis: str | Path | None = None,
 ) -> dict[str, object]:
     """Create all deterministic inputs needed by module Agents.
 
     Inputs are read from ``<output_dir>/inputs/`` when that directory exists
     (the run-store snapshot layout) and from ``<output_dir>/`` otherwise. The
     produced evidence/manifest/contexts structure is identical either way.
+
+    ``prior_analysis`` registers a previous run's ``synthesis/result.json`` as
+    the ``prior_analysis`` evidence source so the incremental ``period_delta``
+    module can cite what the earlier conclusions actually said.
     """
 
     root = Path(output_dir).resolve()
@@ -135,11 +140,18 @@ def prepare_run(
     annual_reports = sorted(inputs_root.glob("*.pdf"))
     pdf_sections, warnings = _select_pdf_sections(inputs_root, normalized_primary)
 
+    prior_analysis_path = Path(prior_analysis) if prior_analysis else None
+    if prior_analysis_path is not None and not prior_analysis_path.is_file():
+        warnings.append(f"prior analysis not found: {prior_analysis_path}")
+        prior_analysis_path = None
+
     sources = [
         {"source_id": "market_data", "path": str(data_pack)},
         {"source_id": "pdf_sections", "path": str(pdf_sections)},
         {"source_id": "pdf_footnotes", "path": str(footnote_report)},
     ]
+    if prior_analysis_path is not None:
+        sources.append({"source_id": "prior_analysis", "path": str(prior_analysis_path.resolve())})
     # ``annual_report:{stem}`` is a hard contract: evidence ids are embedded in
     # completed runs, so the source_id never changes -- only metadata is added.
     report_periods: dict[str, str] = {}
@@ -235,6 +247,7 @@ def prepare_run(
         "d6_triggered": d6_trigger["triggered"],
         "contexts": context_paths,
         "primary_period": normalized_primary,
+        "prior_analysis": str(prior_analysis_path.resolve()) if prior_analysis_path else "",
         "warnings": warnings,
     }
 
@@ -256,6 +269,14 @@ def main() -> None:
             "matching pdf_sections_{period}.json and is recorded in the manifest"
         ),
     )
+    parser.add_argument(
+        "--prior-analysis",
+        default=None,
+        help=(
+            "Previous run's synthesis/result.json. Registers it as the "
+            "prior_analysis evidence source for the incremental period_delta module"
+        ),
+    )
     args = parser.parse_args()
 
     result = prepare_run(
@@ -266,6 +287,7 @@ def main() -> None:
         run_id=args.run_id,
         max_chars=args.max_chars,
         primary_period=args.primary_period,
+        prior_analysis=args.prior_analysis,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
