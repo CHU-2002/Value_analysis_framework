@@ -564,12 +564,40 @@ def test_adopt_does_not_launder_tampered_artifact_hashes(tmp_path):
     before = json.loads((company / "run_manifest.json").read_text(encoding="utf-8"))
     assert validate_manifest_artifacts(before), "fixture must start tampered"
 
-    runs.adopt_legacy(company)
+    # Refuse rather than re-stamp: the mismatch is evidence, not noise.
+    with pytest.raises(runs.LedgerError, match="refusing to adopt"):
+        runs.adopt_legacy(company)
 
-    copied = json.loads((company / "runs" / LEGACY_RUN_ID / "run_manifest.json").read_text(encoding="utf-8"))
-    errors = validate_manifest_artifacts(copied)
-    assert errors, "adopt must not launder a pre-existing artifact hash mismatch"
-    assert any("hash changed" in error for error in errors)
+    assert not (company / "runs" / LEGACY_RUN_ID).exists(), "failed adopt leaves no run directory"
+
+
+def test_adopt_refuses_tampered_evidence_index(tmp_path):
+    """The artifacts adoption must rewrite are verified before they are rewritten."""
+
+    company = _company_dir(tmp_path)
+    _write(company / "600887_2024_年报.pdf", "%PDF-1.4 fake\n")
+    index = _write(company / "evidence" / "index.json", '{"schema": "investment.evidence_index"}\n')
+    write_manifest(
+        build_manifest(
+            run_id=LEGACY_RUN_ID,
+            subject={"ticker": "600887.SH", "company": "伊利股份", "market": "CN"},
+            inputs=[],
+            artifacts=[
+                {
+                    "path": str(index),
+                    "role": "evidence_index",
+                    "size_bytes": 1,
+                    "sha256": "0" * 64,
+                }
+            ],
+        ),
+        company / "run_manifest.json",
+    )
+
+    with pytest.raises(runs.LedgerError, match="refusing to adopt"):
+        runs.adopt_legacy(company)
+
+    assert not (company / "runs" / LEGACY_RUN_ID).exists()
 
 
 @pytest.mark.parametrize("prune", [False, True])

@@ -388,3 +388,26 @@ def test_root_all_summary_and_exit_code(tmp_path, capsys):
     printed = json.loads(capsys.readouterr().out)
     assert set(printed) == {"companies", "summary"}
     assert printed["summary"]["total"] == 2
+
+
+def test_downstream_empty_component_is_rejected(tmp_path, capsys):
+    import runs
+
+    company = tmp_path / "600887_伊利"
+    company.mkdir()
+    (company / "record.json").write_text(
+        json.dumps(
+            {
+                "schema": "investment.record",
+                "schema_version": "1.0",
+                "subject": {"ticker": "600887.SH", "company": "伊利股份", "market": "CN"},
+                "latest_run": "r1",
+                "report_periods": [],
+                "downstream": {"stale": True, "value_computed": True, "buy_sell_basis": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert runs.main(["downstream", "--company-dir", str(company), "--fresh", ""]) == 2
+    assert "at least one component" in capsys.readouterr().err
