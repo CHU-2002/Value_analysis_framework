@@ -46,7 +46,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_prepare_prior_analysis.py` | REQ-004 | `unit` | — | 6 |
 | `tests/test_qualitative_consumers.py` | 基线 | `contract` | — | 10 |
 | `tests/test_refresh_market.py` | 基线 | `unit` | — | 23 |
-| `tests/test_release_gates.py` | REQ-003, REQ-005, REQ-006, REQ-999 | `unit` | — | 26 |
+| `tests/test_release_gates.py` | REQ-003, REQ-005, REQ-006 | `unit` | — | 26 |
 | `tests/test_requirement_traceability.py` | 基线 | `unit` | — | 8 |
 | `tests/test_results_pipeline.py` | 基线 | `e2e` | — | 53 |
 | `tests/test_runs_ledger.py` | REQ-003 | `unit` | — | 35 |
