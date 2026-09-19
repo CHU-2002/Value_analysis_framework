@@ -113,5 +113,5 @@ Issue 在**验收通过后**才关闭（`verified`），不在 PR 合并时自�
 | [REQ-002](REQ-002-comparable-periods.md) | 同比可比期与按期次章节包 | `verified` |
 | [REQ-003](REQ-003-run-history-ledger.md) | 分析迭代台账（run-store） | `verified` |
 | [REQ-004](REQ-004-period-delta-analysis.md) | 定期报告增量更新分析与变化报告 | `verified` |
-| [REQ-005](REQ-005-periodic-update-docs.md) | 增量更新文档与下游接线 | `implemented` |
+| [REQ-005](REQ-005-periodic-update-docs.md) | 增量更新文档与下游接线 | `verified` |
 | [REQ-006](REQ-006-requirement-test-dev-flow.md) | 需求-测试-开发流程与三道门 | `verified` |

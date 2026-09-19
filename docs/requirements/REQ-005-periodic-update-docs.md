@@ -1,7 +1,7 @@
 ---
 id: REQ-005
 title: 增量更新文档与下游接线
-status: implemented
+status: verified
 priority: P2
 owner: CHU-2002
 created: 2026-09-20
@@ -9,7 +9,7 @@ updated: 2026-09-20
 issue: "#20"
 design: docs/PERIODIC_UPDATE_PLAN.md
 milestone: periodic-update-v1
-pr: "#22, #23"
+pr: "#22, #23, #27"
 depends-on: REQ-003, REQ-004
 supersedes: TBD
 ---
@@ -62,7 +62,7 @@ REQ-003 引入了 run-store、REQ-004 引入了增量流程，但**既有命令�
 | 项 | 内容 |
 |----|------|
 | 设计文档 | `docs/PERIODIC_UPDATE_PLAN.md` §10（PR5）、§8.6 |
-| 实现 PR | #22（`docs(update): 定期报告增量更新的文档与下游接线`）、#23（`docs(update): 补齐 run-store 门禁与 PR5 复核残留`） |
+| 实现 PR | #22、#23（文档与下游接线）、#27（`fix(update): resolve the run directory before the qualitative resolver`，已合入 `5abc13e`） |
 | 测试 | `tests/test_update_docs_contract.py`（7 份下游文档的 run_dir 契约）、`tests/test_two_layout_e2e.py`（双布局 + 增量 run 端到端） |
 | 文档更新 | `docs/ARCHITECTURE.md`、`README.md`、`CHANGELOG.md` |
 
@@ -70,6 +70,7 @@ REQ-003 引入了 run-store、REQ-004 引入了增量流程，但**既有命令�
 
 | 日期 | 基线 sha | 评审者 | 报告 | 结论 |
 |------|----------|--------|------|------|
+| 2026-09-20 | `b8b1545` | 独立 agent（无上下文，未参与实现；与首轮同一位评审者） | [`docs/verification/2026-09-20-REQ-005-reverify.md`](../verification/2026-09-20-REQ-005-reverify.md) | **5/5 全部成立**（复验补齐 AC-1/AC-2/AC-5；合并 `5abc13e`） |
 | 2026-09-20 | `397687f` | 独立 agent（无上下文，未参与实现） | [`docs/verification/2026-09-20-REQ-003-004-005.md`](../verification/2026-09-20-REQ-003-004-005.md) | **3/5 通过；AC-1、AC-2、AC-5 不成立**：`/valuation` 与 `/portfolio-strategy` 及其 coordinator 仍把公司目录交给不跟随 `latest.json` 的 resolver（run-store 布局下 `unavailable`），且缺双布局端到端测试。issue #20 保持开启，不置 `verified` |
 
 ## 备注
