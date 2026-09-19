@@ -85,7 +85,7 @@
 └── runs/
     ├── {run_id}/
     │   ├── run.json                 # run 元数据：kind / periods / framework / supersedes
-    │   ├── inputs/                  # run 私有输入快照（硬链接优先，失败退化为复制）
+    │   ├── inputs/                  # run 私有输入快照（默认真实复制；--hardlink 才用硬链接）
     │   │   ├── sources_manifest.json
     │   │   ├── data_pack_market.md
     │   │   ├── pdf_sections.json    # 主期次兼容副本
@@ -351,7 +351,7 @@ legacy 扁平目录（无 manifest）标 `legacy_layout`，由下次全量 run �
 | CNINFO 改版或限流 | 保留 10jqka 兜底；指数退避重试；全部 mock 测试；失败明确报「期次未获取」，不静默降级 |
 | 一季报 / 三季报内容单薄，强行分析会失真 | 变化不大的维度沿用上次年报证据并标注；变化报告显式写「本期未披露」 |
 | 四模块全量重跑成本高 | 一期正确性优先；`--light` 结转模式留作二期可选，不在一期放宽 resolver 约束 |
-| 硬链接跨文件系统 / 权限 | `os.link` 失败退回复制，再退化只存哈希 + 原路径 |
+| 快照磁盘占用（默认真实复制） | 用复制保证旧 run 不被原地刷新污染（实现期评审发现硬链接会被 `pdf_sections.json` / `data_pack_market.md` 的原地覆盖写击穿）；`--hardlink` 仅作显式 opt-in |
 | run-store 重构触及全部命令路径 | 用 `runs.py resolve` 统一解析 + `resolve_qualitative` 双入参兼容；PR3 先合、命令接线放 PR5，期间旧布局仍可读 |
 | 根目录镜像 `published/` 与 run 产物不一致 | 合同测试断言哈希一致；`published/` 明确标注为派生、不作为输入 |
 
