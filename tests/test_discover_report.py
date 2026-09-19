@@ -699,7 +699,7 @@ class TestPaginationCapWarning:
 
         assert discover_periods("000858") == []
 
-        assert mock_post.call_count == 5
+        assert mock_post.call_count == 10
         assert "page cap" in capsys.readouterr().err
 
     @patch("discover_report.requests.post")
@@ -720,3 +720,143 @@ class TestPaginationCapWarning:
 
         assert mock_post.call_count == 1
         assert "page cap" not in capsys.readouterr().err
+
+
+class TestPaginationSignals:
+    @patch("discover_report.requests.post")
+    def test_total_recordnum_drives_pagination(self, mock_post):
+        # totalpages is floored by the server (38 records -> totalpages=1), so
+        # totalRecordNum must be what decides to fetch page 2.
+        page_one = {
+            "announcements": [
+                {
+                    "announcementTitle": f"五粮液：历史公告 {index}",
+                    "announcementTime": 1700000000000,
+                    "adjunctUrl": f"finalpage/x/{index}.PDF",
+                    "secCode": "000858",
+                }
+                for index in range(30)
+            ],
+            "totalRecordNum": 45,
+            "totalpages": 1,
+            "hasMore": True,
+        }
+        page_two = {
+            "announcements": [
+                {
+                    "announcementTitle": "五粮液：2026年半年度报告",
+                    "announcementTime": 1787875200000,
+                    "adjunctUrl": "finalpage/2026-08-28/h1.PDF",
+                    "secCode": "000858",
+                },
+                *[
+                    {
+                        "announcementTitle": f"五粮液：历史公告 b{index}",
+                        "announcementTime": 1700000000000,
+                        "adjunctUrl": f"finalpage/y/{index}.PDF",
+                        "secCode": "000858",
+                    }
+                    for index in range(14)
+                ],
+            ],
+            "totalRecordNum": 45,
+            "totalpages": 1,
+            "hasMore": True,
+        }
+        mock_post.side_effect = [_cninfo_mock(page_one), _cninfo_mock(page_two)]
+
+        periods = discover_periods("000858", "五粮液")
+
+        assert [candidate["period"] for candidate in periods] == ["2026H1"]
+        assert [call.kwargs["data"]["pageNum"] for call in mock_post.call_args_list] == [1, 2]
+
+    @patch("discover_report.requests.get")
+    @patch("discover_report.requests.post")
+    def test_empty_page_with_pending_records_warns(self, mock_post, mock_get, capsys):
+        import requests as req
+
+        mock_get.side_effect = req.exceptions.ConnectionError("no stockpage")
+        page_one = {
+            "announcements": [
+                {
+                    "announcementTitle": f"五粮液：历史公告 {index}",
+                    "announcementTime": 1700000000000,
+                    "adjunctUrl": f"finalpage/x/{index}.PDF",
+                    "secCode": "000858",
+                }
+                for index in range(30)
+            ],
+            "totalRecordNum": 500,
+        }
+        empty = {"announcements": [], "totalRecordNum": 500}
+        mock_post.side_effect = [_cninfo_mock(page_one), _cninfo_mock(empty)]
+
+        # No company name: one keyword, so the mock is not consumed twice.
+        discover_periods("000858")
+
+        assert "some announcements may not have been scanned" in capsys.readouterr().err
+
+    @patch("discover_report.requests.post")
+    def test_requested_page_size_matches_server_cap(self, mock_post):
+        mock_post.return_value = _cninfo_mock(PERIODIC_ANNOUNCEMENTS)
+        discover_periods("000858", "五粮液")
+        assert mock_post.call_args.kwargs["data"]["pageSize"] == 30
+
+
+class TestKeywordFallbackUntilScorable:
+    @patch("discover_report.requests.post")
+    @patch("discover_report.requests.get")
+    def test_next_keyword_is_tried_when_first_only_has_filtered_titles(self, mock_get, mock_post):
+        page_response = MagicMock()
+        page_response.text = """
+        <html>
+          <title>五粮液(000858)个股行情</title>
+          <strong stockname="五粮液"></strong>
+        </html>
+        """
+        page_response.raise_for_status = MagicMock()
+        mock_get.return_value = page_response
+
+        english_only = _cninfo_mock(
+            {
+                "announcements": [
+                    {
+                        "announcementTitle": "五粮液：2024年半年度报告（英文版）",
+                        "announcementTime": 1724760000000,
+                        "adjunctUrl": "finalpage/2024-08-28/en.PDF",
+                    }
+                ]
+            }
+        )
+        proper = _cninfo_mock(
+            {
+                "announcements": [
+                    {
+                        "announcementTitle": "五粮液：2024年半年度报告",
+                        "announcementTime": 1724760000000,
+                        "adjunctUrl": "finalpage/2024-08-28/h1.PDF",
+                    }
+                ]
+            }
+        )
+        mock_post.side_effect = [english_only, proper]
+
+        _, _, best = discover_report("000858", "2024", "中报")
+
+        assert best is not None
+        assert best["url"].endswith("h1.PDF")
+        posted_keywords = [call.kwargs["data"]["searchkey"] for call in mock_post.call_args_list]
+        assert posted_keywords == ["000858", "五粮液"]
+
+
+class TestScoreCandidateYearAlignment:
+    def test_other_year_in_title_does_not_satisfy_requested_year(self):
+        assert score_candidate(
+            {"title": "五粮液：2023年年度报告（2024年4月30日更新）"}, "2024", "年报"
+        ) is None
+        assert score_candidate(
+            {"title": "五粮液：2024年第一季度报告及2023年年度报告"}, "2024", "年报"
+        ) is None
+
+    def test_matching_year_still_scores(self):
+        assert score_candidate({"title": "五粮液：2024年年度报告"}, "2024", "年报") is not None

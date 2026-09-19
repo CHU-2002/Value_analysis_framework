@@ -267,9 +267,14 @@ def discover_cninfo_report(stock_code, company_name, year, report_type, timeout=
             timeout=timeout,
         )
         response.raise_for_status()
-        candidates = extract_cninfo_candidates(response.json())
-        if candidates:
-            all_candidates.extend(candidates)
+        all_candidates.extend(extract_cninfo_candidates(response.json()))
+        # A keyword can return raw announcements that all fail the title filters
+        # (e.g. only the English version of the interim report). Keep trying the
+        # remaining keywords until one yields a report the scorer accepts, rather
+        # than stopping at "some announcements came back".
+        if select_best_candidate(
+            all_candidates, year, report_type, allow_summary_fallback=False
+        ):
             break
 
     deduped = []
@@ -334,10 +339,16 @@ def _period_candidate_rank(candidate):
     return (candidate.get("date") or "", "更新后" in candidate.get("title", ""))
 
 
-def _query_cninfo_periods(stock_code, keywords, *, lookback_months, timeout, today, max_pages=5):
-    """Query CNINFO for period-tagged reports, following pagination."""
+def _query_cninfo_periods(stock_code, keywords, *, lookback_months, timeout, today, max_pages=10):
+    """Query CNINFO for period-tagged reports, following pagination.
 
-    page_size = 100
+    CNINFO caps a page at 30 records regardless of the requested ``pageSize``
+    (verified against the live endpoint), so the request asks for 30 and a full
+    page is a trustworthy "there may be more" signal when the response omits its
+    pagination fields.
+    """
+
+    page_size = 30
     se_date = build_recent_date_range(lookback_months, today=today)
     candidates = []
     for keyword in keywords:
@@ -364,18 +375,29 @@ def _query_cninfo_periods(stock_code, keywords, *, lookback_months, timeout, tod
 
             announcements = _announcements(payload)
             scanned += len(announcements)
-            if not announcements:
-                break
-
             total_pages = payload.get("totalpages") if isinstance(payload, dict) else None
             total_records = payload.get("totalRecordNum") if isinstance(payload, dict) else None
-            if isinstance(total_records, int) and total_records > 0:
+            has_more = payload.get("hasMore") if isinstance(payload, dict) else None
+
+            if type(total_records) is int and total_records > 0:
                 more_pages = scanned < total_records
-            elif isinstance(total_pages, int) and total_pages > 0:
+            elif isinstance(has_more, bool):
+                more_pages = has_more
+            elif type(total_pages) is int and total_pages > 0:
+                # ``totalpages`` is floored by the server, so it is only a hint.
                 more_pages = page < total_pages
             else:
                 more_pages = len(announcements) >= page_size
 
+            if not announcements:
+                if more_pages:
+                    print(
+                        f"Warning: stopped on an empty page while "
+                        f"totalRecordNum={total_records}; some announcements may not "
+                        f"have been scanned",
+                        file=sys.stderr,
+                    )
+                break
             if not more_pages:
                 break
             if page >= max_pages:
@@ -532,9 +554,10 @@ def score_candidate(candidate, year, report_type):
     if not any(keyword in title for keyword in keywords):
         return None
     # Substring matching alone lets "半年度报告"/"半年报" satisfy the annual
-    # keywords ("年度报告"/"年报"). Require the shared period parser to agree
-    # that this title is the requested report type.
-    if parse_period_from_title(title, report_type) is None:
+    # keywords ("年度报告"/"年报"), and a title mentioning two years can borrow
+    # the wrong one. Require the shared parser to agree on type *and* year.
+    parsed = parse_period_from_title(title, report_type)
+    if parsed is None or parsed[:4] != str(year):
         return None
     if str(year) not in title:
         return None

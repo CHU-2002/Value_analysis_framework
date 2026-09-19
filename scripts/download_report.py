@@ -347,6 +347,14 @@ def _code_key(value):
     return match.group(1) if match else str(value or "")
 
 
+def _resolve_index_filepath(filepath, index_path):
+    """Resolve a recorded PDF path relative to the index that recorded it."""
+
+    if os.path.isabs(filepath):
+        return filepath
+    return os.path.join(os.path.dirname(os.path.abspath(index_path)), filepath)
+
+
 def covered_periods(index_path, stock_code=None):
     """Periods already recorded in a source index and still usable on disk.
 
@@ -375,7 +383,6 @@ def covered_periods(index_path, stock_code=None):
     if not isinstance(periods, dict):
         return set()
 
-    base_dir = os.path.dirname(os.path.abspath(index_path))
     covered = set()
     for period, entry in periods.items():
         if not isinstance(entry, dict):
@@ -385,7 +392,7 @@ def covered_periods(index_path, stock_code=None):
         filepath = entry.get("filepath")
         if not isinstance(filepath, str) or not filepath:
             continue
-        resolved = filepath if os.path.isabs(filepath) else os.path.join(base_dir, filepath)
+        resolved = _resolve_index_filepath(filepath, index_path)
         if not os.path.isfile(resolved):
             continue
         size = os.path.getsize(resolved)
@@ -452,7 +459,13 @@ def write_sources_index(path, *, stock_code, latest_period, entries, failed_peri
         except (OSError, ValueError):
             existing = {}
 
-    raw_periods = existing.get("periods") if isinstance(existing, dict) else None
+    existing_code = existing.get("stock_code") if isinstance(existing, dict) else None
+    same_stock = not (
+        isinstance(existing_code, str)
+        and existing_code.strip()
+        and _code_key(existing_code) != _code_key(stock_code)
+    )
+    raw_periods = existing.get("periods") if same_stock and isinstance(existing, dict) else None
     periods = dict(raw_periods) if isinstance(raw_periods, dict) else {}
     for entry in entries:
         periods[entry["period"]] = entry
@@ -464,7 +477,7 @@ def write_sources_index(path, *, stock_code, latest_period, entries, failed_peri
         if not isinstance(recorded, dict):
             continue
         filepath = recorded.get("filepath")
-        if isinstance(filepath, str) and os.path.exists(filepath):
+        if isinstance(filepath, str) and os.path.exists(_resolve_index_filepath(filepath, path)):
             recorded["last_download_status"] = "failed"
         else:
             periods.pop(period, None)
@@ -489,7 +502,6 @@ def write_sources_index(path, *, stock_code, latest_period, entries, failed_peri
 def run_auto_download(args):
     """Download the newest published regular report, or every period since --since."""
 
-    os.makedirs(args.save_dir, exist_ok=True)
     normalized_type = normalize_report_type(args.report_type)
     report_type = args.report_type if normalized_type in REPORT_TYPES else None
 
@@ -506,6 +518,7 @@ def run_auto_download(args):
             print_result(False, stock_code=args.stock_code, report_type=args.report_type, message=message)
             sys.exit(EXIT_BAD_ARGUMENTS)
 
+    os.makedirs(args.save_dir, exist_ok=True)
     index_path = args.sources_index or os.path.join(args.save_dir, "sources_index.json")
     covered = set() if args.force else covered_periods(index_path, stock_code=args.stock_code)
 

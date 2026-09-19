@@ -40,6 +40,10 @@
 - 分页上限告警不再依赖 `totalpages` 类型，`totalRecordNum`/满页推断下同样会告警
 - 周期模式跳过逻辑：下载失败标记为 `failed` 的期次下次自动重试，不会自述 SUCCESS；索引按 `stock_code` 归属校验；期次文件需非空且与记录大小一致才算已持有
 - 周期模式参数冲突校验补齐：`--year`、`--recent-years`、`--latest`+`--since`、非周期模式的 `--force`、未来期次的 `--since` 均明确报错
+- CNINFO 分页实测校准：服务端把 `pageSize` 截断为 30（`totalpages` 还向下取整），改为按 30 请求并优先用 `totalRecordNum`/`hasMore` 判定翻页，空页但仍有待扫记录时告警
+- CNINFO 关键词回退改为「直到出现可评分候选」：修复中报因英文版公告先返回而放弃后续关键词、导致按年份下载失败的问题（实盘验证 `discover_report("000858","2024","中报")` 已可命中）
+- 年份路径按「实际请求的年份」校验解析结果，避免把别年份年报存成目标年份文件
+- 跨股票共用 `sources_index.json` 时不再合并期次；失败标注的相对路径按索引所在目录解析
 
 - 修复 `test_discover_report` 未 mock `requests.post` 导致 CNINFO 真实请求逃逸、CI 因 403 失败的问题
 

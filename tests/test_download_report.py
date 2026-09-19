@@ -1056,12 +1056,23 @@ class TestAutoModeArgGuards:
         assert exc_info.value.code == EXIT_BAD_ARGUMENTS
         mock_discover.assert_not_called()
 
-    def test_since_in_the_future_is_rejected(self, tmp_path):
+    def test_since_in_the_future_is_rejected(self, tmp_path, capsys):
         with pytest.raises(SystemExit) as exc_info:
             main([
                 "--stock-code", "000858",
                 "--report-type", "auto",
-                "--since", "2999Q1",
+                "--since", "2099Q1",
+                "--save-dir", str(tmp_path),
+            ])
+        assert exc_info.value.code == EXIT_BAD_ARGUMENTS
+        assert "is in the future" in capsys.readouterr().err
+
+    def test_malformed_since_period_is_rejected(self, tmp_path):
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--since", "2026Q2",
                 "--save-dir", str(tmp_path),
             ])
         assert exc_info.value.code == EXIT_BAD_ARGUMENTS
@@ -1111,3 +1122,65 @@ class TestFailedRefreshIsRetried:
         assert third.value.code == EXIT_SUCCESS
         assert mock_download.call_count == 1
         assert "All periods already present" not in capsys.readouterr().out
+
+
+class TestCrossStockIndexIsolation:
+    def test_write_does_not_merge_periods_from_another_stock(self, tmp_path):
+        import json
+
+        index_path = tmp_path / "sources_index.json"
+        write_sources_index(
+            index_path,
+            stock_code="600887",
+            latest_period="2025FY",
+            entries=[{"period": "2025FY", "filepath": str(tmp_path / "other.pdf")}],
+        )
+        write_sources_index(
+            index_path,
+            stock_code="000858",
+            latest_period="2026H1",
+            entries=[{"period": "2026H1", "filepath": str(tmp_path / "ours.pdf")}],
+        )
+
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+        assert payload["stock_code"] == "000858"
+        assert set(payload["periods"]) == {"2026H1"}
+
+
+class TestCoveredPeriodsSizeMatch:
+    def test_matching_size_and_missing_size_are_both_covered(self, tmp_path):
+        import json
+
+        sized = tmp_path / "sized.pdf"
+        sized.write_bytes(b"%PDF-1.4 sized")
+        legacy = tmp_path / "legacy.pdf"
+        legacy.write_bytes(b"%PDF-1.4 legacy")
+        index_path = tmp_path / "sources_index.json"
+        index_path.write_text(
+            json.dumps(
+                {
+                    "periods": {
+                        "2026H1": {"filepath": str(sized), "size_bytes": sized.stat().st_size},
+                        "2026Q1": {"filepath": str(legacy)},
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert covered_periods(str(index_path)) == {"2026H1", "2026Q1"}
+
+    def test_failed_annotation_with_relative_path_keeps_entry(self, tmp_path):
+        import json
+
+        pdf = tmp_path / "600858_2026_中报.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        index_path = tmp_path / "sources_index.json"
+        write_sources_index(
+            index_path,
+            stock_code="000858",
+            latest_period="2026H1",
+            entries=[{"period": "2026H1", "filepath": pdf.name}],
+            failed_periods=["2026H1"],
+        )
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+        assert payload["periods"]["2026H1"]["last_download_status"] == "failed"
