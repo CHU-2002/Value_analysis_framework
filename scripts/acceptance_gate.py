@@ -23,6 +23,8 @@ AC_RE = re.compile(r"\*\*AC-(\d+)\*\*")
 FRONT_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 PASSED_RE = re.compile(r"\d+\s+passed")
 REQUIRED_FIELDS = ("reviewer", "independence", "requirements", "full-suite")
+# 只动这些路径的 PR 属于「台账/文档回填」，不要求独立验收报告。
+DOCS_ONLY_PREFIXES = ("docs/", "CHANGELOG.md")
 
 
 def parse_front_matter(text: str) -> dict:
@@ -56,21 +58,42 @@ def unchecked(body: str, ac: str) -> bool:
     return re.search(rf"-\s*\[\s\]\s*\*{{0,2}}AC-{ac}\b", body) is not None
 
 
-def added_reports(base: str, head: str) -> list:
-    """本 PR 新增/修改的验收报告（排除模板）。"""
+def changed_files(base: str, head: str) -> list:
+    """本 PR 改动的全部文件（相对仓库根）。"""
     proc = subprocess.run(
-        ["git", "diff", "--name-only", f"{base}...{head}", "--", "docs/verification"],
+        ["git", "diff", "--name-only", f"{base}...{head}"],
         cwd=ROOT,
         capture_output=True,
         text=True,
     )
     if proc.returncode != 0:
         raise SystemExit(f"git diff 失败：{proc.stderr.strip()}")
-    names = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
-    return [ROOT / name for name in names if Path(name).name != "TEMPLATE.md"]
+    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
 
 
-def evaluate(body: str, reports: list) -> list:
+def is_docs_only(paths: list) -> bool:
+    """是否只改了台账/文档（这类 PR 不需要功能验收报告）。"""
+    return bool(paths) and all(path.startswith(DOCS_ONLY_PREFIXES) for path in paths)
+
+
+def added_reports(base: str, head: str) -> list:
+    """本 PR 新增/修改的验收报告（排除模板）。"""
+    return [
+        ROOT / name
+        for name in changed_files(base, head)
+        if name.startswith("docs/verification/") and Path(name).name != "TEMPLATE.md"
+    ]
+
+
+def evaluate(body: str, reports: list, paths=None) -> list:
+    """返回问题列表；空列表表示通过。
+
+    paths 为本 PR 改动的文件列表；只改台账/文档时跳过验收报告要求。
+    多份报告按**并集**覆盖本批需求与验收标准（一个批次可以由多份报告组成）。
+    """
+    if paths and is_docs_only(paths):
+        return []
+
     problems = []
     batch = sorted(set(REQ_RE.findall(body)))
     if not batch:
@@ -83,38 +106,40 @@ def evaluate(body: str, reports: list) -> list:
         )
         return problems
 
-    report = sorted(reports)[-1]
-    text = report.read_text(encoding="utf-8")
-    fields = parse_front_matter(text)
-    try:
-        rel = report.relative_to(ROOT)
-    except ValueError:
-        rel = report
+    texts = {}
+    for report in reports:
+        text = report.read_text(encoding="utf-8")
+        try:
+            rel = report.relative_to(ROOT)
+        except ValueError:
+            rel = report
+        texts[rel] = text
+        fields = parse_front_matter(text)
+        for field in REQUIRED_FIELDS:
+            if not fields.get(field):
+                problems.append(f"{rel} 的 front matter 缺少 `{field}`（模板见 docs/verification/TEMPLATE.md）")
+        if fields.get("independence") and fields["independence"].lower() not in {
+            "independent",
+            "yes",
+            "true",
+        }:
+            problems.append(f"{rel} 的 `independence` 必须是 independent（独立评审者未参与实现）")
 
-    for field in REQUIRED_FIELDS:
-        if not fields.get(field):
-            problems.append(f"{rel} 的 front matter 缺少 `{field}`（模板见 docs/verification/TEMPLATE.md）")
-    if fields.get("independence") and fields["independence"].lower() not in {
-        "independent",
-        "yes",
-        "true",
-    }:
-        problems.append(f"{rel} 的 `independence` 必须是 independent（独立评审者未参与实现）")
-
-    declared = set(REQ_RE.findall(fields.get("requirements", ""))) | set(REQ_RE.findall(text))
+    merged = "\n".join(texts.values())
+    declared = set(REQ_RE.findall(merged))
     missing = [req for req in batch if req not in declared]
     if missing:
-        problems.append(f"{rel} 未覆盖本批需求：{', '.join(missing)}")
+        problems.append(f"验收报告未覆盖本批需求：{', '.join(missing)}（需由独立评审者补验）")
 
-    if not PASSED_RE.search(text):
-        problems.append(f"{rel} 没有记录全量测试结果（需写明形如「1389 passed」的结果）")
+    if not PASSED_RE.search(merged):
+        problems.append("验收报告没有记录全量测试结果（需写明形如「1433 passed」的结果）")
 
     for req in batch:
         for ac in requirement_ac_ids(req):
-            if unchecked(text, ac):
-                problems.append(f"{rel} 中 {req} 的 AC-{ac} 未打勾（仍是 `- [ ]`）")
-            elif not checked(text, ac):
-                problems.append(f"{rel} 中缺少 {req} 的 AC-{ac} 结论（需写 `- [x] AC-{ac} …`）")
+            if any(unchecked(text, ac) for text in texts.values()):
+                problems.append(f"{req} 的 AC-{ac} 在验收报告中未打勾（仍是 `- [ ]`）")
+            elif not any(checked(text, ac) for text in texts.values()):
+                problems.append(f"{req} 的 AC-{ac} 缺少结论（需写 `- [x] AC-{ac} …`）")
     return problems
 
 
@@ -126,7 +151,11 @@ def main() -> int:
     args = parser.parse_args()
 
     body = Path(args.body_file).read_text(encoding="utf-8")
-    problems = evaluate(body, added_reports(args.base, args.head))
+    paths = changed_files(args.base, args.head)
+    problems = evaluate(body, added_reports(args.base, args.head), paths)
+    if not problems and is_docs_only(paths):
+        print("独立验收门禁通过（本 PR 只改台账/文档，不需要功能验收报告）。")
+        return 0
     if problems:
         print("独立验收门禁未通过：\n")
         for problem in problems:

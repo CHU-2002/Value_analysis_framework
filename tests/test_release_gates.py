@@ -114,6 +114,40 @@ def test_acceptance_gate_requires_independence(tmp_path):
     assert any("independence" in problem for problem in problems)
 
 
+def test_acceptance_gate_skips_report_for_docs_only_pr():
+    paths = ["docs/requirements/ledger.md", "docs/requirements/REQ-003-x.md", "CHANGELOG.md"]
+    assert acceptance_gate.is_docs_only(paths)
+    assert acceptance_gate.evaluate("REQ-003\n", [], paths) == []
+
+
+def test_acceptance_gate_does_not_skip_when_code_changed():
+    paths = ["docs/requirements/ledger.md", "scripts/runs.py"]
+    assert not acceptance_gate.is_docs_only(paths)
+    assert acceptance_gate.evaluate("REQ-003\n", [], paths)
+
+
+def test_acceptance_gate_unions_multiple_reports(tmp_path):
+    acs = acceptance_gate.requirement_ac_ids("REQ-005")
+    half, rest = acs[:2], acs[2:]
+    first = tmp_path / "a.md"
+    first.write_text(
+        VERIFICATION_FRONT.replace("requirements: REQ-005", "requirements: REQ-005")
+        + "\n## 逐条验收\n\n"
+        + "\n".join(f"- [x] **AC-{ac}**：符合预期" for ac in half)
+        + "\n",
+        encoding="utf-8",
+    )
+    second = tmp_path / "b.md"
+    second.write_text(
+        "---\nreviewer: independent-agent\nindependence: independent\n"
+        "requirements: REQ-005\nfull-suite: 见正文\n---\n\n## 逐条验收\n\n"
+        + "\n".join(f"- [x] **AC-{ac}**：符合预期" for ac in rest)
+        + "\n",
+        encoding="utf-8",
+    )
+    assert acceptance_gate.evaluate("REQ-005\n", [first, second]) == []
+
+
 def test_acceptance_gate_requires_recorded_full_suite_result(tmp_path):
     report = _report(tmp_path, VERIFICATION_FRONT.replace("1389 passed, 3 skipped", "跑过了"))
     problems = acceptance_gate.evaluate("REQ-005\n", [report])
