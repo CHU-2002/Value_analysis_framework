@@ -132,16 +132,21 @@ def _fair_limits(lengths: list[int], budget: int) -> list[int]:
 def _module_evidence(
     index: dict[str, Any], config: dict[str, Any], limit: int,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
-    groups = [
+    # Prior-run conclusions are the comparison baseline for the incremental
+    # delta module. They are selected first: a wide data pack otherwise fills
+    # the whole evidence limit and starves them completely.
+    groups: list[tuple[str, str]] = [
+        ("prior_analysis", section) for section in config.get("prior_analysis", [])
+    ]
+    groups.extend(
         (source, section)
         for source, sections in (
             ("pdf_sections", config["pdf_sections"]),
             ("pdf_footnotes", config["footnote_evidence"]),
             ("market_data", config["market_evidence"]),
-            ("prior_analysis", config.get("prior_analysis", [])),
         )
         for section in sections
-    ]
+    )
     selected: list[dict[str, Any]] = []
     coverage = {}
     for source, section in groups:

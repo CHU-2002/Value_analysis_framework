@@ -231,3 +231,72 @@ class TestPeriodDeltaContext:
         )
         assert "prior_analysis_sections" not in bundle["selection"] or bundle["selection"]["prior_analysis_sections"] == []
         assert all(item["source_id"] != "prior_analysis" for item in bundle["evidence"])
+
+
+class TestPriorAnalysisBudget:
+    def _wide_index(self):
+        entries = []
+
+        def add(source_id, section):
+            evidence_id = f"{source_id}:{section}:001"
+            entries.append(
+                {
+                    "evidence_id": evidence_id,
+                    "source_id": source_id,
+                    "section": section,
+                    "chunk_number": 1,
+                    "quote": f"{source_id} {section} 摘录内容",
+                    "locator": {"path": f"{source_id}.md", "section": section, "chunk": 1},
+                    "content_hash": "hash-" + evidence_id,
+                }
+            )
+
+        for section in ("MDA", "MATTERS", "P13", "P3", "P6"):
+            add("pdf_sections", section)
+        for section in ("3", "3P", "4", "4P", "5", "6", "12", "17"):
+            add("market_data", section)
+        for section in ("summary", "parameters", "claims", "risks", "watchlist", "quality"):
+            add("prior_analysis", section)
+        return {
+            "schema": "investment.evidence_index",
+            "schema_version": "1.0",
+            "run": {"run_id": RUN_ID},
+            "subject": dict(SUBJECT),
+            "entries": entries,
+        }
+
+    def test_wide_index_does_not_starve_prior_analysis(self, tmp_path):
+        # Regression: a full data pack and PDF section set used to consume every
+        # evidence slot, silently dropping the previous run's conclusions.
+        index_path = tmp_path / "index.json"
+        index_path.write_text(json.dumps(self._wide_index(), ensure_ascii=False), encoding="utf-8")
+
+        bundle = build_module_context(
+            "period_delta",
+            evidence_index_path=index_path,
+            max_chars=24000,
+            run_id=RUN_ID,
+            subject=SUBJECT,
+        )
+
+        prior_ids = {
+            item["evidence_id"] for item in bundle["evidence"] if item["source_id"] == "prior_analysis"
+        }
+        assert len(prior_ids) == len(MODULE_CONFIG["period_delta"]["prior_analysis"])
+        assert bundle["selection"]["missing_prior_analysis"] == []
+
+    def test_wide_index_leaves_room_for_market_and_pdf(self, tmp_path):
+        index_path = tmp_path / "index.json"
+        index_path.write_text(json.dumps(self._wide_index(), ensure_ascii=False), encoding="utf-8")
+
+        bundle = build_module_context(
+            "period_delta",
+            evidence_index_path=index_path,
+            max_chars=24000,
+            run_id=RUN_ID,
+            subject=SUBJECT,
+        )
+
+        sources = {item["source_id"] for item in bundle["evidence"]}
+        assert "market_data" in sources or "pdf_sections" in sources
+        assert len(bundle["evidence"]) <= 12
