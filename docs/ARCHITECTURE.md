@@ -145,7 +145,7 @@ company_dir/
 ```
 
 - `scripts/version.py` 提供 `FRAMEWORK_VERSION`、`prompt_fingerprint`（策略与提示词文件哈希）、`code_fingerprint`（git commit + 仅指纹相关路径的 dirty 状态，含 `docs/BUY_SELL_CONTRACT.md`）与 `schema_versions`，写入 manifest 的 `framework` 块与台账。
-- `scripts/runs.py` 提供 `new` / `resolve` / `finish` / `adopt` / `export`；输入快照**默认真实复制**（`--hardlink` 仅在确认源文件永不被原地改写时才使用），因此行情刷新与新报告不会污染历史 run，旧 run 永久可校验。
+- `scripts/runs.py` 提供 `new` / `resolve` / `finish` / `adopt` / `export` / `downstream`；输入快照**默认真实复制**（`--hardlink` 仅在确认源文件永不被原地改写时才使用），因此行情刷新与新报告不会污染历史 run，旧 run 永久可校验。
 - `scripts/runs.py adopt` 把既有的扁平目录接管为基线 run（默认非破坏，`--prune` 才清理旧布局），并同步重写 manifest / `evidence/index.json` / `contexts/*.json` 中的输入摘要、仅对被改写的产物重盖哈希；若源目录的产物与 manifest 记录不一致则**拒绝接管**（不洗白既有篡改）。接管后仍可被 `resolve_qualitative` 消费。
 - `scripts/analysis_status.py` 是「要不要重跑、跑哪一级」的唯一决策点：退出码 `0` 最新、`1` 需增量更新、`3` 需全量重跑、`2` 参数错误；`--root --all --json` 输出全仓重跑清单。
 - `scripts/runs.py downstream --fresh` 是唯一能清除 `downstream.stale` 的入口；缺少它时增量工作流会永久停留在退出码 1（该缺口由实现期评会发现并补齐）。

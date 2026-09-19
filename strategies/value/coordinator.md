@@ -29,13 +29,22 @@
 {directory_code} = 仅移除 {ticker} 最后一个市场后缀后的目录代码（BRK.B.US -> BRK.B）
 {code} = {directory_code}（仅用于目录和报告文件名）
 {output_dir} = 唯一匹配的 {workspace}/output/{directory_code}_*/ 公司目录
+{run_dir} = 若 {output_dir}/latest.json 存在，则先执行 `python3 scripts/runs.py resolve --company-dir "{output_dir}" --latest` 并把输出作为 {run_dir}；否则 {run_dir} = {output_dir}（legacy 扁平布局）
 ```
 
 **必须存在**：
-1. 可消费的定性输入：优先四个核心 `modules/*/result.json`，兼容回退到 `{output_dir}/qualitative_report.md`
+1. 可消费的定性输入：优先 `{run_dir}/modules/*/result.json`，兼容回退到 `{run_dir}/qualitative_report.md`
 2. `{output_dir}/data_pack_market.md` — 市场与财务数据包
 
-执行 `.venv/bin/python -m scripts.results.resolve_qualitative --output-dir "{output_dir}" --ticker "{ticker}" --output "{output_dir}/qualitative_input.json"`。退出状态 3 视为定性输入缺失，退出状态 2 表示命令参数错误；不得混用不完整 JSON 结果集和旧报告的参数。
+先解析 run 目录（run-store 布局下必须）：
+
+```bash
+python3 scripts/runs.py resolve --company-dir "{output_dir}" --latest
+```
+
+`resolve_qualitative` **只接受 run 目录**（含 `run_manifest.json`）或 legacy 扁平目录，**它不解析 `latest.json`**；把公司目录直接传进去会落到 `source=unavailable`/`legacy`。
+
+执行 `.venv/bin/python -m scripts.results.resolve_qualitative --output-dir "{run_dir}" --ticker "{ticker}" --output "{run_dir}/qualitative_input.json"`。退出状态 3 视为定性输入缺失，退出状态 2 表示命令参数错误；不得混用不完整 JSON 结果集和旧报告的参数。
 
 如果发现同一股票的 `qualitative_report.md` 与 `data_pack_market.md` 落在不同 `output/{code}_*/` 目录：
 - 先停止“缺文件”结论
@@ -48,9 +57,10 @@
 | 条件 | 操作 |
 |------|------|
 | resolver source 可用且数据包存在 | 继续执行 |
-| resolver unavailable 或数据包缺失 | **先自动执行** `/business-analysis {stock_code}`，完成后重新检查 |
+| resolver unavailable 或数据包缺失，且**不存在** `{output_dir}/latest.json` | **先自动执行** `/business-analysis {stock_code}`，完成后重新检查 |
+| resolver unavailable 或数据包缺失，但**存在** `{output_dir}/latest.json`（run-store） | **不得**自动执行 `/business-analysis`：它写扁平布局并会静默丢弃增量 run。改为修复或重跑增量流程，并向用户报告损坏的 run |
 
-若自动执行 `/business-analysis` 后仍缺失，或年报下载失败，则停止并提示用户提供/下载年报 PDF。
+若自动执行 `/business-analysis` 后仍缺失，或年报下载失败，则停止并提示用户提供/下载年报 PDF。存在 run-store 时不要走这条自动路径。
 
 ---
 
@@ -118,7 +128,7 @@ cp "{output_dir}/data_pack_market.md" "{output_dir}/data_pack_market_current.md"
 .venv/bin/python scripts/tushare_collector.py --code "{ticker}" --output "{output_dir}/data_pack_market_current.md" --refresh-market
 ```
 
-保留 manifest 固定的原始 `data_pack_market.md`，只刷新副本。下游定性仍以原 run 为准；若发现影响定性判断的新财报，重新执行 `/business-analysis`。
+保留 manifest 固定的原始 `data_pack_market.md`，只刷新副本。下游定性仍以原 run 为准；若发现影响定性判断的新财报，**在 run-store 布局下执行 `/update-analysis {stock_code}`**（不要重跑 `/business-analysis`：它会写扁平布局并静默丢弃增量 run）；只有 legacy 扁平目录才回退到 `/business-analysis`。本步骤本身不重做完整 business-analysis。
 
 ### 目标
 - 刷新当前股价与总市值
@@ -182,7 +192,7 @@ cp "{output_dir}/data_pack_market.md" "{output_dir}/data_pack_market_current.md"
 4. `strategies/value/references/bank_valuation.md`（仅金融股读取）
 5. `strategies/value/references/gip_handling.md`（仅 GIP 触发时读取）
 6. `{output_dir}/value_computed.md`
-7. `{output_dir}/qualitative_input.json`
+7. `{run_dir}/qualitative_input.json`
 8. `{output_dir}/data_pack_market_current.md`（刷新失败时可读原始包并披露时效性）
 9. `{output_dir}/data_pack_report.md`（若存在）
 10. `{output_dir}/buy_sell_plan.json` 与 `{output_dir}/buy_sell_plan.md`（**仅当用户已触发 `/buy-sell-plan` 时存在**；存在则必须读取并原样引用确定性数字，Markdown 整段原样插入；不存在时明确说明尚未生成，不得编造）
@@ -233,8 +243,9 @@ EE: {ee}
 | 阶段 | 异常 | 处理 |
 |------|------|------|
 | 输入 | 代码为空 | AskUserQuestion |
-| 前置检查 | qualitative resolver unavailable | 自动执行 `/business-analysis`；若年报下载失败则停止并联系用户提供 PDF |
-| 前置检查 | data_pack_market.md 缺失 | 自动执行 `/business-analysis`；若年报下载失败则停止并联系用户提供 PDF |
+| 前置检查 | qualitative resolver unavailable **且无** `{output_dir}/latest.json` | 自动执行 `/business-analysis`；若年报下载失败则停止并联系用户提供 PDF |
+| 前置检查 | qualitative resolver unavailable **且有** `{output_dir}/latest.json` | **不得**自动重跑 `/business-analysis`（会丢弃增量 run）；修复或重跑增量流程并报告 |
+| 前置检查 | data_pack_market.md 缺失且无 run-store | 自动执行 `/business-analysis`；若年报下载失败则停止并联系用户提供 PDF |
 | Step 1 | `TUSHARE_TOKEN` 缺失或无效 | 使用现有数据包，标注时效风险 |
 | Step 2 | `value_analysis_engine.py` 失败 | 停止，提示检查 Python 环境 / Token |
 | Step 3 | data_pack_report.md 缺失 | 继续，降低利润/现金质量置信度 |

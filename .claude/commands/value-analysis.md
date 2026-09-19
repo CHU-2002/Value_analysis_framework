@@ -29,7 +29,7 @@ If the company directory has iteration state (`record.json` / `latest.json`), ch
 - exit `0` (up to date) → continue.
 - Route by `reasons[].code` rather than by exit code alone:
   - `new_report` / `framework_changed` / `schema_changed` / `inputs_changed` / `run_failed` → recommend `/update-analysis {stock_code}` first.
-  - `downstream_stale` only means the frozen valuation inputs belong to an older period; `/update-analysis` will **not** clear it. Continue here, disclose it, and clear it after this run finishes with `python3 scripts/runs.py downstream --company-dir "{output_dir}" --fresh value_computed` (and `--fresh all` once the buy/sell plan is refreshed).
+  - `downstream_stale` only means the frozen valuation inputs belong to an older period; `/update-analysis` will **not** clear it. Continue here, disclose it, and clear only the component this command refreshes: `python3 scripts/runs.py downstream --company-dir "{output_dir}" --fresh value_computed`. `buy_sell_basis` is produced by `/buy-sell-plan`, not here, so the aggregate `downstream.stale` intentionally stays `true` (and `analysis_status` keeps reporting `stale:downstream_stale`) until the buy/sell plan is refreshed too — run `--fresh all` only after that.
 - If the user chooses to continue on a stale period, state in the report that the analysis is based on an older period and record it as a data-freshness limitation. Never silently consume stale conclusions.
 
 Resolve the qualitative source first:
@@ -38,7 +38,7 @@ Resolve the qualitative source first:
 ```
 
 If `data_pack_market.md` is missing or the resolver returns status 3 (status 2 is an invocation error):
-- **When a run-store exists (`{output_dir}/latest.json`)**, do **not** auto-run `/business-analysis`: it writes the legacy flat layout and would silently discard the incremental run. Report the broken run and fix or re-run the incremental flow (or `python3 scripts/runs.py adopt --company-dir "{output_dir}"` for a legacy directory).
+- **When a run-store exists (`{output_dir}/latest.json`)**, do **not** auto-run `/business-analysis`: it writes the legacy flat layout and would silently discard the incremental run. Report the broken run and fix or re-run the incremental flow. (`runs.py adopt` is **not** an option here: it refuses a directory that already has `latest.json`.)
 - Only for a directory without a run-store, automatically run `/business-analysis {stock_code}` first, then rerun the resolver and re-check `data_pack_market.md`
 - If `/business-analysis` stops because annual report download failed, stop and tell the user to download/provide the annual report PDF before continuing
 
@@ -90,8 +90,8 @@ This command only produces the research report and the frozen `value_computed.js
 - If integrity, complexity, or defensive metrics are weak, do not force a positive recommendation even if a model shows upside
 
 ## Error Recovery
-- Qualitative resolver returns unavailable → auto-run /business-analysis first; if PDF download fails there, stop and ask user for PDF
-- Missing data_pack_market.md → auto-run /business-analysis first; if PDF download fails there, stop and ask user for PDF
+- Qualitative resolver returns unavailable → when `{output_dir}/latest.json` exists (run-store), do **not** auto-run `/business-analysis` (it writes the legacy flat layout and would discard the incremental run); otherwise auto-run `/business-analysis` first. If PDF download fails there, stop and ask user for PDF
+- Missing data_pack_market.md → same rule: auto-run `/business-analysis` first only when there is no run-store; if PDF download fails there, stop and ask user for PDF
 - Market refresh failure → continue with existing pack and note reduced timeliness
 - `value_analysis_engine.py` fails → check TUSHARE_TOKEN / Python deps, retry, then stop if still failing
 - Missing data_pack_report.md → continue in degraded mode and disclose lower confidence on cash/profit quality
