@@ -12,7 +12,8 @@
 | [REQ-002](REQ-002-comparable-periods.md) | 同比可比期与按期次章节包 | `verified` | P1 | N/A | #15 | `tests/test_comparable_periods.py` `tests/test_prepare_primary_period.py` |
 | [REQ-003](REQ-003-run-history-ledger.md) | 分析迭代台账（run-store） | `implemented` | P1 | #18 | #16 | `tests/test_version.py` `tests/test_runs_ledger.py` `tests/test_analysis_status.py` |
 | [REQ-004](REQ-004-period-delta-analysis.md) | 定期报告增量更新分析与变化报告 | `implemented` | P1 | #19 | #17 | `tests/test_period_delta_module.py` `tests/test_change_report.py` `tests/test_prepare_prior_analysis.py` |
-| [REQ-005](REQ-005-periodic-update-docs.md) | 增量更新文档与下游接线 | `proposed` | P2 | #20 | TBD | TBD |
+| [REQ-005](REQ-005-periodic-update-docs.md) | 增量更新文档与下游接线 | `implemented` | P2 | #20 | #22, #23 | `tests/test_update_docs_contract.py` |
+| [REQ-006](REQ-006-requirement-test-dev-flow.md) | 需求-测试-开发流程与三道门 | `in-progress` | P1 | TBD | TBD | `tests/test_release_gates.py` `tests/test_requirement_traceability.py` |
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
 
@@ -20,7 +21,7 @@
 
 | 里程碑 | 目标 | 包含需求 | 状态 |
 |--------|------|----------|------|
-| 定期报告增量更新 v1 | 从「单次全量分析」升级为「按最新期次增量更新 + 可追溯迭代台账」 | REQ-003 → REQ-004 → REQ-005 | 进行中：REQ-001/002 `verified`，REQ-003/004 已合入待验收，REQ-005 未开工 |
+| 定期报告增量更新 v1 | 从「单次全量分析」升级为「按最新期次增量更新 + 可追溯迭代台账」 | REQ-003 → REQ-004 → REQ-005 | REQ-001/002 `verified`；REQ-003/004/005 已合入，待逐条验收 |
 
 对应 GitHub Milestone：`periodic-update-v1`。
 

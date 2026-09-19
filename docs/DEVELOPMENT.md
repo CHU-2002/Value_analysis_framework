@@ -1,22 +1,58 @@
 # 开发流程
 
-本文件定义从「想做一件事」到「确认做完」的完整路径。需求写什么见 [`docs/requirements/`](requirements/README.md)，
-测试怎么写见 [`docs/TESTING.md`](TESTING.md)，分支 / 提交 / CI / 评审的细则见 [`CONTRIBUTING.md`](../CONTRIBUTING.md)。
+本文件定义从「想做一件事」到「确认做完」的完整路径，以及三道门的判据。
+需求写什么见 [`docs/requirements/`](requirements/README.md)，测试怎么写见 [`docs/TESTING.md`](TESTING.md)，
+分支 / 提交 / CI / 评审的细则见 [`CONTRIBUTING.md`](../CONTRIBUTING.md)。
 
 ## 1. 全景
 
 ```
-登记需求        就绪评审        设计            拆分任务         实现
-REQ-NNN    →   DoR 通过   →   docs/*.md   →   一个或多个 PR  →  feat/* 分支
-   ↑                                                                    ↓
-台账状态推进  ←  逐条验收   ←   合并（squash）  ←  Review + CI  ←  自检 make verify
-   ↑                                                                    ↓
- verified                                                      PR 模板 / 测试追溯
+登记需求     就绪评审       开发                    集成                 正式
+REQ-NNN  →  DoR 通过  →  feat/* ──PR──→ develop ──PR──→ main ──→ 攒够 3 条 ──→ 全量回归
+                            │              │              │
+                          门①            门②            门③
+                     全量CI+手工自测   独立验收报告    批量回归记录
 ```
 
-一个阶段可以有多个 PR，一条需求也可以拆成多条需求；但**每个 PR 都必须能指回一个 `REQ-NNN`**。
+一条需求可以有多个 PR，一个 PR 也可以带多条需求；但**每个 PR 都要能指回 `REQ-NNN`**。
 
-## 2. 就绪定义（Definition of Ready）
+## 2. 分支模型
+
+| 分支 | 角色 | 谁往里合 | 保护 |
+|------|------|----------|------|
+| `main` | 正式分支，别人拿来用的就是它 | 只接受来自 `develop` 的 PR | 必需 CI + review |
+| `develop` | 集成分支，所有功能先在这里汇合 | `feat/*`、`fix/*`、`docs/*` 等 PR | 必需 CI + review |
+| `feat/*` | 单个功能，从最新 `develop` 切出 | 不直接进 main | — |
+
+规则：**`main` 永不接受功能分支的直接 PR**。想让功能上线，先把功能合进 `develop`，
+再由 `develop` 带着独立验收报告合进 `main`。两个分支都用
+[`.github/workflows/setup-branch-protection.yml`](../.github/workflows/setup-branch-protection.yml)
+应用保护规则（`branch` 输入填 `main` 或 `develop`）。
+
+## 3. 三道门
+
+| 门 | 什么时候 | 谁来做 | 检查什么 | 不过会怎样 |
+|----|----------|--------|----------|------------|
+| ① 功能 PR → `develop` | 每次提 PR | 自动（CI） | 全量测试 + 覆盖率门禁 + 追溯门禁 + 测试 scope 预算；PR 描述必须有需求编号与**研发自测（手工）** | PR 红，不能合 |
+| ② `develop` → `main` | 每次提 PR | **独立评审者**（人/独立 agent），产报告 | 门① 全部，外加独立验收报告：覆盖本批全部 `REQ-NNN`、逐条 `AC-n` 打勾、记录全量测试结果、声明独立性 | PR 红，不能合 |
+| ③ `main` 攒够 3 条功能合入 | 下一次 `develop` → `main` 提 PR 时 | 任意开发者 | `docs/regression/` 里有比上次更新的一条全量回归记录 | PR 红，不能合 |
+
+对应脚本：`scripts/pr_body_guard.py`、`scripts/acceptance_gate.py`、`scripts/regression_gate.py`。
+每周还有一次计划任务（`.github/workflows/regression.yml`）在 `main` 上跑全量作为兜底提醒。
+
+## 4. 研发自测（手工）
+
+自动化测试只能证明**已经写下的断言**，不能证明「新功能的行为符合预期」。
+所以门①要求 PR 描述里填「研发自测（手工）」，写清三件事：
+
+1. **验了什么**：对应哪条 `AC-n`（不是「我测了一下」）；
+2. **怎么验**：命令或操作步骤，别人照着能复现；
+3. **看到什么**：实际观察到的输出、文件内容、界面表现。
+
+反面例子：「测试全过了」「功能正常」「N/A」。CI 会拦下空栏与占位
+（`scripts/pr_body_guard.py`），但**判断内容是否诚实**仍然靠评审者。
+
+## 5. 就绪定义（Definition of Ready）
 
 需求进入实现前必须全部满足，否则停在 `proposed`：
 
@@ -25,85 +61,114 @@ REQ-NNN    →   DoR 通过   →   docs/*.md   →   一个或多个 PR  →  f
 - [ ] 验收标准每条都**可判定**：给定输入 → 可观察结果
 - [ ] 明确写出「本期不做」的范围，以及依赖的其他需求
 - [ ] 依赖的上下游需求已 `verified`（或明确标注可并行）
+- [ ] 需求条目里写了**手工自测清单**：哪些行为需要人验、怎么验
 
-## 3. 完成定义（Definition of Done）
+## 6. 完成定义（Definition of Done）
 
 一条需求的交付必须全部满足，才能从 `implemented` 推进到 `verified`：
 
-- [ ] 代码已合入 `main`，CI 全绿（`pytest` × Python 3.10/3.12、`lint`、`pr-title`、`ci-success`）
+- [ ] 代码已合入 `main`（经由 `develop`），门①②③ 全绿
 - [ ] 测试覆盖每条验收标准，文件里标注 `# 覆盖需求：REQ-NNN`（见 [`docs/TESTING.md`](TESTING.md) §7）
-- [ ] `make verify` 本地通过，覆盖率不低于门禁
+- [ ] `make verify` 本地通过，覆盖率不低于门禁，测试 scope 在预算内
+- [ ] PR 描述有可复现的手工自测记录；独立评审者的报告已归档到 `docs/verification/`
 - [ ] 文档同步：用户可见改动更新 `README.md`，架构或数据流变化更新 `docs/ARCHITECTURE.md`，
       行为变更写入 `CHANGELOG.md` 的 `[Unreleased]`
 - [ ] 台账状态、关联 PR、里程碑已回填；Issue 在**验收通过后**才关闭
-- [ ] 没有留下「已知偏差」未被记录（偏差要么修掉，要么写进需求条目或 Inbox）
+- [ ] 没有留下未被记录的「已知偏差」（要么修掉，要么写进需求条目或 Inbox）
 
-## 4. 拆分任务
+## 7. 拆分任务
 
-- 一条需求对应一个里程碑，**一个 PR 只做一件事**：能独立评审、能独立回滚、不放无关文件。
+- 一个 PR 只做一件事：能独立评审、能独立回滚、不放无关文件。
 - 改动规模以「评审者能在一次专注阅读内看完」为准；超过约 800 行有效改动时考虑拆分。
-- 有依赖关系的 PR 使用**栈式分支**（后一个 PR 基于前一个分支），并在 PR 正文写明合并顺序，
-  合并前 rebase 到 `main`。
-- 新需求在实现过程中被发现，不要塞进当前 PR：新开 `REQ-NNN` 并登记台账。
+- 有依赖关系的 PR 使用**栈式分支**，在 PR 正文写明合并顺序，合并前 rebase 到 `develop`。
+- 期间发现的新需求不要塞进当前 PR：新开 `REQ-NNN` 并登记台账。
 
-## 5. 分支、提交与 PR
+## 8. 分支、提交与 PR
 
-细则见 [`CONTRIBUTING.md`](../CONTRIBUTING.md)：分支前缀（`feat/` `fix/` `docs/` `refactor/` `test/` `chore/`）、
-Conventional Commits、Squash and merge、CODEOWNERS 与分支保护。
+细则见 [`CONTRIBUTING.md`](../CONTRIBUTING.md)。本流程额外要求：
 
-本流程额外要求：
+- PR 正文写明 `REQ-NNN` 与覆盖到的 `AC-n`；
+- 使用 `Refs #18` 而不是 `Closes #18`，避免合并即关闭 Issue 而跳过验收；
+- 增删测试文件后重新生成 `docs/TEST_SCOPE.md`（`make scope-write`）。
 
-- PR 正文写明 `REQ-NNN` 与覆盖到的 `AC-n`，便于反查与验收；
-- 使用 `Refs #18` 而不是 `Closes #18`，避免合并即关闭 Issue 而跳过验收。
-
-## 6. 本地校验
+## 9. 本地校验
 
 ```bash
-make verify   # lint + 全量测试 + 覆盖率门禁（提交前必跑，等价于 CI）
-make help     # 列出全部目标
+make verify      # lint + 全量测试 + 覆盖率门禁 + 追溯门禁 + scope 检查（提交前必跑）
+make gates       # 查看三道门在本地怎么自检
+make scope       # 看整体测试 scope 与预算使用率
+make help        # 全部目标
 ```
 
-CI 会做同样的事，但本地失败比 CI 失败便宜得多。
+## 10. 怎么做独立验收（门②）
 
-## 7. 评审
+1. **换人**：由没有参与实现的人或独立 agent 执行；实现者不得自评。
+2. **取全量**：`make verify`，记录 passed / skipped / 覆盖率 / 对比的基线 sha。
+3. **逐条核对**：打开 `docs/requirements/REQ-NNN-*.md`，对每条 `AC-n` 给出结论；
+   不通过就写 `- [ ]` 并附现象、复现命令与影响。
+4. **写报告**：用 [`docs/verification/TEMPLATE.md`](verification/TEMPLATE.md)，
+   放到 `docs/verification/<日期>-<批次>.md`。
+5. **提交**：在 `develop` → `main` 的 PR 正文「## 验收报告」里链接该文件。CI 会校验留痕完整。
+
+## 11. 怎么做批量回归（门③）
+
+```bash
+python scripts/regression_gate.py --check   # 看是否已经攒够、差什么
+python scripts/regression_gate.py --new     # 打印可直接填写的记录草稿
+```
+
+把填好的记录放到 `docs/regression/<日期>.md`（`covered-until` 写本次覆盖到的 main sha），
+下一次 `develop` → `main` 就能通过门③。
+
+## 12. 评审
 
 - 至少 1 个 review 批准（CODEOWNERS 指定的审阅人）；所有对话解决后才能合并。
-- 评审关注：是否满足验收标准、是否破坏既有原则（原子回退、全 mock、向后兼容）、文档与测试是否同步。
-- **大型或高风险改动建议加一轮独立对抗式评审**：由无上下文的独立评审者按「找出阻断项」的目标复核，
-  结论要能复现（给命令与证据），而不是只给意见。本仓库 PR #16 即以此方式发现并修复了 3 个阻断项。
+- 评审关注：是否满足验收标准、是否破坏既有原则（原子回退、全 mock、向后兼容）、
+  手工自测记录是否可信、文档与测试是否同步。
+- **大型或高风险改动建议加一轮独立对抗式评审**：由无上下文的独立评审者以「找出阻断项」为目标复核，
+  结论要能复现（给命令与证据）。本仓库 PR #16 即以此方式发现并修复了 3 个阻断项。
 
-## 8. 合并与验收
+## 13. 合并与验收
 
-1. Squash and merge 合入 `main`（历史线性、信息清晰）。
-2. **合并后立刻**把台账状态推到 `implemented`，回填 PR 编号（同一次改动或紧随的 `docs(req)` PR）。
-3. 逐条核对验收标准；全部通过 → `verified`，并在 GitHub 关闭对应 Issue。
-   不通过 → 记录缺口，状态回退 `in-progress`，并为缺口新开 `REQ-NNN` 或补 PR。
-4. 若实现方式与设计文档不符，改设计文档，**不要改小验收标准**。
+1. 功能 PR 用 **Squash and merge** 合入 `develop`。
+2. `develop` 攒到要上线时，开 `develop` → `main` 的 PR，附独立验收报告，通过门②③ 后合并。
+3. **合并后立刻**把台账状态推到 `implemented`，回填 PR 编号。
+4. 逐条核对验收标准；全部通过 → `verified` 并关闭 Issue；
+   不通过 → 记录缺口，状态回退 `in-progress`，并新开 `REQ-NNN` 或补 PR。
+5. 若实现方式与设计文档不符，改设计文档，**不要改小验收标准**。
 
-## 9. 度量
+## 14. 度量
 
 | 指标 | 现行门禁 / 基线 | 出处 |
 |------|------------------|------|
-| 测试覆盖率 | ≥ 74%（基线 76.77%） | `pytest.ini` 注释、CI、`make cov` |
-| 需求追溯 | 台账 ↔ 条目 ↔ 测试引用一致，已交付需求必须被测试引用 | `tests/test_requirement_traceability.py` |
+| 测试覆盖率 | ≥ 74%（基线 76.30%） | CI、`make cov` |
+| 测试 scope | ≤ 40 文件、≤ 1600 用例（当前 32 / 1435） | `docs/TEST_SCOPE.md`、`make scope-check` |
+| 需求追溯 | 台账 ↔ 条目 ↔ 测试引用一致 | `tests/test_requirement_traceability.py` |
+| PR 描述 | 需求编号 + 研发自测（手工）非空 | `scripts/pr_body_guard.py` |
+| 独立验收 | 报告覆盖本批 REQ 且 AC 全打勾 | `scripts/acceptance_gate.py` |
+| 批量回归 | 每 3 条功能合入必须留档 | `scripts/regression_gate.py` |
 | PR 标题 | Conventional Commits，≤ 72 字符 | CI `pr-title` |
-| 全量测试耗时 | 约 63s（1389 passed / 3 skipped） | `make cov` |
+| 全量测试耗时 | 约 54s（1432 passed / 3 skipped） | `make cov` |
 
-## 10. 反模式
+## 15. 反模式
 
 | 反模式 | 后果 | 正确做法 |
 |--------|------|----------|
 | 先写代码，缺什么补什么需求 | 验收标准迁就实现，等于没有验收 | 先登记需求与验收标准（DoR） |
+| 把功能分支直接 PR 到 `main` | 绕过独立验收 | 先合 `develop`，再走门② |
+| 手工自测只写「测试通过」 | 新功能其实没人验过 | 写清验了什么、怎么验、看到什么 |
+| 实现者自己写验收报告 | 自己给自己发合格证 | 换人或用独立 agent |
+| 攒了十几条改动也不回归 | `main` 可能早就坏了没人知道 | 到 3 条就 `--new` 留档 |
 | 合并了就关 Issue | 跳过验收，`verified` 形同虚设 | 验收通过再关 |
-| 台账只在心里更新 | 追溯链断裂，CI 会拦 | 状态与台账同一次改动内同步 |
 | 一个 PR 混入重构 + 新功能 + 格式调整 | 无法评审、无法回滚 | 拆成独立 PR |
 | 覆盖率不够就降低门禁 | 债务永久固化 | 补测或登记豁免理由 |
 
-## 11. 与 AI agent 协作
+## 16. 与 AI agent 协作
 
 本项目的分工是**Python 算数字、AI 读年报写判断**，因此 agent 也会改这个仓库：
 
-- agent 的改动与人类改动**走完全相同的流程**：需求登记、测试追溯、CI、评审，没有例外通道。
-- agent 适合承担的：批量补测、跨文件一致性核查、文档与代码同步、对抗式评审。
-- 让 agent 做评审时，要给**独立的上下文与明确的对抗目标**（找阻断项），并要求给出可复现证据。
+- agent 的改动与人类改动**走完全相同的流程**：需求登记、测试追溯、三道门，没有例外通道。
+- agent 适合承担的：批量补测、跨文件一致性核查、文档与代码同步。
+- **独立验收必须换上下文**：用没有参与实现的 agent（或人）按 §10 执行，
+  它能看到的只有需求条目、代码与测试，不能是「实现者自己的复述」。
 - agent 产出的「已完成」是待验证声明，不是验收结论：验收仍以 `AC-n` 与测试为准。

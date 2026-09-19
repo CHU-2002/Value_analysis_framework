@@ -1,0 +1,153 @@
+"""流程三道门的单测：PR 描述守卫、独立验收门禁、main 批量回归门禁。
+
+覆盖需求：REQ-006（需求-测试-开发流程与三道门）—— AC-2 研发自测必填、
+AC-3 独立验收报告、AC-4 批量回归阈值。
+"""
+
+import acceptance_gate
+import pr_body_guard
+import regression_gate
+
+FEATURE_BODY = """## 变更概述
+
+新增 run-store 台账。
+
+## 需求编号
+
+REQ-003
+
+## 研发自测（手工）
+
+- 验了 AC-3：原地覆盖源文件后快照 sha256 不变
+- 命令：python -c "import hashlib,pathlib; print(hashlib.sha256(pathlib.Path('a').read_bytes()).hexdigest())"
+- 结果：覆盖前与覆盖后哈希一致，run 仍可 validate
+
+## 验收报告
+
+不适用
+"""
+
+VERIFICATION_FRONT = """---
+batch: 2026-09-20-REQ-005
+date: 2026-09-20
+reviewer: independent-agent
+independence: independent
+requirements: REQ-005
+base: 6c974ab
+full-suite: 见正文
+---
+
+## 独立验收声明
+
+无上下文的独立 agent，未参与实现。
+
+## 全量测试
+
+1389 passed, 3 skipped，覆盖率 76.77%。
+"""
+
+
+def _report(tmp_path, body):
+    path = tmp_path / "2026-09-20-REQ-005.md"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def test_pr_body_guard_flags_empty_sections():
+    problems = pr_body_guard.evaluate("## 变更概述\n\n做了点事。\n", "develop")
+    assert any("需求编号" in problem for problem in problems)
+    assert any("研发自测" in problem for problem in problems)
+
+
+def test_pr_body_guard_accepts_filled_feature_pr():
+    assert pr_body_guard.evaluate(FEATURE_BODY, "develop") == []
+
+
+def test_pr_body_guard_ignores_placeholder_html_comments():
+    body = "## 需求编号\n\nREQ-003\n\n## 研发自测（手工）\n\n<!-- 待填 -->\n"
+    problems = pr_body_guard.evaluate(body, "develop")
+    assert any("研发自测" in problem for problem in problems)
+
+
+def test_pr_body_guard_requires_verification_report_for_main():
+    problems = pr_body_guard.evaluate(FEATURE_BODY.replace(
+        "不适用", "见 docs/verification/2026-09-20-REQ-003.md"
+    ), "main")
+    assert problems == []
+    problems = pr_body_guard.evaluate(FEATURE_BODY, "main")
+    assert any("验收报告" in problem for problem in problems)
+
+
+def test_acceptance_gate_requires_a_report():
+    problems = acceptance_gate.evaluate("## 需求编号\n\nREQ-005\n", [])
+    assert any("验收报告" in problem for problem in problems)
+
+
+def test_acceptance_gate_requires_requirement_ids():
+    problems = acceptance_gate.evaluate("## 变更概述\n\n没有需求编号\n", [])
+    assert any("REQ-NNN" in problem for problem in problems)
+
+
+def test_acceptance_gate_flags_unchecked_acceptance_criteria(tmp_path):
+    acs = acceptance_gate.requirement_ac_ids("REQ-005")
+    assert acs, "REQ-005 应当有验收标准"
+    checked = "\n".join(
+        f"- [x] **AC-{ac}**：符合预期" for ac in acs if ac != acs[0]
+    )
+    report = _report(tmp_path, VERIFICATION_FRONT + "\n## 逐条验收\n\n" + checked + "\n")
+    problems = acceptance_gate.evaluate("REQ-005\n", [report])
+    assert any(f"AC-{acs[0]}" in problem for problem in problems)
+
+
+def test_acceptance_gate_passes_when_report_is_complete(tmp_path):
+    acs = acceptance_gate.requirement_ac_ids("REQ-005")
+    checked = "\n".join(f"- [x] **AC-{ac}**：符合预期" for ac in acs)
+    report = _report(tmp_path, VERIFICATION_FRONT + "\n## 逐条验收\n\n" + checked + "\n")
+    assert acceptance_gate.evaluate("REQ-005\n", [report]) == []
+
+
+def test_acceptance_gate_requires_independence(tmp_path):
+    report = _report(tmp_path, VERIFICATION_FRONT.replace(
+        "independence: independent", "independence: implementer"
+    ))
+    problems = acceptance_gate.evaluate("REQ-005\n", [report])
+    assert any("independence" in problem for problem in problems)
+
+
+def test_acceptance_gate_requires_recorded_full_suite_result(tmp_path):
+    report = _report(tmp_path, VERIFICATION_FRONT.replace("1389 passed, 3 skipped", "跑过了"))
+    problems = acceptance_gate.evaluate("REQ-005\n", [report])
+    assert any("全量测试结果" in problem for problem in problems)
+
+
+def test_regression_gate_below_threshold_passes():
+    subjects = ["feat(a): one", "feat(b): two"]
+    assert regression_gate.evaluate([], subjects, 3) == []
+
+
+def test_regression_gate_blocks_when_threshold_reached_without_record():
+    subjects = ["feat(a): one", "feat(b): two", "feat(c): three"]
+    problems = regression_gate.evaluate([], subjects, 3)
+    assert len(problems) == 1 and "累积" in problems[0]
+
+
+def test_regression_gate_counts_only_feature_merges():
+    assert regression_gate.FEATURE_RE.match("feat(x): y")
+    assert regression_gate.FEATURE_RE.match("feat!: breaking")
+    assert not regression_gate.FEATURE_RE.match("docs(x): y")
+    assert not regression_gate.FEATURE_RE.match("fix(x): y")
+
+
+def test_regression_gate_loads_records_and_picks_latest(tmp_path):
+    (tmp_path / "2026-09-01.md").write_text(
+        "---\ndate: 2026-09-01\ncovered-until: aaa\n---\n", encoding="utf-8"
+    )
+    (tmp_path / "2026-09-20.md").write_text(
+        "---\ndate: 2026-09-20\ncovered-until: bbb\n---\n", encoding="utf-8"
+    )
+    (tmp_path / "TEMPLATE.md").write_text(
+        "---\ndate: 2099-01-01\ncovered-until: zzz\n---\n", encoding="utf-8"
+    )
+    records = regression_gate.load_records(tmp_path)
+    assert len(records) == 2, "模板不应被当作记录"
+    assert regression_gate.latest_record(records)["covered-until"] == "bbb"

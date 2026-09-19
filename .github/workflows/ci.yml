@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 permissions:
   contents: read
@@ -37,7 +37,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run tests with coverage gate
+      # 每个 PR 都跑全量：只有全量才能发现「新功能踩坏别处」。
+      # 控制 CI 成本走 docs/TEST_SCOPE.md 的整体 scope 预算，不裁剪单个 PR 的范围。
+      - name: Run full suite with coverage gate
         run: |
           python -m pytest -q \
             --cov=scripts \
@@ -65,7 +67,26 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q scripts tests
 
-  pr-title:
+  test_scope:
+    name: test-scope
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check overall test scope and budget
+        run: python scripts/test_scope.py --check
+
+  pr_title:
     name: pr-title
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -91,19 +112,94 @@ jobs:
           print(f"PR 标题合法：{title}")
           PY
 
-  ci-success:
+  pr_body:
+    name: pr-body
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Require requirement id and manual self-test record
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr_body.md"
+          python scripts/pr_body_guard.py --body-file "$RUNNER_TEMP/pr_body.md" --base "$BASE_REF"
+
+  acceptance_gate:
+    name: acceptance-gate
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Require an independent acceptance report
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr_body.md"
+          git fetch -q origin main
+          python scripts/acceptance_gate.py \
+            --body-file "$RUNNER_TEMP/pr_body.md" --base origin/main --head HEAD
+
+  regression_gate:
+    name: regression-gate
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Require a batched regression record on main
+        run: |
+          git fetch -q origin main
+          python scripts/regression_gate.py --check --main-ref origin/main
+
+  ci_success:
     name: ci-success
     if: always()
-    needs: [test, lint, pr-title]
+    needs: [test, lint, test_scope, pr_title, pr_body, acceptance_gate, regression_gate]
     runs-on: ubuntu-latest
     steps:
       - name: Verify required jobs
         run: |
           echo "test=${{ needs.test.result }}"
           echo "lint=${{ needs.lint.result }}"
-          echo "pr-title=${{ needs.pr-title.result }}"
+          echo "test-scope=${{ needs.test_scope.result }}"
+          echo "pr-title=${{ needs.pr_title.result }}"
+          echo "pr-body=${{ needs.pr_body.result }}"
+          echo "acceptance-gate=${{ needs.acceptance_gate.result }}"
+          echo "regression-gate=${{ needs.regression_gate.result }}"
           [ "${{ needs.test.result }}" = "success" ]
           [ "${{ needs.lint.result }}" = "success" ]
+          [ "${{ needs.test_scope.result }}" = "success" ]
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            [ "${{ needs.pr-title.result }}" = "success" ]
+            [ "${{ needs.pr_title.result }}" = "success" ]
+            [ "${{ needs.pr_body.result }}" = "success" ]
+          fi
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.base_ref }}" = "main" ]; then
+            [ "${{ needs.acceptance_gate.result }}" = "success" ]
+            [ "${{ needs.regression_gate.result }}" = "success" ]
           fi

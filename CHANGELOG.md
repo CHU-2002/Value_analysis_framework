@@ -19,6 +19,14 @@
 
 ### Added
 
+- 三段式分支模型与三道门：功能 PR 只进 `develop`（CI 跑全量 + `pr-body` 校验研发自测栏），
+  `develop` → `main` 必须带独立验收报告（`scripts/acceptance_gate.py`），
+  `main` 攒够 3 条功能合入必须补全量回归记录（`scripts/regression_gate.py`）
+- 测试 scope 登记与预算：`docs/TEST_SCOPE.md`（32 支文件 / 1435 用例）与 `scripts/test_scope.py`，
+  CI 的 `test-scope` 作业校验登记表与上限；控制 CI 成本走整体 scope 维护，不裁剪单个 PR 的范围
+- 独立验收报告模板 `docs/verification/TEMPLATE.md`、批量回归记录模板 `docs/regression/TEMPLATE.md`、
+  PR 模板新增「需求编号 / 研发自测（手工）/ 验收报告」栏位
+- `make` 新增 `scope` / `scope-write` / `scope-check` / `gates` 目标；`verify` 覆盖全部本地门禁
 - 可执行买卖计划：基于固定估值基准生成四档分批买入限价、资金比例与极端高估卖出价，并支持行情确认、成交状态和硬退出事件
 - 触发式买卖计划命令 `/buy-sell-plan`：主流程只产出报告与冻结估值，用户阅读报告后再决定是否采集当时行情生成计划，不自动生成 `buy_sell_market.json`/`buy_sell_plan.*`
 - 成熟的工程化文档：README、CONTRIBUTING、CODE_OF_CONDUCT、SECURITY、PR 与 Issue 模板

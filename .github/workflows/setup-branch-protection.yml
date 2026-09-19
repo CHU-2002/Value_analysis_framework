@@ -3,6 +3,11 @@ name: Setup Branch Protection
 on:
   workflow_dispatch:
     inputs:
+      branch:
+        description: "要保护的分支（main 或 develop）"
+        required: true
+        default: "main"
+        type: string
       required_approvals:
         description: "合并前需要的 review 数（管理员不受限）"
         required: true
@@ -92,7 +97,7 @@ jobs:
           with open("protection.json", "w", encoding="utf-8") as fh:
               json.dump(payload, fh, ensure_ascii=False, indent=2)
 
-          print("将应用以下 main 分支保护规则：")
+          print("将应用以下分支保护规则：")
           print(json.dumps(payload, ensure_ascii=False, indent=2))
           PY
 
@@ -106,7 +111,7 @@ jobs:
             echo "::error::缺少 secrets.ADMIN_TOKEN。请创建对仓库有 admin 权限的 PAT，并在仓库 Secrets 中添加 ADMIN_TOKEN。"
             exit 1
           fi
-          gh api --method PUT "repos/${REPO}/branches/main/protection" \
+          gh api --method PUT "repos/${REPO}/branches/${{ inputs.branch }}/protection" \
             -H "Accept: application/vnd.github+json" \
             --input protection.json
-          echo "已更新 main 分支保护规则。"
+          echo "已更新 ${{ inputs.branch }} 分支保护规则。"

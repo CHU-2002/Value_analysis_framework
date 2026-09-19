@@ -1,0 +1,52 @@
+name: Batched Regression (main)
+
+# main 不要求每次合并都跑全量回归，但攒够阈值（脚本里默认 3 条功能合入）必须补一次。
+# 本工作流是「兜底提醒」：每周在 main 上跑一次全量，并把可直接填写的回归记录草稿写进摘要。
+# 真正的卡口在 CI 的 regression-gate（develop → main 的 PR 上）。
+
+on:
+  schedule:
+    - cron: "0 22 * * 0"   # 每周日 22:00 UTC（北京时间周一 06:00）
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    name: full-suite-on-main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Full suite with coverage gate
+        run: |
+          python -m pytest -q \
+            --cov=scripts \
+            --cov-report=term-missing:skip-covered \
+            --cov-fail-under=74
+
+      - name: Regression record status and draft
+        run: |
+          python scripts/regression_gate.py --check --main-ref origin/main || true
+          {
+            echo "## 可直接填写的回归记录草稿"
+            echo '```yaml'
+            python scripts/regression_gate.py --new --main-ref origin/main
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

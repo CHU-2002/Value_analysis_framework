@@ -1,7 +1,7 @@
 ---
 id: REQ-005
 title: 增量更新文档与下游接线
-status: proposed
+status: implemented
 priority: P2
 owner: CHU-2002
 created: 2026-09-20
@@ -9,7 +9,7 @@ updated: 2026-09-20
 issue: "#20"
 design: docs/PERIODIC_UPDATE_PLAN.md
 milestone: periodic-update-v1
-pr: TBD
+pr: "#22, #23"
 depends-on: REQ-003, REQ-004
 supersedes: TBD
 ---
@@ -62,15 +62,15 @@ REQ-003 引入了 run-store、REQ-004 引入了增量流程，但**既有命令�
 | 项 | 内容 |
 |----|------|
 | 设计文档 | `docs/PERIODIC_UPDATE_PLAN.md` §10（PR5）、§8.6 |
-| 实现 PR | TBD |
-| 测试 | 待补：双布局端到端（mock baseline → 注入新期次 → 增量 run → 旧命令仍可解析） |
+| 实现 PR | #22（`docs(update): 定期报告增量更新的文档与下游接线`）、#23（`docs(update): 补齐 run-store 门禁与 PR5 复核残留`） |
+| 测试 | `tests/test_update_docs_contract.py`（契约：命令必须经 `runs.py resolve` 取 run_dir，不得把公司目录直接交给 resolver） |
 | 文档更新 | `docs/ARCHITECTURE.md`、`README.md`、`CHANGELOG.md` |
 
 ## 备注
 
-本需求尚未受理，但已有部分先行落地：PR #16 / #17 合并后，`scripts/results/prepare.py` 已透传 `framework`
-（`framework=framework_block()`），AC-2 的该项子条款可视为已满足。其余部分（ARCHITECTURE / README / CHANGELOG、
-下游 staleness 接线、双布局端到端测试）经 2026-09-20 核查均未落地：`docs/ARCHITECTURE.md` 未提及 run-store，
-`README.md` 无 `/update-analysis`，`CHANGELOG.md` 无对应条目。
+与本需求相关的两批改动已合入 `main`：`scripts/results/prepare.py` 透传 `framework`（#16/#17），
+`docs/ARCHITECTURE.md` / `README.md` / `CHANGELOG.md` 补齐 run-store 数据流与 `/update-analysis` 用法，
+并新增契约测试固定「命令必须经 `runs.py resolve` 取 run_dir」（#22/#23）。
 
-开工前需先确认 REQ-003 / REQ-004 合入后的实际目录约定，避免照设计稿写出与实现不符的文档。
+验收时仍需逐条核对，特别是 AC-1 的 `value_computed` / `buy_sell_basis` staleness 标记是否对用户可见，
+以及 AC-5 的双布局端到端（mock baseline → 注入新期次 → 增量 run → 旧命令仍可解析）。

@@ -1,15 +1,42 @@
 <!--
-感谢提交 Pull Request！请填写以下内容，帮助审阅者快速理解改动。
-标题请遵循 Conventional Commits，例如：feat(results): add artifact hash verification
+感谢提交 Pull Request！标题请遵循 Conventional Commits，例如：
+feat(results): add artifact hash verification
+
+按流程：功能 PR 合入 develop，develop 再合入 main（见 docs/DEVELOPMENT.md）。
 -->
 
 ## 变更概述
 
 <!-- 用一两句话说明这个 PR 做了什么、为什么需要 -->
 
+## 需求编号
+
+<!-- 必填。填 REQ-NNN；未登记先读 docs/requirements/README.md，不要跳过登记直接写代码。 -->
+
+REQ-
+
 ## 关联 Issue
 
-<!-- 如 Closes #123 / Refs #456，没有则填“无” -->
+<!-- 如 Refs #123；无则填「无」。注意：验收通过前不要用 Closes 关掉验收跟踪 issue。 -->
+
+## 研发自测（手工）
+
+<!--
+必填，CI 会校验本栏不能为空（scripts/pr_body_guard.py）。
+自动化测试只能证明既有断言，新功能的行为是否符合预期必须有人手工验过。请写：
+- 验了什么（对应哪条 AC）
+- 怎么验（命令 / 操作步骤）
+- 看到什么结果（观察到的输出，而不是「测试通过」）
+-->
+
+## 验收报告
+
+<!--
+仅合入 main 的 PR 必填，其他 PR 填「不适用」。
+链接本 PR 新增的 docs/verification/ 报告文件；模板见 docs/verification/TEMPLATE.md。
+-->
+
+不适用
 
 ## 改动类型
 
@@ -30,25 +57,27 @@
 
 ## 验证方式
 
-<!-- 说明如何验证，附上命令与结果 -->
-
 ```bash
-.venv/bin/python -m pytest -q
-.venv/bin/python -m compileall -q scripts tests
-git diff --check
+make verify   # lint + 全量测试 + 覆盖率门禁 + 追溯门禁 + 测试 scope 检查
 ```
+
+<!-- 粘贴关键输出；手工自测的过程写在「研发自测（手工）」栏 -->
 
 ## 自查清单
 
 - [ ] 改动聚焦，未包含无关文件
 - [ ] 已补充或更新测试，且全部通过
+- [ ] 需求台账状态已同步推进，测试里标注了 `REQ-NNN`
+- [ ] 新增/删除测试文件后已重新生成 `docs/TEST_SCOPE.md`
 - [ ] 已更新相关文档 / CHANGELOG
 - [ ] 无硬编码密钥、调试输出或临时代码
 - [ ] 未破坏向后兼容（如有破坏性变更已明确标注）
 
 ## 破坏性变更
 
-<!-- 如有，描述影响范围与迁移方式；没有则填“无” -->
+<!-- 如有，描述影响范围与迁移方式；没有则填「无」 -->
+
+无
 
 ## 补充信息
 
