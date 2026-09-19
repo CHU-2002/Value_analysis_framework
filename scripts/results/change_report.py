@@ -81,7 +81,11 @@ def build_change_report_context(
     if evidence_index.get("subject") != subject:
         raise ValueError("evidence index subject does not match the period-delta result")
 
-    for name, result in (("period_delta", delta), ("synthesis", synthesis), ("prior_synthesis", prior)):
+    # This run's own results must be fully verifiable against this run's index.
+    # The previous run's synthesis belongs to an older run: its locators point
+    # at the old snapshot, so it is downgraded rather than rejected (the whole
+    # point of an update is that the inputs changed).
+    for name, result in (("period_delta", delta), ("synthesis", synthesis)):
         if result is None:
             continue
         errors = validate_result_evidence(result, evidence_index)
@@ -89,6 +93,41 @@ def build_change_report_context(
             raise ValueError(
                 f"{name} cites evidence missing from the index:\n- " + "\n- ".join(errors)
             )
+
+    indexed_ids = {
+        entry.get("evidence_id")
+        for entry in evidence_index.get("entries", [])
+        if isinstance(entry, dict)
+    }
+    prior_evidence_unavailable = 0
+    if prior is not None:
+        verifiable: list[dict[str, Any]] = []
+        dropped_ids: set[Any] = set()
+        for item in prior.get("evidence", []):
+            if not isinstance(item, dict):
+                continue
+            # Reuse the same excerpt/locator rules as this run: an id that exists
+            # in both runs may still point at a different chunk or snapshot.
+            probe = dict(prior)
+            probe["evidence"] = [item]
+            if validate_result_evidence(probe, evidence_index):
+                prior_evidence_unavailable += 1
+                dropped_ids.add(item.get("evidence_id"))
+            else:
+                verifiable.append(item)
+        verifiable_ids = {item.get("evidence_id") for item in verifiable}
+        for claim in prior.get("claims", []):
+            if not isinstance(claim, dict):
+                continue
+            references = claim.get("evidence_ids", [])
+            if not isinstance(references, list):
+                continue
+            claim["evidence_ids"] = [
+                ref
+                for ref in references
+                if ref in verifiable_ids or (ref in indexed_ids and ref not in dropped_ids)
+            ]
+        prior["evidence"] = verifiable
 
     reconciliation = None
     if reconciliation_path is not None:
@@ -133,6 +172,7 @@ def build_change_report_context(
                 "must_cite_evidence": True,
                 "cumulative_vs_single_quarter": "Q1/H1/Q3 are year-to-date cumulative; derive single quarters by subtraction and state it.",
                 "missing_section_wording": "本期未披露",
+                "cite_prior_via": "Cite previous conclusions through prior_analysis:* evidence ids; the previous run's own evidence ids belong to that run's index and may be unavailable here.",
                 "source_of_truth": "period_delta and the supplied deterministic metrics; never recalculate",
             },
         }
@@ -179,6 +219,7 @@ def build_change_report_context(
     payload["degraded"] = {
         "prior_synthesis_dropped": prior is not None and payload["prior_synthesis"] is None,
         "synthesis_dropped": synthesis is not None and payload["synthesis"] is None,
+        "prior_evidence_unavailable": prior_evidence_unavailable,
     }
     return payload
 

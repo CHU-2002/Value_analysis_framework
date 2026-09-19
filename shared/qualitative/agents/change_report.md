@@ -14,6 +14,8 @@ Read only:
 
 The context contains: the current run's `period_delta` result card, the updated synthesis card, the previous run's conclusions (`prior_synthesis`), reconciliation findings and the selected evidence excerpts. Do not read the complete PDF or the complete market data pack.
 
+The previous run's own evidence IDs belong to **that** run's evidence index and may not be verifiable here; the context strips the ones that no longer match and reports the count in `degraded.prior_evidence_unavailable`. Cite previous conclusions through this run's `prior_analysis:*` evidence IDs instead, and disclose it when the old evidence is unavailable.
+
 ## Reasoning requirements
 
 1. State the comparison basis before any number: report period, comparable period, and whether each figure is cumulative or a single quarter.

@@ -161,7 +161,11 @@ class TestBuildChangeReportContext:
         assert payload["period_delta"]["result_type"] == "qualitative.period_delta"
         assert payload["prior_synthesis"]["summary"]["thesis"] == "维持长期判断"
         assert payload["instructions"]["cumulative_vs_single_quarter"]
-        assert payload["degraded"] == {"prior_synthesis_dropped": False, "synthesis_dropped": False}
+        assert payload["degraded"] == {
+            "prior_synthesis_dropped": False,
+            "synthesis_dropped": False,
+            "prior_evidence_unavailable": 0,
+        }
 
     def test_optional_inputs_absent(self, tmp_path):
         index = _write_index(tmp_path)
@@ -171,7 +175,11 @@ class TestBuildChangeReportContext:
 
         assert payload["synthesis"] is None
         assert payload["prior_synthesis"] is None
-        assert payload["degraded"] == {"prior_synthesis_dropped": False, "synthesis_dropped": False}
+        assert payload["degraded"] == {
+            "prior_synthesis_dropped": False,
+            "synthesis_dropped": False,
+            "prior_evidence_unavailable": 0,
+        }
 
     def test_rejects_non_delta_result(self, tmp_path):
         index = _write_index(tmp_path)
@@ -302,3 +310,45 @@ class TestCli:
 
 def test_contract_scope_is_d7():
     assert RESULT_TYPE_CONTRACTS["qualitative.period_delta"]["scope"] == ["D7"]
+
+
+class TestPriorEvidenceDowngrade:
+    def test_stale_prior_evidence_is_downgraded_not_fatal(self, tmp_path):
+        # A previous run's excerpts point at that run's snapshot. After a new
+        # reporting period the inputs change, so those excerpts must not match
+        # this run's index -- and that must not make the update impossible.
+        index = _write_index(tmp_path)
+        delta = _write(tmp_path, "delta.json", _delta_result())
+        prior_payload = _synthesis_result(PRIOR_RUN_ID)
+        prior_payload["evidence"][0]["locator"] = {
+            "path": "/old/snapshot/prior_analysis.json",
+            "section": "summary",
+            "chunk": 1,
+        }
+        prior_payload["evidence"][0]["quote"] = "旧快照中的另一段原文"
+        prior = _write(tmp_path, "prior.json", prior_payload)
+
+        payload = build_change_report_context(
+            delta_result_path=delta,
+            evidence_index_path=index,
+            prior_synthesis_path=prior,
+        )
+
+        assert payload["degraded"]["prior_evidence_unavailable"] == 1
+        assert payload["prior_synthesis"]["summary"]["thesis"]
+        assert payload["prior_synthesis"]["evidence"] == []
+        assert payload["prior_synthesis"]["claims"][0]["evidence_ids"] == []
+
+    def test_compatible_prior_evidence_is_kept(self, tmp_path):
+        index = _write_index(tmp_path)
+        delta = _write(tmp_path, "delta.json", _delta_result())
+        prior = _write(tmp_path, "prior.json", _synthesis_result(PRIOR_RUN_ID))
+
+        payload = build_change_report_context(
+            delta_result_path=delta,
+            evidence_index_path=index,
+            prior_synthesis_path=prior,
+        )
+
+        assert payload["degraded"]["prior_evidence_unavailable"] == 0
+        assert payload["prior_synthesis"]["evidence"]
