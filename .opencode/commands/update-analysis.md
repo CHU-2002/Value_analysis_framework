@@ -1,0 +1,118 @@
+Run an incremental periodic-report update analysis (定期报告增量更新) on stock: $ARGUMENTS
+
+## Input Validation
+- Stock code must be a valid A-share (e.g., 600887, 000858.SZ). This command currently supports A-shares only because it depends on CNINFO regular-report discovery.
+- If `$ARGUMENTS` is empty or invalid, ask the user for a valid A-share code before proceeding.
+- An optional period (e.g. `2026H1`) may be given; otherwise the newest published period is used.
+- Store the validated canonical code as `{ticker}` and the existing `output/{directory_code}_*/` company directory as `{company_dir}`. The run-store layout is described in `docs/PERIODIC_UPDATE_PLAN.md`.
+
+## Prerequisite Check
+Decide whether this is an update or a baseline:
+
+```bash
+python3 scripts/analysis_status.py --company-dir "{company_dir}" --ticker "{ticker}" --json
+```
+
+| Exit code | Meaning | Action |
+|-----------|---------|--------|
+| 0 | already up to date | report this to the user and stop; do not re-run analysis |
+| 1 | new report or changed inputs | continue with the incremental flow |
+| 3 | framework/schema changed or record broken | continue, but the change report must state that the prior basis was invalidated |
+| 2 | invocation error | fix the invocation |
+
+- No analysis record at all → run `/business-analysis {stock_code}` first to establish a baseline, then return here. Never fabricate an incremental update without a record.
+- `{company_dir}` missing but an analysis exists under another directory for the same code → reconcile into one directory before continuing.
+
+## Execution Instructions
+
+Read `shared/qualitative/coordinator_update.md` for the full pipeline specification and execute every step:
+
+### Step 1: Discover and download the newest period(s)
+```bash
+python3 scripts/download_report.py \
+  --stock-code "{stock_code}" \
+  --report-type auto \
+  --since "<first period missing from record.json>" \
+  --save-dir "{company_dir}/sources/pdf"
+```
+- Already-held periods are skipped; add `--force` only when the user asks for a re-download.
+- If the result is `PARTIAL` or `FAILED`, stop and tell the user which periods are missing before continuing.
+
+### Step 2: Parse report sections per period
+```bash
+python3 scripts/pdf_preprocessor.py --pdf "{company_dir}/sources/pdf/<period report>.pdf" --period "<period>"
+```
+Outputs `pdf_sections_{period}.json`. Extract footnotes into `data_pack_report.md` as described in `coordinator_v2.md` Step 1C when the period discloses them (quarterly reports usually do not).
+
+### Step 3: Open a new run
+```bash
+python3 scripts/runs.py new --company-dir "{company_dir}" --ticker "{ticker}" --company "{company_name}" --market "{market}" --kind report-update --primary-period "<period>" --supersedes "<previous run_id>" --input ...
+```
+Capture the printed run directory as `{run_dir}`. Keep the previous run untouched.
+
+### Step 4: Prepare evidence and module contexts
+```bash
+python3 -m scripts.results.prepare --output-dir "{run_dir}" --ticker "{ticker}" --company "{company_name}" --market "{market}" --primary-period "<period>" --prior-analysis "{company_dir}/runs/<previous run_id>/synthesis/result.json"
+```
+`--prior-analysis` registers the previous run's conclusions as the `prior_analysis` evidence source so `period_delta` can cite what changed.
+
+### Step 5: Run the modules
+Run the four core modules **and** `period_delta` in parallel, each reading only its own context bundle and writing `modules/{module}/result.json` + `report.md`:
+- `shared/qualitative/agents/modules/business_moat.md`
+- `shared/qualitative/agents/modules/environment.md`
+- `shared/qualitative/agents/modules/governance.md`
+- `shared/qualitative/agents/modules/mda_quality.md`
+- `shared/qualitative/agents/modules/period_delta.md`
+- `shared/qualitative/agents/modules/holding_structure.md` (only when `d6_trigger.json` requires it)
+
+Validate each with `python3 -m scripts.results.validate_result "{run_dir}/modules/{module}/result.json" --evidence-index "{run_dir}/evidence/index.json"`. Do not invent evidence IDs.
+
+### Step 6: Reconcile and synthesize
+Pass the same module set (four core + `period_delta` + optional `holding_structure`) to both:
+```bash
+python3 -m scripts.results.reconcile_results ... --output "{run_dir}/synthesis/reconciliation.json"
+python3 -m scripts.results.synthesis ... --output "{run_dir}/synthesis/context.json"
+```
+Then run the Final Synthesis Agent (`shared/qualitative/agents/final_synthesis.md`) to write the updated `{run_dir}/qualitative_report.md` and `{run_dir}/synthesis/result.json`, including a short 「本次更新说明」 section.
+
+### Step 7: Validate the updated conclusions
+```bash
+python3 -m scripts.results.resolve_qualitative --output-dir "{run_dir}" --ticker "{ticker}" --output "{run_dir}/qualitative_input.json"
+```
+Require `source=structured`. Exit status 3 means the run must be fixed or re-run; never fall back to the old Markdown in a manifest-backed run.
+
+### Step 8: Build and write the standalone change report
+```bash
+python3 -m scripts.results.change_report --delta "{run_dir}/modules/period_delta/result.json" --synthesis "{run_dir}/synthesis/result.json" --prior-synthesis "{company_dir}/runs/<previous run_id>/synthesis/result.json" --evidence-index "{run_dir}/evidence/index.json" --reconciliation "{run_dir}/synthesis/reconciliation.json" --output "{run_dir}/synthesis/change_report_context.json"
+```
+Run the Change Report Agent (`shared/qualitative/agents/change_report.md`) to write `{run_dir}/change_report_{period}.md` and `change_report_{period}.json`.
+
+### Step 9: Record the iteration
+```bash
+python3 scripts/runs.py finish --company-dir "{company_dir}" --run-dir "{run_dir}" --status complete --primary-period "<period>" --report-periods "<covered periods>" --artifact report="{run_dir}/qualitative_report.md" --artifact change_report="{run_dir}/change_report_<period>.md" --artifact qualitative_input="{run_dir}/qualitative_input.json" --conclusion-changed "<one line>"
+```
+
+### Step 10: Downstream freshness
+- Mark `record.json`'s `downstream.stale` when `value_computed.json` / `buy_sell_basis.json` were built on an older period.
+- **Do not** regenerate or alter a buy/sell plan automatically. Tell the user to run `/value-analysis` and, if they want an executable plan, `/buy-sell-plan`.
+
+## Method Requirements
+- Compare like with like: `Q1` / `H1` / `Q3` are year-to-date cumulative; derive single quarters by subtraction and state it. Never compare an interim period against a full year.
+- Every asserted change cites evidence: this period's data/PDF for the new fact, `prior_analysis:*` for the previous conclusion.
+- Missing sections (typical in quarterly reports) are written as `本期未披露`, not treated as proof that nothing happened.
+- Preserve deterministic numbers; never recalculate or invent them.
+- If `period_delta` reports `requires_full_rerun=true`, say so prominently and name the conclusion that can no longer be carried forward.
+
+## Error Recovery
+- No analysis record → `/business-analysis` first; do not improvise a baseline.
+- Newest period not published or not downloadable → stop and report which period is missing; offer degraded mode only with the user's consent.
+- `prepare`/`resolve_qualitative` failure → fix inputs and re-run the module set; never mix results from two runs.
+- `synthesis` failure → keep the run directory; it is resumable, and the ledger entry is written only by `runs.py finish`.
+
+## Output
+- Updated conclusions: `{run_dir}/qualitative_report.md` (+ `qualitative_input.json`)
+- Standalone change report: `{run_dir}/change_report_{period}.md` (+ `.json`)
+- Ledger: `{company_dir}/history.jsonl`, `latest.json`, `record.json`
+- Downstream freshness note for `/value-analysis` and `/buy-sell-plan`
+
+Usage: /update-analysis 600887 or /update-analysis 000858 2026H1

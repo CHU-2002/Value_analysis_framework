@@ -91,6 +91,22 @@ RESULT_TYPE_CONTRACTS: dict[str, dict[str, Any]] = {
             "sotp_discount_pct": "nullable_number",
         },
     },
+    "qualitative.period_delta": {
+        "scope": ["D7"],
+        "parameters": {
+            "report_period": "string",
+            "comparable_period": "string",
+            "business_trend": {"改善", "稳定", "恶化", "不确定"},
+            "conclusion_change": {"维持", "上调", "下调", "证据不足"},
+            "change_significance": {"重大", "一般", "轻微"},
+            "guidance_delivery": {"兑现", "部分兑现", "未兑现", "无法验证", "无指引"},
+            "requires_full_rerun": "boolean",
+            "revenue_yoy_pct": "nullable_number",
+            "net_profit_yoy_pct": "nullable_number",
+            "gross_margin_change_pct": "nullable_number",
+            "operating_cashflow_to_profit": "nullable_number",
+        },
+    },
 }
 
 PARAMETER_OWNERS = {
