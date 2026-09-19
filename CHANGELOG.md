@@ -28,7 +28,7 @@
   `pr-body` 校验研发自测栏），特性分支**直接合入 `main`** 且必须带独立验收报告
   （`scripts/acceptance_gate.py`）；`main` 每累积 3 个特性必须补一份批量全量回归记录
   （`scripts/regression_gate.py`），不维护长期集成分支
-- 测试 scope 登记与预算：`docs/TEST_SCOPE.md`（33 支文件 / 1459 用例）与 `scripts/test_scope.py`，
+- 测试 scope 登记与预算：`docs/TEST_SCOPE.md`（33 支文件 / 1460 用例）与 `scripts/test_scope.py`，
   CI 的 `test-scope` 作业校验登记表与上限；控制 CI 成本走整体 scope 维护，不裁剪单个 PR 的范围
 - 独立验收报告模板 `docs/verification/TEMPLATE.md`、批量回归记录模板 `docs/regression/TEMPLATE.md`、
   PR 模板新增「需求编号 / 研发自测（手工）/ 验收报告」栏位

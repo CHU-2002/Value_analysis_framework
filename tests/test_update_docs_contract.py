@@ -7,6 +7,7 @@ These tests pin the two paths that an independent review found inconsistent.
 
 # 覆盖需求：REQ-005（增量更新文档与下游接线）—— AC-1 命令必须经 runs.py resolve
 # 取 run_dir，不得把公司目录直接交给 resolver；AC-2 双布局下命令仍可用
+import re
 from pathlib import Path
 
 import pytest
@@ -173,3 +174,26 @@ def test_downstream_docs_resolve_the_run_directory(doc):
     assert 'resolve_qualitative --output-dir "{run_dir}"' in content, doc
     assert 'resolve_qualitative --output-dir "{output_dir}"' not in content, doc
     assert 'resolve_qualitative --output-dir "{company_output_dir}"' not in content, doc
+
+
+# --- REQ-005 全局守卫：消费者正文不得把定性输入写成扁平公司路径 ---
+#
+# 用全局扫描而不是维护文件清单：本轮修复之所以漏掉 4 处，正是因为只按清单改。
+# 只守 strategies/ —— /business-analysis 与 shared/qualitative/coordinator_v2.md
+# 是「从零开始的完整分析」生产者，按设计写扁平布局，不属于本不变量。
+FLAT_QUALITATIVE_RE = re.compile(
+    r"(\{output_dir\}|\{company_output_dir\}|output/\{code\}_\{company\}|"
+    r"output/\{directory_code\}_\*/)/qualitative_input\.json"
+)
+
+
+def test_strategy_docs_never_use_a_flat_qualitative_input_path():
+    offenders = []
+    for doc in sorted((ROOT / "strategies").rglob("*.md")):
+        for match in FLAT_QUALITATIVE_RE.finditer(doc.read_text(encoding="utf-8")):
+            offenders.append(f"{doc.relative_to(ROOT)}: {match.group(0)}")
+    assert not offenders, (
+        "以下消费者正文仍把定性输入写成扁平公司路径（run-store 布局下不存在）：\n  "
+        + "\n  ".join(offenders)
+        + "\n应改为 `{run_dir}/qualitative_input.json`（由 runs.py resolve 取得）"
+    )

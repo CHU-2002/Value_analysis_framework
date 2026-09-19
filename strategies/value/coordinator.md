@@ -259,7 +259,7 @@ EE: {ee}
 {workspace}     = 项目根目录
 {strategy_dir}  = {workspace}/strategies/value
 {output_dir}    = {workspace}/output/{code}_{company}
-{qualitative}   = {output_dir}/qualitative_input.json
+{qualitative}   = {run_dir}/qualitative_input.json
 {market_pack}   = {output_dir}/data_pack_market_current.md
 {report_pack}   = {output_dir}/data_pack_report.md
 {computed}      = {output_dir}/value_computed.md

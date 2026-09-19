@@ -78,7 +78,7 @@
 |---------|-------------|---------|-------|
 | 价值分析 | `output/{code}_{company}/{company}_{code}_价值分析报告.md` | 护城河(强/较强/中/弱)、诚信评级、防守层评级 | 最高 |
 | 估值报告（可选） | `output/{code}_{company}/{company}_{code}_估值报告.md` | 估值区间、当前价格相对内在价值 | 辅助 |
-| 定性分析 | `output/{code}_{company}/qualitative_input.json` | moat_rating、management_rating、integrity_rating、质量警告 | 辅助 |
+| 定性分析 | `{run_dir}/qualitative_input.json`（run-store 布局在 run 目录下） | moat_rating、management_rating、integrity_rating、质量警告 | 辅助 |
 
 扫描每个公司目录时，先解析该公司的 run 目录（resolver 不会自己跟随 `latest.json`，把公司目录直接传进去会静默退回 `source=legacy`/`unavailable`）：`{company_output_dir}/latest.json` 存在时执行 `.venv/bin/python scripts/runs.py resolve --company-dir "{company_output_dir}" --latest` 并记输出为 `{run_dir}`，否则 `{run_dir}` = `{company_output_dir}`；随后执行：
 
