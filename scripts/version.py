@@ -51,6 +51,10 @@ DIRTY_TRACKED_PATHS: tuple[str, ...] = (
     ".claude/commands",
     ".claude/skills",
     ".opencode/commands",
+    # A live framework input: the buy/sell commands and the value strategy
+    # explicitly read it, so an uncommitted edit must count as a framework
+    # change. Listed as a single file so unrelated docs edits stay invisible.
+    "docs/BUY_SELL_CONTRACT.md",
 )
 
 _GIT_TIMEOUT_SECONDS = 10

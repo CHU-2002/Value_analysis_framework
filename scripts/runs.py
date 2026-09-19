@@ -564,6 +564,11 @@ def mark_downstream_fresh(
     if not record:
         raise ResolutionError(f"no record.json in {company_path}")
     selected = list(DOWNSTREAM_COMPONENTS if components is None else components)
+    if components is not None and not selected:
+        raise LedgerError(
+            "--fresh requires at least one component "
+            f"(expected one of {', '.join(DOWNSTREAM_COMPONENTS)}, or all)"
+        )
     unknown = [name for name in selected if name not in DOWNSTREAM_COMPONENTS]
     if unknown:
         raise LedgerError(
@@ -790,6 +795,59 @@ def _restamp_manifest_artifacts(run_path: Path, rewritten: set[Path]) -> None:
     _write_json(manifest_path, manifest)
 
 
+def _assert_artifacts_unmodified(
+    run_path: Path, manifest: dict[str, Any], company_dir: Path
+) -> None:
+    """Refuse to adopt a directory whose recorded artifacts no longer match.
+
+    Adoption rewrites some artifacts (the input digest lives in the evidence
+    index and the context bundles), which would otherwise hide pre-existing
+    tampering from ``validate_manifest_artifacts``. Verify the copies against
+    the recorded hashes first, so a corrupted source directory is reported
+    instead of silently re-stamped.
+    """
+
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list):
+        return
+    mismatches: list[str] = []
+    for item in artifacts:
+        if not isinstance(item, dict):
+            continue
+        recorded = item.get("sha256")
+        raw_path = item.get("path")
+        if not isinstance(recorded, str) or not recorded or not isinstance(raw_path, str):
+            continue
+        resolved = Path(raw_path)
+        try:
+            relative = resolved.resolve().relative_to(company_dir)
+        except ValueError:
+            # The recorded path may point at the original location while the
+            # adoption runs on a copy: anchor on the company directory name.
+            parts = resolved.parts
+            name = company_dir.name
+            if name in parts:
+                index = len(parts) - 1 - parts[::-1].index(name)
+                relative = Path(*parts[index + 1:])
+            else:
+                relative = Path(resolved.name)
+        candidate = run_path / relative
+        if not candidate.is_file():
+            # Last resort for manifests recorded against a different absolute
+            # location: locate the copied file by its basename.
+            matches = [path for path in run_path.rglob(resolved.name) if path.is_file()]
+            candidate = matches[0] if len(matches) == 1 else candidate
+        if not candidate.is_file():
+            mismatches.append(f"{raw_path} (missing after copy)")
+        elif sha256_file(candidate) != recorded:
+            mismatches.append(raw_path)
+    if mismatches:
+        raise LedgerError(
+            "refusing to adopt a directory whose artifacts no longer match its manifest: "
+            + ", ".join(sorted(mismatches))
+        )
+
+
 def adopt_legacy(
     company_dir: str | Path,
     *,
@@ -843,6 +901,12 @@ def adopt_legacy(
         copied.append((source, destination))
     for source, destination in copied:
         _verify_copy(source, destination)
+
+    try:
+        _assert_artifacts_unmodified(run_path, manifest_meta, company_path)
+    except LedgerError:
+        shutil.rmtree(run_path, ignore_errors=True)
+        raise
 
     input_digest = _rewrite_manifest_paths(run_path, company_path)
     if input_digest:

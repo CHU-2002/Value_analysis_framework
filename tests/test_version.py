@@ -256,3 +256,22 @@ def test_runs_as_package_and_as_script(tmp_path):
     )
     assert as_script.returncode == 0, as_script.stderr
     assert json.loads(as_script.stdout)["version"] == FRAMEWORK_VERSION
+
+
+def test_contract_file_is_part_of_the_dirty_scope(tmp_path):
+    """An uncommitted edit to the buy/sell contract must count as framework drift."""
+
+    root, git = _git_repo(tmp_path)
+    (root / "docs").mkdir()
+    contract = root / "docs" / "BUY_SELL_CONTRACT.md"
+    contract.write_text("# contract\n", encoding="utf-8")
+    assert git("add", "-A").returncode == 0
+    assert git("commit", "-m", "add contract").returncode == 0
+
+    assert version.framework_block(root)["dirty"] is False
+
+    contract.write_text("# contract (edited)\n", encoding="utf-8")
+
+    block = version.framework_block(root)
+    assert block["dirty"] is True
+    assert block["code_fingerprint"].endswith("-dirty")
