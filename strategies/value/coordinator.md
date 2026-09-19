@@ -29,7 +29,7 @@
 {directory_code} = 仅移除 {ticker} 最后一个市场后缀后的目录代码（BRK.B.US -> BRK.B）
 {code} = {directory_code}（仅用于目录和报告文件名）
 {output_dir} = 唯一匹配的 {workspace}/output/{directory_code}_*/ 公司目录
-{run_dir} = 若 {output_dir}/latest.json 存在，则先执行 `python3 scripts/runs.py resolve --company-dir "{output_dir}" --latest` 并把输出作为 {run_dir}；否则 {run_dir} = {output_dir}（legacy 扁平布局）
+{run_dir} = 若 {output_dir}/latest.json 存在，则先执行 `.venv/bin/python scripts/runs.py resolve --company-dir "{output_dir}" --latest` 并把输出作为 {run_dir}；否则 {run_dir} = {output_dir}（legacy 扁平布局）
 ```
 
 **必须存在**：
@@ -39,7 +39,7 @@
 先解析 run 目录（run-store 布局下必须）：
 
 ```bash
-python3 scripts/runs.py resolve --company-dir "{output_dir}" --latest
+.venv/bin/python scripts/runs.py resolve --company-dir "{output_dir}" --latest
 ```
 
 `resolve_qualitative` **只接受 run 目录**（含 `run_manifest.json`）或 legacy 扁平目录，**它不解析 `latest.json`**；把公司目录直接传进去会落到 `source=unavailable`/`legacy`。

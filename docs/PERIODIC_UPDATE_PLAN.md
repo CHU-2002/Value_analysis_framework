@@ -13,11 +13,11 @@
 
 | PR | 分支 | 内容 | 主要位置 |
 |----|------|------|----------|
-| 1 | `feat/periodic-report-discovery` | CNINFO 四类定期报告发现、期次工具、`--latest`/`--since` 下载、`sources_index.json` | `scripts/periods.py`、`scripts/download_report.py` |
-| 2 | `feat/comparable-periods` | 上年同期可比列、每期次 `pdf_sections_{period}.json`、`prepare --primary-period` | `scripts/tushare_modules/infrastructure.py`、`scripts/results/prepare.py` |
+| 1 | `feat/periodic-report-discovery` | CNINFO 四类定期报告发现、期次工具、`--latest`/`--since` 下载、`sources_index.json` | `scripts/discover_report.py`、`scripts/periods.py`、`scripts/download_report.py` |
+| 2 | `feat/comparable-periods` | 上年同期可比列、每期次 `pdf_sections_{period}.json`、`prepare --primary-period` | `scripts/tushare_modules/infrastructure.py`、`scripts/pdf_preprocessor.py`、`scripts/results/prepare.py` |
 | 3 | `feat/run-history-ledger` | `version.py` 框架指纹、`runs.py` run-store 与台账、`analysis_status.py` 状态判定 | `scripts/runs.py`、`docs/ARCHITECTURE.md` |
 | 4 | `feat/period-delta-analysis` | `qualitative.period_delta`（D7）、`prior_analysis` 证据源、变化报告与 `/update-analysis` | `shared/qualitative/coordinator_update.md` |
-| 5 | `docs/periodic-update` | 架构/README/CHANGELOG 与下游新鲜度接线 | `docs/ARCHITECTURE.md`、`.opencode/commands/value-analysis.md` |
+| 5 | `docs/periodic-update` | 架构/README/CHANGELOG 与下游新鲜度接线 | `docs/ARCHITECTURE.md`、`README.md`、`CHANGELOG.md`、`.claude/commands/value-analysis.md`、`.opencode/commands/value-analysis.md` |
 
 > 各 PR 在合入前都经过**无上下文独立子 agent 的对抗式评审**；评审发现的问题已复现并修复，逐条记录在各 PR 描述中。
 >

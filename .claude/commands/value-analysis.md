@@ -10,7 +10,7 @@ Run a Buffett-Munger-Duan style Value Analysis (价值分析，含通用估值�
 Before executing, verify these files exist in output/{code}_{company}/:
 - **Structured qualitative results** — preferred: the four core `modules/*/result.json` files inside the latest run directory. When `{output_dir}/latest.json` exists, resolve the run directory first and store the printed path as `{run_dir}`:
   ```bash
-  python3 scripts/runs.py resolve --company-dir "{output_dir}" --latest
+  .venv/bin/python scripts/runs.py resolve --company-dir "{output_dir}" --latest
   ```
   `resolve_qualitative` accepts a **run directory** (one containing `run_manifest.json`) or a legacy flat directory — it does **not** follow `latest.json` itself, so passing the company directory would fall back to `source=legacy`/`unavailable`. Without `latest.json`, set `{run_dir}` = `{output_dir}` (legacy flat layout).
 - **qualitative_report.md** — compatibility fallback only when no `run_manifest.json` exists and the resolver selects `source=legacy`. A manifest-backed failure never falls back to Markdown.
@@ -29,7 +29,7 @@ If the company directory has iteration state (`record.json` / `latest.json`), ch
 - exit `0` (up to date) → continue.
 - Route by `reasons[].code` rather than by exit code alone:
   - `new_report` / `framework_changed` / `schema_changed` / `inputs_changed` / `run_failed` → recommend `/update-analysis {stock_code}` first.
-  - `downstream_stale` only means the frozen valuation inputs belong to an older period; `/update-analysis` will **not** clear it. Continue here, disclose it, and clear only the component this command refreshes: `python3 scripts/runs.py downstream --company-dir "{output_dir}" --fresh value_computed`. `buy_sell_basis` is produced by `/buy-sell-plan`, not here, so the aggregate `downstream.stale` intentionally stays `true` (and `analysis_status` keeps reporting `stale:downstream_stale`) until the buy/sell plan is refreshed too — run `--fresh all` only after that.
+  - `downstream_stale` only means the frozen valuation inputs belong to an older period; `/update-analysis` will **not** clear it. Continue here, disclose it, and clear only the component this command refreshes: `.venv/bin/python scripts/runs.py downstream --company-dir "{output_dir}" --fresh value_computed`. `buy_sell_basis` is produced by `/buy-sell-plan`, not here, so the aggregate `downstream.stale` intentionally stays `true` (and `analysis_status` keeps reporting `stale:downstream_stale`) until the buy/sell plan is refreshed too — run `--fresh all` only after that.
 - If the user chooses to continue on a stale period, state in the report that the analysis is based on an older period and record it as a data-freshness limitation. Never silently consume stale conclusions.
 
 Resolve the qualitative source first:

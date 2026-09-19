@@ -117,3 +117,32 @@ def test_value_analysis_clears_only_the_component_it_refreshes(command_dir):
     assert "--fresh value_computed" in content
     assert content.index("--fresh value_computed") < content.index("--fresh all")
     assert "buy_sell_basis" in content
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "strategies/value/coordinator.md",
+        ".claude/commands/value-analysis.md",
+        ".opencode/commands/value-analysis.md",
+    ],
+)
+def test_runs_commands_use_the_same_interpreter_as_their_neighbours(path):
+    """These files invoke everything through .venv/bin/python; stay consistent."""
+
+    content = (ROOT / path).read_text(encoding="utf-8")
+    for line in content.splitlines():
+        if "scripts/runs.py" in line:
+            assert ".venv/bin/python scripts/runs.py" in line, line
+
+
+def test_implementation_record_names_the_main_touched_files():
+    plan = (ROOT / "docs/PERIODIC_UPDATE_PLAN.md").read_text(encoding="utf-8")
+
+    for needle in (
+        "scripts/discover_report.py",
+        "scripts/pdf_preprocessor.py",
+        ".claude/commands/value-analysis.md",
+        ".opencode/commands/value-analysis.md",
+    ):
+        assert needle in plan, needle
