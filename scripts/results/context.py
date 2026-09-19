@@ -53,6 +53,15 @@ MODULE_CONFIG: dict[str, dict[str, Any]] = {
         "market_evidence": ["4", "4P", "9"],
         "footnote_evidence": ["SUB", "P6", "P4"],
     },
+    "period_delta": {
+        "scope": ["D7"],
+        "data_sections": ["1.", "3.", "3P.", "4.", "4P.", "5.", "6.", "12.", "15.", "17."],
+        "pdf_sections": ["MDA", "MATTERS", "P13", "P3", "P6"],
+        "keywords": ["收入", "利润", "毛利率", "现金流", "同比", "指引", "承诺", "变化"],
+        "market_evidence": ["3", "3P", "4", "4P", "5", "6", "12", "17"],
+        "footnote_evidence": ["P13", "P3", "P6"],
+        "prior_analysis": ["summary", "parameters", "claims", "risks", "watchlist", "quality"],
+    },
 }
 
 
@@ -123,7 +132,13 @@ def _fair_limits(lengths: list[int], budget: int) -> list[int]:
 def _module_evidence(
     index: dict[str, Any], config: dict[str, Any], limit: int,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
-    groups = [
+    # Prior-run conclusions are the comparison baseline for the incremental
+    # delta module. They are selected first: a wide data pack otherwise fills
+    # the whole evidence limit and starves them completely.
+    groups: list[tuple[str, str]] = [
+        ("prior_analysis", section) for section in config.get("prior_analysis", [])
+    ]
+    groups.extend(
         (source, section)
         for source, sections in (
             ("pdf_sections", config["pdf_sections"]),
@@ -131,7 +146,7 @@ def _module_evidence(
             ("market_data", config["market_evidence"]),
         )
         for section in sections
-    ]
+    )
     selected: list[dict[str, Any]] = []
     coverage = {}
     for source, section in groups:
@@ -139,7 +154,12 @@ def _module_evidence(
             item for item in index.get("entries", [])
             if item.get("source_id") == source and item.get("section") == section
         ]
-        ranked = select_evidence({"entries": candidates}, keywords=config["keywords"], limit=1)
+        # Prior-run conclusions must be quoted verbatim; keyword ranking could
+        # silently drop the parameter block the delta agent is comparing against.
+        if source == "prior_analysis":
+            ranked = candidates[:1]
+        else:
+            ranked = select_evidence({"entries": candidates}, keywords=config["keywords"], limit=1)
         # Concrete guarantees take priority over accounting-policy references.
         if section in {"MATTERS", "P6"}:
             targeted = select_evidence(
@@ -264,6 +284,26 @@ def build_module_context(
                 "keywords": config["keywords"],
                 "evidence_coverage": retained_coverage,
                 "missing_pdf_sections": [key for key in config["pdf_sections"] if key not in parsed_pdf],
+                **(
+                    {
+                        "prior_analysis_sections": config["prior_analysis"],
+                        # ``omitted`` means the prior conclusion was available in
+                        # the index but did not fit the budget: that is a visible
+                        # gap too, not a silent success.
+                        "missing_prior_analysis": [
+                            key
+                            for key in config["prior_analysis"]
+                            if retained_coverage.get(f"prior_analysis:{key}") == "missing"
+                        ],
+                        "omitted_prior_analysis": [
+                            key
+                            for key in config["prior_analysis"]
+                            if retained_coverage.get(f"prior_analysis:{key}") == "omitted"
+                        ],
+                    }
+                    if config.get("prior_analysis")
+                    else {}
+                ),
             },
         }
         if run_id is not None:

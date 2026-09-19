@@ -109,6 +109,24 @@
 | sotp_value_mm | float / null | 百万元 | SOTP 估值（不适用时为 null） |
 | sotp_discount_pct | float / null | 百分比 | 控股折价率（不适用时为 null） |
 
+### D7：定期报告经营变化（增量更新）
+
+仅在 `/update-analysis` 的增量 run 中产出，用于对比本期与上一期已发布结论。
+
+| 参数 | 类型 | 值域 | 说明 |
+|------|------|------|------|
+| report_period | string | 本期期次，如 2026H1 | 本期报告的期次标识 |
+| comparable_period | string | 上年同期，如 2025H1 | 同比对比期次 |
+| business_trend | enum | 改善 / 稳定 / 恶化 / 不确定 | 经营状况相对上期的方向 |
+| conclusion_change | enum | 维持 / 上调 / 下调 / 证据不足 | 对上次结论的调整判断 |
+| change_significance | enum | 重大 / 一般 / 轻微 | 变化对投资判断的重要性 |
+| guidance_delivery | enum | 兑现 / 部分兑现 / 未兑现 / 无法验证 / 无指引 | 上次指引与承诺的兑现情况 |
+| requires_full_rerun | bool | true / false | 是否触发全量重跑（护城河/诚信/审计/重组等） |
+| revenue_yoy_pct | float / null | 百分比 | 营业收入同比增速（不可得时为 null） |
+| net_profit_yoy_pct | float / null | 百分比 | 归母净利润同比增速（不可得时为 null） |
+| gross_margin_change_pct | float / null | 百分点 | 毛利率同比变化（不可得时为 null） |
+| operating_cashflow_to_profit | float / null | 倍数 | 经营现金流/净利润（不可得时为 null） |
+
 ---
 
 ## 使用说明
