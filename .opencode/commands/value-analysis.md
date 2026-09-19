@@ -43,18 +43,11 @@ cp "{output_dir}/data_pack_market.md" "{output_dir}/data_pack_market_current.md"
 ```
 - Collects fresh structured data and produces deterministic value anchors
 - Outputs: `output/{code}_{company}/value_computed.md`
-- Also outputs `value_computed.json` (structured valuation scenarios and independent method values) and `buy_sell_market.json` (current dated quotes and confirmed-close inputs).
+- Also outputs `value_computed.json` (structured valuation scenarios and independent method values). It does **not** generate a buy/sell plan or `buy_sell_market.json`; those are produced on demand.
 - Contains: valuation anchor selection, owner earnings bridge, cross-cycle normalization, defensive balance-sheet checks, capital-allocation signals, scenario valuation, EE, asset backstop, and LLM adjustment interface
 
-### Step 2B: Deterministic buy/sell plan
-Read `docs/BUY_SELL_CONTRACT.md`. Run:
-```bash
-.venv/bin/python scripts/buy_sell_engine.py --output-dir "{output_dir}"
-```
-- Outputs: `buy_sell_basis.json`, `buy_sell_plan.json`, `buy_sell_plan.md`. Preserve the frozen basis across market-only reruns; new financial periods update it automatically. Only an explicit valuation review permits `value_analysis_engine.py --valuation-cycle "{dated_reason}"`.
-- Reuse `buy_sell_state.json` when present; never infer fills from a prior recommendation. Without state, this is a first-allocation proposal in percentages, not an additional order on rerun.
-- Structured `integrity_rating=不可靠` is a hard exit. When annual-report evidence explicitly confirms financial fraud, governance failure, insolvency, or core-business failure, record the exact evidence references in `buy_sell_risk.json` using the contract and rerun the engine before report assembly. Do not infer these events from generic caution flags or invent a confirmation.
-- Exit code 3 means a current BLOCKED plan was written: quote it including missing-data reasons and null prices. Exit code 2 means invalid inputs/invocation: stop and fix; never consume an old plan after failure.
+### Step 2B: Buy/sell plan is NOT generated automatically
+This command only produces the research report and the frozen `value_computed.json`. Do **not** run `buy_sell_engine.py` here and do **not** fabricate a buy/sell section. The executable plan is triggered on demand by the user after reading the report (see `/buy-sell-plan`, documented in `docs/BUY_SELL_CONTRACT.md`).
 
 ### Step 3: Value analysis and report assembly
 - Read `strategies/value/phase2_value_analysis.md` for execution instructions
@@ -64,7 +57,7 @@ Read `docs/BUY_SELL_CONTRACT.md`. Run:
 - Read `qualitative_report.md` only when `source=legacy`
 - **Cross-check** material-event claims against the targeted annual-report evidence when needed, especially "收购/重组/发行股份/购买资产" in 重要事项. Record discrepancies without loading the complete PDF into the default context.
 - Read `output/{code}_{company}/value_computed.md` for all deterministic numbers and scenario anchors
-- Read `{output_dir}/buy_sell_plan.json` and insert `{output_dir}/buy_sell_plan.md` verbatim. Quote the engine's current action, tier, buy percentage, cumulative percentage, next price and exit price without recalculating or overriding them. The dated frozen plan basis governs trading prices even when daily `value_computed.md` differs; distinguish them explicitly.
+- Only if `{output_dir}/buy_sell_plan.json` already exists (the user triggered `/buy-sell-plan`), read it and insert `{output_dir}/buy_sell_plan.md` verbatim; quote the engine's action, tier, buy percentage, cumulative percentage, next price and exit price without recalculating. If it does not exist, do not invent a plan: state that no executable buy/sell plan has been generated and that `/buy-sell-plan` can produce one.
 - Read `{output_dir}/data_pack_market_current.md` for current market cross-checks and supporting context
 - Read `output/{code}_{company}/data_pack_report.md` if available for footnote-level validation
 - Produce `output/{code}_{company}/{company}_{code}_价值分析报告.md`
@@ -84,7 +77,7 @@ Read `docs/BUY_SELL_CONTRACT.md`. Run:
 - Market refresh failure → continue with existing pack and note reduced timeliness
 - `value_analysis_engine.py` fails → check TUSHARE_TOKEN / Python deps, retry, then stop if still failing
 - Missing data_pack_report.md → continue in degraded mode and disclose lower confidence on cash/profit quality
-- With partial data, quote the engine's explicit action and blockers. Never replace the buy/sell plan with only `观察 / 可能买入`, and never fabricate unavailable prices.
+- With partial data, quote the engine's explicit action and blockers when a plan exists. Never replace a generated plan with only `观察 / 可能买入`, and never fabricate unavailable prices. Without a triggered plan, say so plainly instead of writing a placeholder plan.
 
 ## Output
 Final report: `output/{code}_{company}/{company}_{code}_价值分析报告.md`

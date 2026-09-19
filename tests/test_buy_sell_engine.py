@@ -17,7 +17,7 @@ from buy_sell_engine import (
     EXIT_CODES, build_plan, main, make_basis, method_cv, render_markdown,
     run_directory, safety_margin, select_basis, write_json,
 )
-from buy_sell_inputs import export_inputs, financial_period, market_snapshot, value_snapshot
+from buy_sell_inputs import export_market, export_value, financial_period, market_snapshot, value_snapshot
 from market_sessions import MARKET_ZONES, daily_close_complete
 from value_analysis_engine import ValueAnalysisEngine
 
@@ -389,7 +389,7 @@ def value_engine(tmp_path, load_mock_response):
 
 def test_real_value_engine_adapter_exports_without_network(value_engine, tmp_path):
     markdown = value_engine.generate_output()
-    export_inputs(value_engine, now=datetime(2026, 9, 14, 10, tzinfo=timezone.utc))
+    export_value(value_engine, now=datetime(2026, 9, 14, 10, tzinfo=timezone.utc))
     snapshot = json.loads((tmp_path / "value_computed.json").read_text())
     original = {r["scenario"]: r["per_share"] for r in value_engine.computed["scenarios"]}
     assert snapshot["values"]["V_base"] == original["基准"]
@@ -405,7 +405,7 @@ def test_real_value_engine_adapter_exports_without_network(value_engine, tmp_pat
     assert result["execution"]["action"] in {"BUY", "HOLD"}
 
 
-def test_value_cli_writes_required_plan_inputs(value_engine, tmp_path, monkeypatch):
+def test_value_cli_writes_value_only_and_defers_plan(value_engine, tmp_path, monkeypatch):
     import value_analysis_engine
     client = value_engine.client
     monkeypatch.setattr(client, "assemble_data_pack", MagicMock(return_value="offline pack"))
@@ -415,7 +415,30 @@ def test_value_cli_writes_required_plan_inputs(value_engine, tmp_path, monkeypat
         value_analysis_engine.main()
     assert (tmp_path / "value_computed.md").exists()
     assert (tmp_path / "value_computed.json").exists()
+    # Trigger-based: the default flow must not create a plan or market snapshot.
+    assert not (tmp_path / "buy_sell_market.json").exists()
+    assert not (tmp_path / "buy_sell_plan.json").exists()
+    assert not (tmp_path / "buy_sell_plan.md").exists()
+    client.assemble_data_pack.assert_called_once_with("600887.SH")
+
+
+def test_trigger_script_builds_market_then_plan_without_touching_basis(value_engine, tmp_path, monkeypatch):
+    import buy_sell_plan
+    client = value_engine.client
+    monkeypatch.setattr(client, "assemble_data_pack", MagicMock(return_value="offline pack"))
+    monkeypatch.setattr(buy_sell_plan, "get_token", lambda: "offline-test")
+    value_engine.generate_output()
+    export_value(value_engine, now=datetime(2026, 9, 14, 10, tzinfo=timezone.utc))
+    frozen = (tmp_path / "value_computed.json").read_bytes()
+    client._store["buy_sell_quote"] = {"close": 40, "quote_date": TODAY}
+    with patch("tushare_collector.TushareClient", return_value=client):
+        code = buy_sell_plan.main(["--code", "600887", "--output-dir", str(tmp_path), "--as-of", TODAY])
+    assert code == 0
     assert (tmp_path / "buy_sell_market.json").exists()
+    assert (tmp_path / "buy_sell_plan.json").exists()
+    assert (tmp_path / "buy_sell_plan.md").exists()
+    # The trigger refreshes the quote but must never rewrite the frozen basis.
+    assert (tmp_path / "value_computed.json").read_bytes() == frozen
     client.assemble_data_pack.assert_called_once_with("600887.SH")
 
 
@@ -624,7 +647,9 @@ def test_cli_session_cap_survives_machine_midnight(snapshot, tmp_path, monkeypat
 def test_value_export_uses_exchange_date_across_utc_midnight(value_engine, tmp_path):
     value_engine.generate_output()
     value_engine.market, value_engine.ts_code = "US", "AAPL.US"
-    export_inputs(value_engine, now=datetime(2026, 9, 15, 1, tzinfo=timezone.utc))
+    now = datetime(2026, 9, 15, 1, tzinfo=timezone.utc)
+    export_value(value_engine, now=now)
+    export_market(value_engine, now=now)
     valuation = json.loads((tmp_path / "value_computed.json").read_text())
     quotes = json.loads((tmp_path / "buy_sell_market.json").read_text())
     assert valuation["as_of"] == quotes["session_date"] == TODAY
@@ -644,8 +669,8 @@ def test_nonfinite_json_fails_without_publishing_fake_prices(snapshot, tmp_path,
 def test_export_cycle_is_retained_across_daily_precomputes(value_engine, tmp_path):
     value_engine.generate_output()
     now = datetime(2026, 9, 14, 10, tzinfo=timezone.utc)
-    export_inputs(value_engine, cycle="2026-09-14-review", now=now)
-    export_inputs(value_engine, now=now)
+    export_value(value_engine, cycle="2026-09-14-review", now=now)
+    export_value(value_engine, now=now)
     assert json.loads((tmp_path / "value_computed.json").read_text())["cycle"] == "2026-09-14-review"
 
 
@@ -654,12 +679,17 @@ def test_financial_period_includes_new_interim_report(value_engine):
     assert financial_period(value_engine.client) == "2026-09-30"
 
 
-def test_commands_and_report_require_engine_artifacts_without_recalculation():
+def test_commands_are_trigger_based_and_engine_authoritative():
     for directory in (".claude/commands", ".opencode/commands"):
-        command = (ROOT / directory / "value-analysis.md").read_text()
-        assert 'scripts/buy_sell_engine.py --output-dir "{output_dir}"' in command
+        value = (ROOT / directory / "value-analysis.md").read_text()
+        assert "scripts/buy_sell_engine.py" not in value
+        assert "not generated automatically" in value.lower()
+        assert "/buy-sell-plan" in value
+
+        trigger = (ROOT / directory / "buy-sell-plan.md").read_text()
+        assert 'scripts/buy_sell_plan.py --code "{ticker}" --output-dir "{output_dir}"' in trigger
         for token in ("buy_sell_plan.json", "buy_sell_plan.md", "verbatim", "without recalculating", "buy_sell_state.json", "buy_sell_risk.json"):
-            assert token in command
+            assert token in trigger
         valuation = (ROOT / directory / "valuation.md").read_text()
         assert "does not create or overwrite" in valuation and "/value-analysis" in valuation
     for filename in ("coordinator.md", "phase2_value_analysis.md", "references/report_template.md"):

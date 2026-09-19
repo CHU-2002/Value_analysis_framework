@@ -93,17 +93,17 @@ prepare
 - `source=legacy`：仅当目录没有 `run_manifest.json` 时，原子回退到 `qualitative_report.md`。
 - `source=unavailable`：无法消费；CLI 退出码 `3`（`2` 为参数错误）。
 
-### 4. 确定性买卖计划
+### 4. 确定性买卖计划（触发式）
 
-`value_analysis_engine` 保留原 Markdown，同时通过 `buy_sell_inputs` 导出 `value_computed.json` 和 `buy_sell_market.json`。前者复用原三情景与 `valuation_engine` 独立方法；后者复用 collector 已获取的行情及收盘序列，不增加网络请求。`buy_sell_engine` 只使用标准库、离线输入：
+买卖计划默认不生成。`value_analysis_engine` 保留原 Markdown，同时通过 `buy_sell_inputs` 只导出冻结的 `value_computed.json`（复用原三情景与 `valuation_engine` 独立方法），不写 `buy_sell_market.json`。用户阅读报告后运行 `/buy-sell-plan`（`scripts/buy_sell_plan.py`）才采集当时行情、写出 `buy_sell_market.json`，再对冻结基准离线运算；`buy_sell_engine` 只使用标准库、离线输入：
 
 ```
-value_computed.json -> buy_sell_basis.json（按财报期/明确复核周期固定）
-                               + buy_sell_market.json（本次行情）
-                               + qualitative_input.json（已验证诚信评级）
-                               + buy_sell_state.json / buy_sell_risk.json（可选）
-                               -> buy_sell_plan.json + buy_sell_plan.md
-                               -> 最终价值报告原样引用
+value_computed.json（主流程冻结） -> buy_sell_basis.json（按财报期/明确复核周期固定）
+buy_sell_plan.py 采集当时行情     + buy_sell_market.json
+                                  + qualitative_input.json（已验证诚信评级）
+                                  + buy_sell_state.json / buy_sell_risk.json（可选）
+                                  -> buy_sell_plan.json + buy_sell_plan.md
+                                  -> 最终价值报告原样引用（仅当已触发）
 ```
 
 买价/卖价为每股原币价格，不能套用财务报表的百万单位。固定基准包含来源 SHA-256、三价值锚、方法 CV、安全边际、四档价格和卖出价。更新行情不改变基准；执行状态只读，不推定成交。完整协议、审查修正及 `/valuation` 接入边界见 [BUY_SELL_CONTRACT.md](BUY_SELL_CONTRACT.md)。

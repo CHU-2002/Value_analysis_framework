@@ -12,6 +12,7 @@
 ### Added
 
 - 可执行买卖计划：基于固定估值基准生成四档分批买入限价、资金比例与极端高估卖出价，并支持行情确认、成交状态和硬退出事件
+- 触发式买卖计划命令 `/buy-sell-plan`：主流程只产出报告与冻结估值，用户阅读报告后再决定是否采集当时行情生成计划，不自动生成 `buy_sell_market.json`/`buy_sell_plan.*`
 - 成熟的工程化文档：README、CONTRIBUTING、CODE_OF_CONDUCT、SECURITY、PR 与 Issue 模板
 - GitHub Actions CI：在 push 与 PR 上运行 pytest
 - CI 增强：`lint` 与 `pr-title` 检查、`ci-success` 汇总状态，用于分支保护
@@ -36,6 +37,8 @@
 - 分支保护工作流区分用户仓库与组织仓库，避免用户仓库因 push restrictions 报错
 
 ### Changed
+
+- 买卖计划改为触发式：`value_analysis_engine.py` 不再自动导出 `buy_sell_market.json`，报告默认不含买卖章节，未触发时明确标注而非写占位计划
 
 - 消费者统一通过 `resolve_qualitative` 获取定性输入
 - `main` 分支启用保护，所有改动必须经 Pull Request 合入
