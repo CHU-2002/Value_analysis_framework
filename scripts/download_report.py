@@ -30,6 +30,7 @@ from discover_report import discover_periods, discover_report
 try:
     from periods import (
         REPORT_TYPES,
+        months_since,
         normalize_report_type as _normalize_period_report_type,
         parse_period,
         period_sort_key,
@@ -38,6 +39,7 @@ try:
 except ImportError:  # Support importing with the repository root on sys.path.
     from scripts.periods import (
         REPORT_TYPES,
+        months_since,
         normalize_report_type as _normalize_period_report_type,
         parse_period,
         period_sort_key,
@@ -97,8 +99,11 @@ def parse_args(argv=None):
     )
     parser.add_argument(
         "--report-type",
-        required=True,
-        help="Report type (年报/中报/一季报/三季报/annual/interim/q1/q3) or 'auto'",
+        default=None,
+        help=(
+            "Report type (年报/中报/一季报/三季报/annual/interim/q1/q3) or 'auto' "
+            "(default: 年报, or auto when --latest/--since is used)"
+        ),
     )
     parser.add_argument(
         "--year", help="Report year (e.g. 2024). If omitted with 年报, defaults to latest fiscal year."
@@ -106,11 +111,16 @@ def parse_args(argv=None):
     parser.add_argument(
         "--latest",
         action="store_true",
-        help="Download the newest published regular report (implies periodic discovery)",
+        help="Download the newest published regular report of any type",
     )
     parser.add_argument(
         "--since",
         help="Download every published period at or after this period, e.g. 2026Q1",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-download periods already recorded in the source index",
     )
     parser.add_argument(
         "--lookback-months",
@@ -287,7 +297,7 @@ def print_result(success, filepath="", filesize=0, url="", stock_code="",
                  report_type="", year="", message="", filepaths=None,
                  completed_years=None, failed_years=None, requested_years=None,
                  latest_period="", periods=None, completed_periods=None,
-                 failed_periods=None):
+                 failed_periods=None, periods_skipped=None):
     """Print structured result block for Claude to parse."""
     if success and (failed_years or failed_periods):
         status = "PARTIAL"
@@ -300,6 +310,7 @@ def print_result(success, filepath="", filesize=0, url="", stock_code="",
     requested_years = requested_years or ([] if not year else [str(year)])
     completed_periods = completed_periods or []
     failed_periods = failed_periods or []
+    periods_skipped = periods_skipped or []
     periods = periods or completed_periods + failed_periods
 
     print("\n---RESULT---")
@@ -315,6 +326,7 @@ def print_result(success, filepath="", filesize=0, url="", stock_code="",
     print(f"periods_requested: {','.join(periods)}")
     print(f"periods_completed: {','.join(completed_periods)}")
     print(f"periods_failed: {','.join(failed_periods)}")
+    print(f"periods_skipped: {','.join(periods_skipped)}")
     print(f"requested_years: {','.join(requested_years)}")
     print(f"completed_years: {','.join(completed_years)}")
     print(f"failed_years: {','.join(failed_years)}")
@@ -330,30 +342,73 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
-def resolve_auto_targets(stock_code, *, report_type=None, since=None, lookback_months=18):
-    """Pick the periods to download in periodic (--latest/--since/auto) mode."""
+def covered_periods(index_path):
+    """Periods already recorded in a source index whose PDF still exists."""
+
+    if not index_path or not os.path.exists(index_path):
+        return set()
+    try:
+        with open(index_path, encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError):
+        return set()
+    periods = payload.get("periods") if isinstance(payload, dict) else None
+    if not isinstance(periods, dict):
+        return set()
+    covered = set()
+    for period, entry in periods.items():
+        if not isinstance(entry, dict):
+            continue
+        filepath = entry.get("filepath")
+        if isinstance(filepath, str) and os.path.exists(filepath):
+            covered.add(period)
+    return covered
+
+
+def resolve_auto_targets(
+    stock_code,
+    *,
+    report_type=None,
+    since=None,
+    lookback_months=18,
+    covered=(),
+):
+    """Pick the periods to download in periodic (--latest/--since/auto) mode.
+
+    When ``since`` reaches further back than the default window, the lookback is
+    widened so periods are not silently skipped. Periods already present in
+    ``covered`` are returned separately instead of being re-downloaded.
+    """
+
+    effective_lookback = lookback_months
+    if since:
+        effective_lookback = max(lookback_months, months_since(since))
 
     periods = discover_periods(
         stock_code,
         report_type=report_type,
-        lookback_months=lookback_months,
+        lookback_months=effective_lookback,
     )
     if not periods:
-        return [], None
+        return [], None, []
 
     latest = periods[0]
     if since:
-        targets = [
+        wanted = [
             candidate
             for candidate in periods
             if period_sort_key(candidate["period"]) >= period_sort_key(since)
         ]
     else:
-        targets = [latest]
-    return targets, latest
+        wanted = [latest]
+
+    covered_set = set(covered)
+    targets = [candidate for candidate in wanted if candidate["period"] not in covered_set]
+    skipped = [candidate for candidate in wanted if candidate["period"] in covered_set]
+    return targets, latest, skipped
 
 
-def write_sources_index(path, *, stock_code, latest_period, entries):
+def write_sources_index(path, *, stock_code, latest_period, entries, failed_periods=()):
     """Write or merge the period -> source file index."""
 
     existing = {}
@@ -364,9 +419,26 @@ def write_sources_index(path, *, stock_code, latest_period, entries):
         except (OSError, ValueError):
             existing = {}
 
-    periods = dict(existing.get("periods", {})) if isinstance(existing, dict) else {}
+    raw_periods = existing.get("periods") if isinstance(existing, dict) else None
+    periods = dict(raw_periods) if isinstance(raw_periods, dict) else {}
     for entry in entries:
         periods[entry["period"]] = entry
+
+    # A failed re-download must not leave a stale entry claiming a file that is
+    # gone from disk; annotate the ones whose recorded file still exists.
+    for period in failed_periods:
+        recorded = periods.get(period)
+        if not isinstance(recorded, dict):
+            continue
+        filepath = recorded.get("filepath")
+        if isinstance(filepath, str) and os.path.exists(filepath):
+            recorded["last_download_status"] = "failed"
+        else:
+            periods.pop(period, None)
+
+    directory = os.path.dirname(os.path.abspath(path))
+    if directory:
+        os.makedirs(directory, exist_ok=True)
 
     payload = {
         "schema": "investment.report_sources",
@@ -396,17 +468,17 @@ def run_auto_download(args):
             print_result(False, stock_code=args.stock_code, report_type=args.report_type, message=str(exc))
             sys.exit(EXIT_BAD_ARGUMENTS)
 
+    index_path = args.sources_index or os.path.join(args.save_dir, "sources_index.json")
+    covered = set() if args.force else covered_periods(index_path)
+
     try:
-        targets, latest = resolve_auto_targets(
+        targets, latest, skipped = resolve_auto_targets(
             args.stock_code,
             report_type=report_type,
             since=args.since,
             lookback_months=args.lookback_months,
+            covered=covered,
         )
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        print_result(False, stock_code=args.stock_code, report_type=args.report_type, message=str(exc))
-        sys.exit(EXIT_BAD_ARGUMENTS)
     except requests.RequestException as exc:
         print(f"Error: {exc}", file=sys.stderr)
         print_result(
@@ -416,9 +488,27 @@ def run_auto_download(args):
             message=f"Periodic discovery failed: {exc}",
         )
         sys.exit(EXIT_NETWORK_FAILURE)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        print_result(False, stock_code=args.stock_code, report_type=args.report_type, message=str(exc))
+        sys.exit(EXIT_BAD_ARGUMENTS)
 
     latest_period = latest["period"] if latest else ""
+    skipped_periods = [candidate["period"] for candidate in skipped]
     if not targets:
+        if skipped_periods:
+            # Nothing missing: every discovered period in range is already held.
+            print_result(
+                True,
+                stock_code=args.stock_code,
+                report_type=args.report_type,
+                latest_period=latest_period,
+                periods=skipped_periods,
+                completed_periods=[],
+                periods_skipped=skipped_periods,
+                message=f"All periods already present: {','.join(skipped_periods)}",
+            )
+            sys.exit(EXIT_SUCCESS)
         if args.since:
             message = (
                 f"No published regular report found for {args.stock_code} "
@@ -453,17 +543,10 @@ def run_auto_download(args):
 
         valid, err_msg = validate_url(download_url)
         if not valid:
-            print(f"Error: {err_msg}", file=sys.stderr)
-            print_result(
-                False,
-                stock_code=args.stock_code,
-                report_type=args.report_type,
-                latest_period=latest_period,
-                periods=requested_periods,
-                failed_periods=failed_periods + [period],
-                message=err_msg,
-            )
-            sys.exit(EXIT_BAD_ARGUMENTS)
+            # One bad upstream link must not abort the whole catch-up batch.
+            failed_periods.append(period)
+            print(f"Error: {period}: {err_msg}", file=sys.stderr)
+            continue
 
         filename = period_to_filename(args.stock_code, period)
         save_path = os.path.join(args.save_dir, filename)
@@ -497,12 +580,12 @@ def run_auto_download(args):
             failed_periods.append(period)
             print(f"Error: {message}", file=sys.stderr)
 
-    index_path = args.sources_index or os.path.join(args.save_dir, "sources_index.json")
     write_sources_index(
         index_path,
         stock_code=args.stock_code,
         latest_period=latest_period,
         entries=index_entries,
+        failed_periods=failed_periods,
     )
 
     overall_success = bool(completed_periods)
@@ -529,6 +612,7 @@ def run_auto_download(args):
         periods=requested_periods,
         completed_periods=completed_periods,
         failed_periods=failed_periods,
+        periods_skipped=skipped_periods,
         message=summary_message,
     )
 
@@ -546,7 +630,23 @@ def run_auto_download(args):
 def main(argv=None):
     args = parse_args(argv)
 
-    if not args.url and (args.latest or args.since or _is_auto_report_type(args.report_type)):
+    auto_mode = bool(args.latest or args.since or _is_auto_report_type(args.report_type))
+    if args.url and auto_mode:
+        print(
+            "Error: --url cannot be combined with --latest/--since/--report-type auto",
+            file=sys.stderr,
+        )
+        print_result(False, stock_code=args.stock_code, message="--url conflicts with periodic mode")
+        sys.exit(EXIT_BAD_ARGUMENTS)
+    if auto_mode and args.recent_years is not None:
+        print("Error: --recent-years does not apply to periodic mode", file=sys.stderr)
+        print_result(False, stock_code=args.stock_code, message="--recent-years conflicts with periodic mode")
+        sys.exit(EXIT_BAD_ARGUMENTS)
+    if args.report_type is None:
+        # --latest/--since already imply "any type"; otherwise keep 年报.
+        args.report_type = "auto" if auto_mode else "年报"
+
+    if auto_mode:
         run_auto_download(args)
 
     years = determine_years_to_download(

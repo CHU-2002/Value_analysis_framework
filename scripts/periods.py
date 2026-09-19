@@ -8,12 +8,19 @@ A period is a compact identifier for one regular financial report:
 For A-shares, ``Q1`` / ``H1`` / ``Q3`` are year-to-date cumulative disclosures
 and ``FY`` is the full year. This module is pure and offline-testable so that
 both ``discover_report`` and ``download_report`` agree on the same vocabulary.
+
+Only ``make_period`` / ``parse_period`` / ``normalize_report_type`` /
+``parse_period_from_title`` / ``period_to_filename`` are consumed today.
+``comparable_period`` / ``previous_period`` / ``single_quarter_base`` /
+``list_periods_between`` are the contract for the incremental update work
+(``docs/PERIODIC_UPDATE_PLAN.md`` PR2/PR4) and are exercised by tests only.
 """
 
 from __future__ import annotations
 
 import html
 import re
+from datetime import date
 from typing import Iterable
 
 REPORT_TYPES = ("年报", "中报", "一季报", "三季报")
@@ -92,14 +99,31 @@ def make_period(year: int | str, report_type: str) -> str:
     return f"{year_int}{REPORT_TYPE_SUFFIX[normalized]}"
 
 
+def report_type_keywords(report_type: str) -> tuple[str, ...]:
+    """Return the accepted title labels for a report type.
+
+    Shared with the year-based discovery path so that both routes agree on
+    what counts as a regular report (e.g. ``三季度报告`` and ``半年报``).
+    """
+
+    suffix = REPORT_TYPE_SUFFIX.get(normalize_report_type(report_type))
+    for candidate_suffix, keywords in _TYPE_KEYWORDS:
+        if candidate_suffix == suffix:
+            return keywords
+    return ()
+
+
 def is_valid_period(period: str) -> bool:
-    return isinstance(period, str) and bool(_PERIOD_RE.match(period.strip()))
+    return isinstance(period, str) and bool(_PERIOD_RE.match(period.strip().upper()))
 
 
 def parse_period(period: str) -> tuple[int, str]:
-    """Split a period identifier into ``(fiscal_year, report_type)``."""
+    """Split a period identifier into ``(fiscal_year, report_type)``.
 
-    match = _PERIOD_RE.match((period or "").strip())
+    The suffix is case-insensitive, so ``2026q1`` is accepted.
+    """
+
+    match = _PERIOD_RE.match((period or "").strip().upper())
     if not match:
         raise ValueError(f"Invalid period: {period!r}")
     return int(match.group(1)), SUFFIX_REPORT_TYPE[match.group(2)]
@@ -230,5 +254,18 @@ def list_periods_between(start: str, end: str) -> list[str]:
     ]
     return sort_periods(
         (period for period in periods if start_key <= period_sort_key(period) <= end_key),
-        reverse=False,
+        reverse=True,
     )
+
+
+def months_since(period: str, today: date | None = None) -> int:
+    """Whole months from the start of a period's fiscal year until ``today``.
+
+    Used to widen an announcement lookback window so that ``--since 2020Q1``
+    actually queries back to 2020 instead of being silently truncated to the
+    default window.
+    """
+
+    end = today or date.today()
+    year, _ = parse_period(period)
+    return max(1, (end.year - year) * 12 + end.month)
