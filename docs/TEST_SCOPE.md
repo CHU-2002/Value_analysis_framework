@@ -15,7 +15,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | 项 | 当前 | 上限 | 使用率 |
 |----|------|------|--------|
 | 测试文件数 | 33 | 40 | 82% |
-| 收集到的用例数 | 1460 | 1600 | 91% |
+| 收集到的用例数 | 1461 | 1600 | 91% |
 
 （用例数含 `parametrize` 展开，由 `pytest --collect-only` 统计；函数数见下表末列，仅作参考。）
 
@@ -54,7 +54,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_test_scope.py` | REQ-003, REQ-006 | `unit` | `scripts/test_scope.py` | 8 |
 | `tests/test_tushare_client.py` | 基线 | `unit` | — | 207 |
 | `tests/test_two_layout_e2e.py` | REQ-005 | `unit` | — | 4 |
-| `tests/test_update_docs_contract.py` | REQ-005 | `unit` | — | 16 |
+| `tests/test_update_docs_contract.py` | REQ-005 | `unit` | — | 17 |
 | `tests/test_version.py` | REQ-003 | `unit` | `scripts/version.py` | 14 |
 
 归属为「基线」的测试覆盖需求体系建立前就已交付的能力，见
