@@ -102,8 +102,14 @@ python3 scripts/runs.py finish --company-dir "{company_dir}" --run-dir "{run_dir
 ```
 
 ### Step 10: Downstream freshness
-- Mark `record.json`'s `downstream.stale` when `value_computed.json` / `buy_sell_basis.json` were built on an older period.
+- `runs.py finish` marks `record.json`'s downstream components stale when they were built on an older period; `analysis_status` then reports `stale:downstream_stale` (exit 1) until they are refreshed.
 - **Do not** regenerate or alter a buy/sell plan automatically. Tell the user to run `/value-analysis` and, if they want an executable plan, `/buy-sell-plan`.
+- After those reruns, clear the flags so the company returns to `up_to_date`:
+  ```bash
+  python3 scripts/runs.py downstream --company-dir "{company_dir}" --fresh value_computed
+  # or, once the buy/sell plan is refreshed too:
+  python3 scripts/runs.py downstream --company-dir "{company_dir}" --fresh all
+  ```
 
 ## Method Requirements
 - Compare like with like: `Q1` / `H1` / `Q3` are year-to-date cumulative; derive single quarters by subtraction and state it. Never compare an interim period against a full year.

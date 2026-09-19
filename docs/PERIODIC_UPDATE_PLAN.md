@@ -2,12 +2,26 @@
 
 本文档定义一项新能力的最终设计：**根据最新一期定期报告（一季报 / 半年报 / 三季报 / 年报）做增量更新分析**——若某公司已有分析记录，则拉取最新期次、分析最近一段时间的经营状况、更新已有结论，并额外输出一份独立的「经营变化报告」；同时定义**分析迭代的管理机制**（财报更新与框架更新两类触发）。
 
-> 状态：方案已评审通过，待实现。
+> 状态：**已实现**（PR1–PR4 已合入 `main`；PR5 文档随对应 PR 合入）。
 > 已确认决策：
 > 1. **迭代管理采用彻底 run-store**：所有 run 产物落在 `runs/{run_id}/`，公司目录只留指针、台账与原始输入。
 > 2. **增量更新默认四模块 + `period_delta` 全量重跑**，保留「同 run / 同主体 / 同输入」不变量。
 > 3. **范围限定 A 股四类定期报告**，触发方式为手动 `/update-analysis`。
 > 4. 交付顺序：先合本文档，再从 PR1（季度报下载）开始实现。
+
+### 实现记录
+
+| PR | 分支 | 内容 | 主要位置 |
+|----|------|------|----------|
+| 1 | `feat/periodic-report-discovery` | CNINFO 四类定期报告发现、期次工具、`--latest`/`--since` 下载、`sources_index.json` | `scripts/periods.py`、`scripts/download_report.py` |
+| 2 | `feat/comparable-periods` | 上年同期可比列、每期次 `pdf_sections_{period}.json`、`prepare --primary-period` | `scripts/tushare_modules/infrastructure.py`、`scripts/results/prepare.py` |
+| 3 | `feat/run-history-ledger` | `version.py` 框架指纹、`runs.py` run-store 与台账、`analysis_status.py` 状态判定 | `scripts/runs.py`、`docs/ARCHITECTURE.md` |
+| 4 | `feat/period-delta-analysis` | `qualitative.period_delta`（D7）、`prior_analysis` 证据源、变化报告与 `/update-analysis` | `shared/qualitative/coordinator_update.md` |
+| 5 | `docs/periodic-update` | 架构/README/CHANGELOG 与下游新鲜度接线 | `docs/ARCHITECTURE.md`、`.opencode/commands/value-analysis.md` |
+
+> 各 PR 在合入前都经过**无上下文独立子 agent 的对抗式评审**；评审发现的问题已复现并修复，逐条记录在各 PR 描述中。
+>
+> 相对原设计的偏差：`prepare` 的两个新选项分别为 `--primary-period`（主期次证据）与 `--prior-analysis`（上次结论证据源）；`sources_index.json` 额外记录 `size_bytes` 与 `last_download_status`（可选、向后兼容）。
 
 ---
 
@@ -71,7 +85,7 @@
 └── runs/
     ├── {run_id}/
     │   ├── run.json                 # run 元数据：kind / periods / framework / supersedes
-    │   ├── inputs/                  # run 私有输入快照（硬链接优先，失败退化为复制）
+    │   ├── inputs/                  # run 私有输入快照（默认真实复制；--hardlink 才用硬链接）
     │   │   ├── sources_manifest.json
     │   │   ├── data_pack_market.md
     │   │   ├── pdf_sections.json    # 主期次兼容副本
@@ -285,8 +299,8 @@ python3 scripts/download_report.py --stock-code 600887 --report-type auto --sinc
 ### 8.4 消费方解析
 
 - 新增 `scripts/runs.py resolve --company-dir X [--latest | --run-id ID]` → 输出 run 目录绝对路径。
-- `resolve_qualitative --output-dir` 兼容两种入参：目录内直接有 `run_manifest.json`（run 目录 / legacy / 显式指定）→ 现有行为；目录内只有 `latest.json`（公司目录）→ 先解析指针。
-- 其余命令（`/value-analysis`、`/valuation`、`/buy-sell-plan`）改为先 `runs.py resolve` 再读取，消除对根目录扁平布局的硬编码。
+- `resolve_qualitative --output-dir` **只接受 run 目录**（含 `run_manifest.json`）或 legacy 扁平目录；它不解析 `latest.json`。公司目录必须先 `runs.py resolve --latest` 得到 run 目录再传入。
+- `/value-analysis` 已按上述方式接线（先 `runs.py resolve --latest`，再对 `{run_dir}` 调用 resolver）；`/valuation` 与 `/buy-sell-plan` **尚未接线**，仍按 legacy/run 目录约定读取，属已知未完成项。
 
 ### 8.5 迁移既有目录
 
@@ -294,9 +308,10 @@ python3 scripts/download_report.py --stock-code 600887 --report-type auto --sinc
 
 - 从 `run_manifest.json` + PDF 文件名 + `pdf_sections.json:metadata.pdf_file` 推断 `report_periods`；
 - 把现有产物复制进 `runs/{baseline_run_id}/`，写 `latest.json` / `record.json` / 台账；
-- 默认保留原文件；加 `--prune` 才在新指针校验通过后清理旧布局。
+- 默认保留原文件；`--prune` 才清理旧布局（在复制逐项校验通过后执行，随后仍会写 `latest.json`/`record.json`）。
+- 接管时会同步重写 `input_digest` 并重盖被改写产物的哈希；若源目录的产物与 manifest 记录不一致则**拒绝接管**（避免洗白篡改）。
 
-legacy 扁平目录（无 manifest）标 `legacy_layout`，由下次全量 run 转正。
+legacy 扁平目录（无 manifest）标 `legacy_layout`；`/business-analysis` 不建 run，转正需显式运行 `runs.py adopt`（或走 `/update-analysis` 的增量流程）。
 
 ### 8.6 与既有原则的兼容
 
@@ -310,9 +325,9 @@ legacy 扁平目录（无 manifest）标 `legacy_layout`，由下次全量 run �
 
 - 单测：period 解析与互转、CNINFO 四类发现、`auto` 补齐、`analysis_status` 状态机、`runs.py`（new / resolve / finish / adopt / 指针 / 台账）。
 - 合同测试：新 `qualitative.period_delta` 与 `output_schema.md` 不漂移；保证 `MODULE_CONFIG` ↔ `RESULT_TYPE_CONTRACTS` ↔ 提示词三方一致（沿用 `tests/test_qualitative_consumers.py` 模式）。
-- 端到端（mock）：baseline run → 注入 `2026H1` PDF → 增量 run → 校验旧 run 仍可解析、新 run `source=structured`、`change_report_2026H1.md` 生成、台账追加两行、指针与 `published/` 镜像一致。
+- 端到端（mock）：baseline run → 注入 `2026H1` PDF → 增量 run → 校验旧 run 仍可解析、新 run `source=structured`、`change_report_2026H1.md` 生成、台账追加记录、`latest.json`/`record.json` 指针更新并可用 `analysis_status` 复判。
 - 失败路径：期次未发布、PDF 部分失败、manifest 篡改、框架指纹变化触发全量、新增 PDF **不影响**旧 run 的可校验性。
-- 快照测试：`os.link` 跨文件系统 / 权限失败时自动退化复制。
+- 快照测试：默认真实复制（覆盖「原地改写源文件后快照不变」）、`--hardlink` 显式 opt-in、`os.link` 失败退回复制、复制失败时不留半成品 run。
 
 ---
 
@@ -337,7 +352,7 @@ legacy 扁平目录（无 manifest）标 `legacy_layout`，由下次全量 run �
 | CNINFO 改版或限流 | 保留 10jqka 兜底；指数退避重试；全部 mock 测试；失败明确报「期次未获取」，不静默降级 |
 | 一季报 / 三季报内容单薄，强行分析会失真 | 变化不大的维度沿用上次年报证据并标注；变化报告显式写「本期未披露」 |
 | 四模块全量重跑成本高 | 一期正确性优先；`--light` 结转模式留作二期可选，不在一期放宽 resolver 约束 |
-| 硬链接跨文件系统 / 权限 | `os.link` 失败退回复制，再退化只存哈希 + 原路径 |
+| 快照磁盘占用（默认真实复制） | 用复制保证旧 run 不被原地刷新污染（实现期评审发现硬链接会被 `pdf_sections.json` / `data_pack_market.md` 的原地覆盖写击穿）；`--hardlink` 仅作显式 opt-in |
 | run-store 重构触及全部命令路径 | 用 `runs.py resolve` 统一解析 + `resolve_qualitative` 双入参兼容；PR3 先合、命令接线放 PR5，期间旧布局仍可读 |
 | 根目录镜像 `published/` 与 run 产物不一致 | 合同测试断言哈希一致；`published/` 明确标注为派生、不作为输入 |
 

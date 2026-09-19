@@ -8,20 +8,38 @@ Run a Buffett-Munger-Duan style Value Analysis (价值分析，含通用估值�
 
 ## Prerequisite Check
 Before executing, verify these files exist in output/{code}_{company}/:
-- **Structured qualitative results** — preferred: the four core `modules/*/result.json` files.
+- **Structured qualitative results** — preferred: the four core `modules/*/result.json` files inside the latest run directory. When `{output_dir}/latest.json` exists, resolve the run directory first and store the printed path as `{run_dir}`:
+  ```bash
+  python3 scripts/runs.py resolve --company-dir "{output_dir}" --latest
+  ```
+  `resolve_qualitative` accepts a **run directory** (one containing `run_manifest.json`) or a legacy flat directory — it does **not** follow `latest.json` itself, so passing the company directory would fall back to `source=legacy`/`unavailable`. Without `latest.json`, set `{run_dir}` = `{output_dir}` (legacy flat layout).
 - **qualitative_report.md** — compatibility fallback only when no `run_manifest.json` exists and the resolver selects `source=legacy`. A manifest-backed failure never falls back to Markdown.
 - **data_pack_market.md** — required. If missing, same as above.
 - **data_pack_report.md** — optional. If present, use annual report footnotes to validate cash/profit quality.
 - If `qualitative_report.md` and `data_pack_market.md` exist under different `output/{code}_*/` directories for the same stock, reconcile them into a single directory before continuing
 
+### Freshness check (newer periodic report)
+
+If the company directory has iteration state (`record.json` / `latest.json`), check whether the conclusions are built on the latest published period:
+
+```bash
+.venv/bin/python scripts/analysis_status.py --company-dir "{output_dir}" --ticker "{ticker}" --json
+```
+
+- exit `0` (up to date) → continue.
+- Route by `reasons[].code` rather than by exit code alone:
+  - `new_report` / `framework_changed` / `schema_changed` / `inputs_changed` / `run_failed` → recommend `/update-analysis {stock_code}` first.
+  - `downstream_stale` only means the frozen valuation inputs belong to an older period; `/update-analysis` will **not** clear it. Continue here, disclose it, and clear it after this run finishes with `python3 scripts/runs.py downstream --company-dir "{output_dir}" --fresh value_computed` (and `--fresh all` once the buy/sell plan is refreshed).
+- If the user chooses to continue on a stale period, state in the report that the analysis is based on an older period and record it as a data-freshness limitation. Never silently consume stale conclusions.
+
 Resolve the qualitative source first:
 ```bash
-.venv/bin/python -m scripts.results.resolve_qualitative --output-dir "{output_dir}" --ticker "{ticker}" --output "{output_dir}/qualitative_input.json"
+.venv/bin/python -m scripts.results.resolve_qualitative --output-dir "{run_dir}" --ticker "{ticker}" --output "{run_dir}/qualitative_input.json"
 ```
 
 If `data_pack_market.md` is missing or the resolver returns status 3 (status 2 is an invocation error):
-- Automatically run `/business-analysis {stock_code}` first instead of stopping immediately
-- After `/business-analysis` completes, rerun the resolver and re-check `data_pack_market.md`
+- **When a run-store exists (`{output_dir}/latest.json`)**, do **not** auto-run `/business-analysis`: it writes the legacy flat layout and would silently discard the incremental run. Report the broken run and fix or re-run the incremental flow (or `python3 scripts/runs.py adopt --company-dir "{output_dir}"` for a legacy directory).
+- Only for a directory without a run-store, automatically run `/business-analysis {stock_code}` first, then rerun the resolver and re-check `data_pack_market.md`
 - If `/business-analysis` stops because annual report download failed, stop and tell the user to download/provide the annual report PDF before continuing
 
 ## Execution Instructions
@@ -53,7 +71,7 @@ This command only produces the research report and the frozen `value_computed.js
 - Read `strategies/value/phase2_value_analysis.md` for execution instructions
 - Read `strategies/value/references/value_principles.md` for methodology anchors
 - Read `strategies/value/references/report_template.md` for report structure
-- Read `output/{code}_{company}/qualitative_input.json` for validated business quality, moat, management, evidence, and quality warnings
+- Read `{run_dir}/qualitative_input.json` for validated business quality, moat, management, evidence, and quality warnings
 - Read `qualitative_report.md` only when `source=legacy`
 - **Cross-check** material-event claims against the targeted annual-report evidence when needed, especially "收购/重组/发行股份/购买资产" in 重要事项. Record discrepancies without loading the complete PDF into the default context.
 - Read `output/{code}_{company}/value_computed.md` for all deterministic numbers and scenario anchors
