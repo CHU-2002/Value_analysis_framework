@@ -15,7 +15,9 @@ Usage:
 """
 
 import argparse
-from datetime import date
+from datetime import date, datetime, timezone
+import hashlib
+import json
 import os
 import re
 import sys
@@ -23,7 +25,24 @@ import time
 
 import requests
 
-from discover_report import discover_report
+from discover_report import discover_periods, discover_report
+
+try:
+    from periods import (
+        REPORT_TYPES,
+        normalize_report_type as _normalize_period_report_type,
+        parse_period,
+        period_sort_key,
+        period_to_filename,
+    )
+except ImportError:  # Support importing with the repository root on sys.path.
+    from scripts.periods import (
+        REPORT_TYPES,
+        normalize_report_type as _normalize_period_report_type,
+        parse_period,
+        period_sort_key,
+        period_to_filename,
+    )
 
 # Exit codes
 EXIT_SUCCESS = 0
@@ -79,10 +98,30 @@ def parse_args(argv=None):
     parser.add_argument(
         "--report-type",
         required=True,
-        help="Report type (年报/中报/一季报/三季报/annual/interim)",
+        help="Report type (年报/中报/一季报/三季报/annual/interim/q1/q3) or 'auto'",
     )
     parser.add_argument(
         "--year", help="Report year (e.g. 2024). If omitted with 年报, defaults to latest fiscal year."
+    )
+    parser.add_argument(
+        "--latest",
+        action="store_true",
+        help="Download the newest published regular report (implies periodic discovery)",
+    )
+    parser.add_argument(
+        "--since",
+        help="Download every published period at or after this period, e.g. 2026Q1",
+    )
+    parser.add_argument(
+        "--lookback-months",
+        type=int,
+        default=18,
+        help="Announcement lookback window used by periodic discovery (default: 18)",
+    )
+    parser.add_argument(
+        "--sources-index",
+        default="",
+        help="Period source index to write/merge (default: <save-dir>/sources_index.json in periodic mode)",
     )
     parser.add_argument(
         "--recent-years",
@@ -103,13 +142,11 @@ def parse_args(argv=None):
 
 
 def normalize_report_type(report_type):
-    type_map = {
-        "annual": "年报",
-        "interim": "中报",
-        "q1": "一季报",
-        "q3": "三季报",
-    }
-    return type_map.get(report_type.lower(), report_type)
+    return _normalize_period_report_type(report_type)
+
+
+def _is_auto_report_type(report_type):
+    return (report_type or "").strip().lower() in {"auto", "latest"}
 
 
 def determine_anchor_year(report_type, explicit_year=None):
@@ -248,9 +285,11 @@ def download_annual_report(url, save_path, max_retries=DEFAULT_MAX_RETRIES):
 
 def print_result(success, filepath="", filesize=0, url="", stock_code="",
                  report_type="", year="", message="", filepaths=None,
-                 completed_years=None, failed_years=None, requested_years=None):
+                 completed_years=None, failed_years=None, requested_years=None,
+                 latest_period="", periods=None, completed_periods=None,
+                 failed_periods=None):
     """Print structured result block for Claude to parse."""
-    if success and failed_years:
+    if success and (failed_years or failed_periods):
         status = "PARTIAL"
     else:
         status = "SUCCESS" if success else "FAILED"
@@ -259,6 +298,9 @@ def print_result(success, filepath="", filesize=0, url="", stock_code="",
     completed_years = completed_years or []
     failed_years = failed_years or []
     requested_years = requested_years or ([] if not year else [str(year)])
+    completed_periods = completed_periods or []
+    failed_periods = failed_periods or []
+    periods = periods or completed_periods + failed_periods
 
     print("\n---RESULT---")
     print(f"status: {status}")
@@ -269,6 +311,10 @@ def print_result(success, filepath="", filesize=0, url="", stock_code="",
     print(f"stock_code: {stock_code}")
     print(f"report_type: {report_type}")
     print(f"year: {year}")
+    print(f"latest_period: {latest_period}")
+    print(f"periods_requested: {','.join(periods)}")
+    print(f"periods_completed: {','.join(completed_periods)}")
+    print(f"periods_failed: {','.join(failed_periods)}")
     print(f"requested_years: {','.join(requested_years)}")
     print(f"completed_years: {','.join(completed_years)}")
     print(f"failed_years: {','.join(failed_years)}")
@@ -276,8 +322,232 @@ def print_result(success, filepath="", filesize=0, url="", stock_code="",
     print("---END---")
 
 
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def resolve_auto_targets(stock_code, *, report_type=None, since=None, lookback_months=18):
+    """Pick the periods to download in periodic (--latest/--since/auto) mode."""
+
+    periods = discover_periods(
+        stock_code,
+        report_type=report_type,
+        lookback_months=lookback_months,
+    )
+    if not periods:
+        return [], None
+
+    latest = periods[0]
+    if since:
+        targets = [
+            candidate
+            for candidate in periods
+            if period_sort_key(candidate["period"]) >= period_sort_key(since)
+        ]
+    else:
+        targets = [latest]
+    return targets, latest
+
+
+def write_sources_index(path, *, stock_code, latest_period, entries):
+    """Write or merge the period -> source file index."""
+
+    existing = {}
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as handle:
+                existing = json.load(handle)
+        except (OSError, ValueError):
+            existing = {}
+
+    periods = dict(existing.get("periods", {})) if isinstance(existing, dict) else {}
+    for entry in entries:
+        periods[entry["period"]] = entry
+
+    payload = {
+        "schema": "investment.report_sources",
+        "schema_version": "1.0",
+        "stock_code": stock_code,
+        "latest_period": latest_period,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "periods": periods,
+    }
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
+
+
+def run_auto_download(args):
+    """Download the newest published regular report, or every period since --since."""
+
+    os.makedirs(args.save_dir, exist_ok=True)
+    normalized_type = normalize_report_type(args.report_type)
+    report_type = args.report_type if normalized_type in REPORT_TYPES else None
+
+    if args.since:
+        try:
+            parse_period(args.since)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            print_result(False, stock_code=args.stock_code, report_type=args.report_type, message=str(exc))
+            sys.exit(EXIT_BAD_ARGUMENTS)
+
+    try:
+        targets, latest = resolve_auto_targets(
+            args.stock_code,
+            report_type=report_type,
+            since=args.since,
+            lookback_months=args.lookback_months,
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        print_result(False, stock_code=args.stock_code, report_type=args.report_type, message=str(exc))
+        sys.exit(EXIT_BAD_ARGUMENTS)
+    except requests.RequestException as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        print_result(
+            False,
+            stock_code=args.stock_code,
+            report_type=args.report_type,
+            message=f"Periodic discovery failed: {exc}",
+        )
+        sys.exit(EXIT_NETWORK_FAILURE)
+
+    latest_period = latest["period"] if latest else ""
+    if not targets:
+        if args.since:
+            message = (
+                f"No published regular report found for {args.stock_code} "
+                f"at or after {args.since}"
+            )
+        else:
+            message = (
+                f"No published regular report found for {args.stock_code} "
+                f"in the last {args.lookback_months} months"
+            )
+        print_result(
+            False,
+            stock_code=args.stock_code,
+            report_type=args.report_type,
+            latest_period=latest_period,
+            message=message,
+        )
+        sys.exit(EXIT_NETWORK_FAILURE)
+
+    requested_periods = [target["period"] for target in targets]
+    completed_periods = []
+    failed_periods = []
+    downloaded_paths = []
+    index_entries = []
+    last_url = ""
+    last_message = ""
+    last_filesize = 0
+
+    for target in targets:
+        period = target["period"]
+        download_url = target["url"]
+
+        valid, err_msg = validate_url(download_url)
+        if not valid:
+            print(f"Error: {err_msg}", file=sys.stderr)
+            print_result(
+                False,
+                stock_code=args.stock_code,
+                report_type=args.report_type,
+                latest_period=latest_period,
+                periods=requested_periods,
+                failed_periods=failed_periods + [period],
+                message=err_msg,
+            )
+            sys.exit(EXIT_BAD_ARGUMENTS)
+
+        filename = period_to_filename(args.stock_code, period)
+        save_path = os.path.join(args.save_dir, filename)
+        success, message, filesize = download_annual_report(
+            url=download_url,
+            save_path=save_path,
+            max_retries=args.max_retries,
+        )
+
+        last_url = download_url
+        last_message = message
+        last_filesize = filesize
+
+        if success:
+            completed_periods.append(period)
+            downloaded_paths.append(os.path.abspath(save_path))
+            index_entries.append(
+                {
+                    "period": period,
+                    "report_type": target.get("report_type", ""),
+                    "title": target.get("title", ""),
+                    "date": target.get("date", ""),
+                    "url": download_url,
+                    "filename": filename,
+                    "filepath": os.path.abspath(save_path),
+                    "sha256": sha256_file(save_path),
+                    "source": target.get("source", "cninfo"),
+                }
+            )
+        else:
+            failed_periods.append(period)
+            print(f"Error: {message}", file=sys.stderr)
+
+    index_path = args.sources_index or os.path.join(args.save_dir, "sources_index.json")
+    write_sources_index(
+        index_path,
+        stock_code=args.stock_code,
+        latest_period=latest_period,
+        entries=index_entries,
+    )
+
+    overall_success = bool(completed_periods)
+    if completed_periods and failed_periods:
+        summary_message = (
+            f"Downloaded periods: {','.join(completed_periods)}; "
+            f"failed periods: {','.join(failed_periods)}"
+        )
+    elif completed_periods:
+        summary_message = f"Downloaded periods: {','.join(completed_periods)}"
+    else:
+        summary_message = last_message or "No period downloaded"
+
+    print_result(
+        success=overall_success,
+        filepath=downloaded_paths[0] if len(downloaded_paths) == 1 else "",
+        filepaths=downloaded_paths,
+        filesize=last_filesize,
+        url=last_url,
+        stock_code=args.stock_code,
+        report_type=args.report_type,
+        year="",
+        latest_period=latest_period,
+        periods=requested_periods,
+        completed_periods=completed_periods,
+        failed_periods=failed_periods,
+        message=summary_message,
+    )
+
+    if not overall_success:
+        if "validation" in summary_message.lower():
+            sys.exit(EXIT_PDF_VALIDATION_FAILURE)
+        sys.exit(EXIT_NETWORK_FAILURE)
+
+    if failed_periods:
+        sys.exit(EXIT_NETWORK_FAILURE)
+
+    sys.exit(EXIT_SUCCESS)
+
+
 def main(argv=None):
     args = parse_args(argv)
+
+    if not args.url and (args.latest or args.since or _is_auto_report_type(args.report_type)):
+        run_auto_download(args)
 
     years = determine_years_to_download(
         report_type=args.report_type,

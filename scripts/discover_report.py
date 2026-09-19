@@ -2,12 +2,29 @@
 """Discover A-share financial report PDF URLs with CNINFO-first fallbacks."""
 
 import argparse
-from datetime import datetime
+from datetime import date, datetime, timedelta
 import html
 import re
 import sys
 
 import requests
+
+try:
+    from scripts.periods import (
+        REPORT_TYPES,
+        normalize_report_type as _normalize_period_report_type,
+        parse_period,
+        parse_period_from_title,
+        period_sort_key,
+    )
+except ImportError:  # Support importing with scripts/ on sys.path.
+    from periods import (
+        REPORT_TYPES,
+        normalize_report_type as _normalize_period_report_type,
+        parse_period,
+        parse_period_from_title,
+        period_sort_key,
+    )
 
 
 DEFAULT_TIMEOUT = 30
@@ -21,6 +38,17 @@ BASE_HEADERS = {
     ),
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 }
+
+# CNINFO announcement categories for regular (periodic) reports.
+CNINFO_CATEGORIES = {
+    "年报": "category_ndbg_szsh",
+    "中报": "category_bndbg_szsh",
+    "一季报": "category_yjdbg_szsh",
+    "三季报": "category_sjdbg_szsh",
+}
+
+# The query API accepts several categories joined by semicolons.
+CNINFO_ALL_REGULAR_CATEGORIES = ";".join(CNINFO_CATEGORIES.values()) + ";"
 
 CNINFO_HEADERS = {
     "User-Agent": BASE_HEADERS["User-Agent"],
@@ -42,13 +70,7 @@ EXIT_BAD_ARGUMENTS = 3
 
 
 def normalize_report_type(report_type):
-    mapping = {
-        "annual": "年报",
-        "interim": "中报",
-        "q1": "一季报",
-        "q3": "三季报",
-    }
-    return mapping.get(report_type.lower(), report_type)
+    return _normalize_period_report_type(report_type)
 
 
 def extract_numeric_code(stock_code):
@@ -141,10 +163,7 @@ def get_cninfo_column(stock_code):
 
 
 def get_cninfo_category(report_type):
-    normalized = normalize_report_type(report_type)
-    if normalized == "年报":
-        return "category_ndbg_szsh"
-    return ""
+    return CNINFO_CATEGORIES.get(normalize_report_type(report_type), "")
 
 
 def build_cninfo_date_range(year, report_type):
@@ -153,6 +172,14 @@ def build_cninfo_date_range(year, report_type):
     if normalized == "年报":
         return f"{target_year}-01-01~{target_year + 2}-12-31"
     return f"{target_year}-01-01~{target_year + 1}-12-31"
+
+
+def build_recent_date_range(lookback_months=18, today=None):
+    """Rolling announcement-date window ending today (inclusive)."""
+
+    end = today or date.today()
+    start = end - timedelta(days=max(1, int(lookback_months)) * 31)
+    return f"{start.isoformat()}~{end.isoformat()}"
 
 
 def format_cninfo_timestamp(timestamp_ms):
@@ -220,8 +247,129 @@ def discover_cninfo_report(stock_code, company_name, year, report_type, timeout=
     return deduped
 
 
+def extract_cninfo_period_candidates(payload):
+    """Turn CNINFO announcements into period-tagged full-report candidates."""
+
+    candidates = []
+    for announcement in payload.get("announcements") or []:
+        adjunct_url = announcement.get("adjunctUrl")
+        if not adjunct_url:
+            continue
+
+        title = normalize_title(announcement.get("announcementTitle", ""))
+        if is_summary_title(title) or is_excluded_title(title):
+            continue
+
+        period = parse_period_from_title(title)
+        if not period:
+            continue
+
+        _, report_type = parse_period(period)
+        candidates.append(
+            {
+                "url": CNINFO_STATIC_BASE_URL + adjunct_url.lstrip("/"),
+                "title": title,
+                "date": format_cninfo_timestamp(announcement.get("announcementTime")),
+                "period": period,
+                "report_type": report_type,
+                "source": "cninfo",
+            }
+        )
+    return candidates
+
+
+def _period_candidate_rank(candidate):
+    """Prefer the newest announcement, and a corrected version on a tie."""
+
+    return (candidate.get("date") or "", "更新后" in candidate.get("title", ""))
+
+
+def discover_periods(
+    stock_code,
+    company_name="",
+    *,
+    report_type=None,
+    lookback_months=18,
+    timeout=DEFAULT_TIMEOUT,
+    today=None,
+):
+    """Discover the newest published report for every period in the window.
+
+    Returns a list of period-tagged candidates sorted newest-period-first.
+    Non-A-share codes and unknown report types return an empty list rather than
+    raising, so callers can decide how to degrade.
+    """
+
+    if not is_a_share_stock_code(stock_code):
+        return []
+
+    wanted = normalize_report_type(report_type) if report_type else None
+    if wanted is not None and wanted not in REPORT_TYPES:
+        return []
+
+    candidates = []
+    for keyword in build_cninfo_search_keywords(stock_code, company_name):
+        response = requests.post(
+            CNINFO_QUERY_URL,
+            headers=CNINFO_HEADERS,
+            data={
+                "pageNum": 1,
+                "pageSize": 100,
+                "tabName": "fulltext",
+                "stock": "",
+                "searchkey": keyword,
+                "column": get_cninfo_column(stock_code),
+                "category": CNINFO_ALL_REGULAR_CATEGORIES,
+                "seDate": build_recent_date_range(lookback_months, today=today),
+            },
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        candidates = extract_cninfo_period_candidates(response.json())
+        if candidates:
+            break
+
+    by_period = {}
+    for candidate in candidates:
+        if wanted is not None and candidate["report_type"] != wanted:
+            continue
+        current = by_period.get(candidate["period"])
+        if current is None or _period_candidate_rank(candidate) > _period_candidate_rank(current):
+            by_period[candidate["period"]] = candidate
+
+    return sorted(
+        by_period.values(),
+        key=lambda candidate: period_sort_key(candidate["period"]),
+        reverse=True,
+    )
+
+
+def discover_latest_period(
+    stock_code,
+    company_name="",
+    *,
+    report_type=None,
+    lookback_months=18,
+    timeout=DEFAULT_TIMEOUT,
+    today=None,
+):
+    """Return the newest published regular report, or ``None`` when absent."""
+
+    periods = discover_periods(
+        stock_code,
+        company_name,
+        report_type=report_type,
+        lookback_months=lookback_months,
+        timeout=timeout,
+        today=today,
+    )
+    return periods[0] if periods else None
+
+
 def should_prefer_cninfo(stock_code, report_type):
-    return is_a_share_stock_code(stock_code) and normalize_report_type(report_type) == "年报"
+    """CNINFO is the authoritative source for every A-share regular report."""
+
+    return is_a_share_stock_code(stock_code) and normalize_report_type(report_type) in REPORT_TYPES
 
 
 def get_required_keywords(report_type):
@@ -251,6 +399,12 @@ def is_excluded_title(title):
         "补充",
         "意见",
         "内部控制",
+        "英文",
+        "取消",
+        "提示性",
+        "业绩说明会",
+        "问询函",
+        "H股",
     ]
     lowered = title.lower()
     return any(keyword.lower() in lowered for keyword in excluded_keywords)
@@ -380,7 +534,7 @@ def discover_report(stock_code, year, report_type, timeout=DEFAULT_TIMEOUT):
 
 
 def print_result(success, stock_page_url="", report_url="", title="", date="", count=0,
-                 message=""):
+                 message="", period="", report_type=""):
     status = "SUCCESS" if success else "FAILED"
     print("\n---RESULT---")
     print(f"status: {status}")
@@ -388,6 +542,8 @@ def print_result(success, stock_page_url="", report_url="", title="", date="", c
     print(f"report_url: {report_url}")
     print(f"title: {title}")
     print(f"date: {date}")
+    print(f"period: {period}")
+    print(f"report_type: {report_type}")
     print(f"candidate_count: {count}")
     print(f"message: {message}")
     print("---END---")
@@ -398,13 +554,72 @@ def parse_args(argv=None):
         description="Discover A-share report PDF URL with CNINFO and 10jqka fallbacks"
     )
     parser.add_argument("--stock-code", required=True, help="Stock code, e.g. 000858")
-    parser.add_argument("--year", required=True, help="Fiscal year, e.g. 2025")
-    parser.add_argument("--report-type", default="年报", help="年报/中报/一季报/三季报")
+    parser.add_argument("--year", help="Fiscal year, e.g. 2025 (not needed with --latest)")
+    parser.add_argument(
+        "--report-type",
+        default="年报",
+        help="年报/中报/一季报/三季报, or 'auto' for the newest published regular report",
+    )
+    parser.add_argument(
+        "--latest",
+        action="store_true",
+        help="Discover the newest published regular report instead of a fixed year",
+    )
     return parser.parse_args(argv)
+
+
+def _is_auto_report_type(report_type):
+    return (report_type or "").strip().lower() in {"auto", "latest"}
+
+
+def run_latest_discovery(args):
+    """Handle --latest / --report-type auto."""
+
+    report_type = None
+    if normalize_report_type(args.report_type) in REPORT_TYPES:
+        report_type = args.report_type
+
+    best = discover_latest_period(args.stock_code, report_type=report_type)
+    if not best:
+        message = (
+            f"No published regular report found for {args.stock_code} "
+            f"in the recent discovery window"
+        )
+        print_result(False, message=message)
+        sys.exit(EXIT_NO_MATCH)
+
+    print_result(
+        True,
+        report_url=best["url"],
+        title=best["title"],
+        date=best["date"],
+        count=1,
+        period=best["period"],
+        report_type=best["report_type"],
+        message="Latest regular report found",
+    )
+    sys.exit(EXIT_SUCCESS)
 
 
 def main(argv=None):
     args = parse_args(argv)
+
+    if args.latest or _is_auto_report_type(args.report_type):
+        try:
+            run_latest_discovery(args)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            print_result(False, message=str(exc))
+            sys.exit(EXIT_BAD_ARGUMENTS)
+        except requests.RequestException as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            print_result(False, message=str(exc))
+            sys.exit(EXIT_NETWORK_FAILURE)
+
+    if not args.year:
+        print("Error: --year is required unless --latest or --report-type auto is used", file=sys.stderr)
+        print_result(False, message="Missing --year")
+        sys.exit(EXIT_BAD_ARGUMENTS)
 
     try:
         stock_page_url, candidates, best = discover_report(
@@ -434,6 +649,7 @@ def main(argv=None):
         )
         sys.exit(EXIT_NO_MATCH)
 
+    period = parse_period_from_title(best.get("title", ""), args.report_type)
     print_result(
         True,
         stock_page_url=stock_page_url,
@@ -441,6 +657,8 @@ def main(argv=None):
         title=best["title"],
         date=best["date"],
         count=len(candidates),
+        period=period or "",
+        report_type=normalize_report_type(args.report_type),
         message=(
             "Summary fallback match found"
             if best.get("match_quality") == "summary_fallback"

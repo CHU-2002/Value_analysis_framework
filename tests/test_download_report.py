@@ -20,7 +20,9 @@ from download_report import (
     get_headers,
     main,
     print_result,
+    resolve_auto_targets,
     validate_url,
+    write_sources_index,
 )
 
 
@@ -442,3 +444,224 @@ class TestMain:
                     "--save-dir", tmpdir,
                 ])
             assert exc_info.value.code == EXIT_PDF_VALIDATION_FAILURE
+
+
+# --- Periodic (quarterly / interim / annual) download ---
+
+PERIODIC_TARGETS = [
+    {
+        "period": "2026H1",
+        "report_type": "中报",
+        "title": "五粮液：2026年半年度报告（更新后）",
+        "date": "2026-08-30",
+        "url": "https://static.cninfo.com.cn/finalpage/2026-08-30/h1.PDF",
+        "source": "cninfo",
+    },
+    {
+        "period": "2026Q1",
+        "report_type": "一季报",
+        "title": "五粮液：2026年第一季度报告",
+        "date": "2026-04-25",
+        "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/q1.PDF",
+        "source": "cninfo",
+    },
+]
+
+
+def _write_fake_pdf(url, save_path, max_retries=3):
+    with open(save_path, "wb") as handle:
+        handle.write(b"%PDF-1.4 test content")
+    return True, "Download successful", 22
+
+
+class TestResolveAutoTargets:
+    @patch("download_report.discover_periods")
+    def test_without_since_returns_only_latest(self, mock_discover):
+        mock_discover.return_value = PERIODIC_TARGETS
+        targets, latest = resolve_auto_targets("000858")
+        assert [target["period"] for target in targets] == ["2026H1"]
+        assert latest["period"] == "2026H1"
+
+    @patch("download_report.discover_periods")
+    def test_since_includes_every_newer_period(self, mock_discover):
+        mock_discover.return_value = PERIODIC_TARGETS
+        targets, latest = resolve_auto_targets("000858", since="2026Q1")
+        assert [target["period"] for target in targets] == ["2026H1", "2026Q1"]
+
+    @patch("download_report.discover_periods")
+    def test_no_published_period(self, mock_discover):
+        mock_discover.return_value = []
+        assert resolve_auto_targets("000858") == ([], None)
+
+
+class TestWriteSourcesIndex:
+    def test_merges_existing_entries(self, tmp_path):
+        index_path = tmp_path / "sources_index.json"
+        write_sources_index(
+            index_path,
+            stock_code="000858",
+            latest_period="2025FY",
+            entries=[{"period": "2025FY", "sha256": "a"}],
+        )
+        write_sources_index(
+            index_path,
+            stock_code="000858",
+            latest_period="2026H1",
+            entries=[{"period": "2026H1", "sha256": "b"}],
+        )
+
+        import json
+
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+        assert payload["schema"] == "investment.report_sources"
+        assert payload["latest_period"] == "2026H1"
+        assert set(payload["periods"]) == {"2025FY", "2026H1"}
+        assert payload["periods"]["2025FY"]["sha256"] == "a"
+
+
+class TestPrintResultPeriodFields:
+    def test_period_fields_present(self, capsys):
+        print_result(
+            success=True,
+            latest_period="2026H1",
+            periods=["2026H1", "2026Q1"],
+            completed_periods=["2026H1"],
+            failed_periods=["2026Q1"],
+        )
+        out = capsys.readouterr().out
+        assert "status: PARTIAL" in out
+        assert "latest_period: 2026H1" in out
+        assert "periods_requested: 2026H1,2026Q1" in out
+        assert "periods_completed: 2026H1" in out
+        assert "periods_failed: 2026Q1" in out
+
+
+class TestAutoDownloadMain:
+    @patch("download_report.discover_periods")
+    @patch("download_report.download_annual_report", side_effect=_write_fake_pdf)
+    def test_latest_downloads_only_newest_period(self, mock_download, mock_discover, tmp_path, capsys):
+        mock_discover.return_value = PERIODIC_TARGETS
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--save-dir", str(tmp_path),
+            ])
+
+        assert exc_info.value.code == EXIT_SUCCESS
+        assert mock_download.call_count == 1
+        assert (tmp_path / "000858_2026_中报.pdf").exists()
+        out = capsys.readouterr().out
+        assert "latest_period: 2026H1" in out
+        assert "periods_completed: 2026H1" in out
+
+    @patch("download_report.discover_periods")
+    @patch("download_report.download_annual_report", side_effect=_write_fake_pdf)
+    def test_since_downloads_every_missing_period_and_writes_index(
+        self, mock_download, mock_discover, tmp_path, capsys
+    ):
+        mock_discover.return_value = PERIODIC_TARGETS
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--since", "2026Q1",
+                "--save-dir", str(tmp_path),
+            ])
+
+        assert exc_info.value.code == EXIT_SUCCESS
+        assert (tmp_path / "000858_2026_中报.pdf").exists()
+        assert (tmp_path / "000858_2026_一季报.pdf").exists()
+
+        import json
+
+        payload = json.loads((tmp_path / "sources_index.json").read_text(encoding="utf-8"))
+        assert payload["latest_period"] == "2026H1"
+        assert set(payload["periods"]) == {"2026H1", "2026Q1"}
+        assert payload["periods"]["2026H1"]["filename"] == "000858_2026_中报.pdf"
+        assert len(payload["periods"]["2026H1"]["sha256"]) == 64
+
+        out = capsys.readouterr().out
+        assert "periods_requested: 2026H1,2026Q1" in out
+
+    @patch("download_report.discover_periods")
+    def test_no_published_period_exits_network_failure(self, mock_discover, tmp_path):
+        mock_discover.return_value = []
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--save-dir", str(tmp_path),
+            ])
+
+        assert exc_info.value.code == EXIT_NETWORK_FAILURE
+
+    def test_invalid_since_period_exits_bad_arguments(self, tmp_path):
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--since", "2026Q2",
+                "--save-dir", str(tmp_path),
+            ])
+
+        assert exc_info.value.code == EXIT_BAD_ARGUMENTS
+
+    @patch("download_report.discover_periods")
+    @patch("download_report.download_annual_report", side_effect=_write_fake_pdf)
+    def test_interim_concrete_type_with_latest(self, mock_download, mock_discover, tmp_path):
+        mock_discover.return_value = PERIODIC_TARGETS
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "中报",
+                "--latest",
+                "--save-dir", str(tmp_path),
+            ])
+
+        assert exc_info.value.code == EXIT_SUCCESS
+        assert mock_discover.call_args.kwargs["report_type"] == "中报"
+
+    @patch("download_report.discover_periods")
+    @patch("download_report.download_annual_report")
+    def test_partial_download_reports_partial(self, mock_download, mock_discover, tmp_path, capsys):
+        mock_discover.return_value = PERIODIC_TARGETS
+
+        def _download(url, save_path, max_retries=3):
+            if url.endswith("q1.PDF"):
+                return False, "network error", 0
+            return _write_fake_pdf(url, save_path, max_retries)
+
+        mock_download.side_effect = _download
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--since", "2026Q1",
+                "--save-dir", str(tmp_path),
+            ])
+
+        assert exc_info.value.code == EXIT_NETWORK_FAILURE
+        out = capsys.readouterr().out
+        assert "status: PARTIAL" in out
+        assert "periods_failed: 2026Q1" in out
+
+    @patch("download_report.discover_periods")
+    def test_discovery_network_failure_exits_network_failure(self, mock_discover, tmp_path):
+        import requests as req
+
+        mock_discover.side_effect = req.exceptions.ConnectionError("cninfo down")
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--save-dir", str(tmp_path),
+            ])
+
+        assert exc_info.value.code == EXIT_NETWORK_FAILURE
