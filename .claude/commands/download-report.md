@@ -15,7 +15,7 @@ Parse the user input from `$ARGUMENTS` into three parts:
 - `--report-type` may be omitted: it defaults to 年报, or to `auto` when `--latest` / `--since` is used.
 - With `--latest`, the script discovers the **newest published period of any type**; combine it with a concrete `--report-type` to restrict to that type.
 - With `--since <period>` (e.g. `2026Q1`), it downloads every published period at or after that period, which is how a missing-period catch-up is performed. Periods already recorded in `sources_index.json` (and still on disk) are skipped unless `--force` is given.
-- `--url` cannot be combined with `--latest` / `--since` / `--report-type auto`; the script rejects that combination.
+- `--url` cannot be combined with `--latest` / `--since` / `--report-type auto`; the script rejects that combination. It also rejects `--year` / `--recent-years` in periodic mode, `--latest` together with `--since`, and `--force` outside periodic mode, instead of silently ignoring them.
 
 ### Market Detection
 
@@ -168,7 +168,7 @@ python3 scripts/download_report.py \
   --save-dir "<save_dir_inside_project>"
 ```
 
-In periodic mode (`--latest` / `--since` / `--report-type auto`) the script writes `sources_index.json` in `--save-dir` (override with `--sources-index`): a `period -> filename + sha256 + announcement date` index used by downstream incremental analysis.
+In periodic mode (`--latest` / `--since` / `--report-type auto`) the script writes `sources_index.json` in `--save-dir` (override with `--sources-index`): a `period -> filename + size + sha256 + announcement date` index used by downstream incremental analysis. A period is skipped only when its recorded PDF still exists, is non-empty, matches the recorded size, and was not left behind by a failed download.
 
 If you already have a vetted direct PDF URL, you may still pass `--url "<PDF_URL>"` explicitly (single file, not periodic mode).
 

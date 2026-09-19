@@ -495,15 +495,29 @@ class TestResolveAutoTargets:
         mock_discover.return_value = []
         assert resolve_auto_targets("000858") == ([], None, [])
 
-    @patch("download_report.discover_periods")
-    def test_since_widens_the_lookback_window(self, mock_discover):
-        from periods import months_since
+    @patch("discover_report.requests.post")
+    def test_since_widens_the_lookback_window_end_to_end(self, mock_post):
+        # Exercise the real discover_periods so the assertion checks the query
+        # window that is actually sent, not a restatement of the formula.
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {
+            "announcements": [
+                {
+                    "announcementTitle": "五粮液：2020年年度报告",
+                    "announcementTime": 1609459200000,
+                    "adjunctUrl": "finalpage/2021-01-01/fy2020.PDF",
+                    "secCode": "000858",
+                    "adjunctType": "PDF",
+                }
+            ]
+        }
+        mock_post.return_value = response
 
-        mock_discover.return_value = PERIODIC_TARGETS
         resolve_auto_targets("000858", since="2020Q1", lookback_months=18)
-        used = mock_discover.call_args.kwargs["lookback_months"]
-        assert used >= months_since("2020Q1")
-        assert used > 18
+
+        se_date = mock_post.call_args.kwargs["data"]["seDate"]
+        assert se_date.split("~")[0] <= "2020-01-01"
 
     @patch("download_report.discover_periods")
     def test_covered_periods_are_skipped(self, mock_discover):
@@ -552,6 +566,77 @@ class TestCoveredPeriods:
         index_path = tmp_path / "sources_index.json"
         index_path.write_text('{"periods": "oops"}', encoding="utf-8")
         assert covered_periods(str(index_path)) == set()
+
+    def test_failed_entry_is_not_covered_so_it_is_retried(self, tmp_path):
+        import json
+
+        present = tmp_path / "present.pdf"
+        present.write_bytes(b"%PDF-1.4")
+        index_path = tmp_path / "sources_index.json"
+        index_path.write_text(
+            json.dumps(
+                {
+                    "periods": {
+                        "2026H1": {
+                            "filepath": str(present),
+                            "last_download_status": "failed",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert covered_periods(str(index_path)) == set()
+
+    def test_empty_or_size_mismatched_files_are_not_covered(self, tmp_path):
+        import json
+
+        empty = tmp_path / "empty.pdf"
+        empty.write_bytes(b"")
+        wrong_size = tmp_path / "wrong.pdf"
+        wrong_size.write_bytes(b"%PDF-1.4 truncated")
+        index_path = tmp_path / "sources_index.json"
+        index_path.write_text(
+            json.dumps(
+                {
+                    "periods": {
+                        "2026H1": {"filepath": str(empty)},
+                        "2026Q1": {"filepath": str(wrong_size), "size_bytes": 999999},
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert covered_periods(str(index_path)) == set()
+
+    def test_relative_filepath_resolves_against_index_directory(self, tmp_path):
+        import json
+
+        (tmp_path / "600858_2026_中报.pdf").write_bytes(b"%PDF-1.4")
+        index_path = tmp_path / "sources_index.json"
+        index_path.write_text(
+            json.dumps({"periods": {"2026H1": {"filepath": "600858_2026_中报.pdf"}}}),
+            encoding="utf-8",
+        )
+        assert covered_periods(str(index_path)) == {"2026H1"}
+
+    def test_index_for_another_stock_is_ignored(self, tmp_path):
+        import json
+
+        present = tmp_path / "present.pdf"
+        present.write_bytes(b"%PDF-1.4")
+        index_path = tmp_path / "sources_index.json"
+        index_path.write_text(
+            json.dumps(
+                {
+                    "stock_code": "000858",
+                    "periods": {"2026H1": {"filepath": str(present)}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert covered_periods(str(index_path), stock_code="600519") == set()
+        assert covered_periods(str(index_path), stock_code="000858") == {"2026H1"}
 
 
 class TestWriteSourcesIndex:
@@ -932,3 +1017,97 @@ class TestAutoModeIncrementalBehaviour:
 
         assert exc_info.value.code == EXIT_SUCCESS
         assert nested.exists()
+
+
+class TestAutoModeArgGuards:
+    @patch("download_report.discover_periods")
+    def test_year_in_auto_mode_is_rejected(self, mock_discover, tmp_path):
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--year", "2025",
+                "--save-dir", str(tmp_path),
+            ])
+        assert exc_info.value.code == EXIT_BAD_ARGUMENTS
+        mock_discover.assert_not_called()
+
+    def test_force_outside_auto_mode_is_rejected(self, tmp_path):
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "年报",
+                "--year", "2025",
+                "--force",
+                "--save-dir", str(tmp_path),
+            ])
+        assert exc_info.value.code == EXIT_BAD_ARGUMENTS
+
+    @patch("download_report.discover_periods")
+    def test_latest_and_since_together_are_rejected(self, mock_discover, tmp_path):
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--latest",
+                "--since", "2026Q1",
+                "--save-dir", str(tmp_path),
+            ])
+        assert exc_info.value.code == EXIT_BAD_ARGUMENTS
+        mock_discover.assert_not_called()
+
+    def test_since_in_the_future_is_rejected(self, tmp_path):
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--since", "2999Q1",
+                "--save-dir", str(tmp_path),
+            ])
+        assert exc_info.value.code == EXIT_BAD_ARGUMENTS
+
+
+class TestFailedRefreshIsRetried:
+    @patch("download_report.discover_periods")
+    @patch("download_report.download_annual_report")
+    def test_failed_forced_refresh_is_not_reported_as_up_to_date(
+        self, mock_download, mock_discover, tmp_path, capsys
+    ):
+        mock_discover.return_value = [PERIODIC_TARGETS[0]]
+
+        # run 1: successful download records the period.
+        mock_download.side_effect = _write_fake_pdf
+        with pytest.raises(SystemExit) as first:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--latest",
+                "--save-dir", str(tmp_path),
+            ])
+        assert first.value.code == EXIT_SUCCESS
+
+        # run 2: a forced refresh fails; the old file stays on disk.
+        mock_download.side_effect = lambda *args, **kwargs: (False, "boom", 0)
+        with pytest.raises(SystemExit) as second:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--latest",
+                "--force",
+                "--save-dir", str(tmp_path),
+            ])
+        assert second.value.code == EXIT_NETWORK_FAILURE
+
+        # run 3: the failed entry must be retried, not reported as up to date.
+        mock_download.reset_mock()
+        mock_download.side_effect = _write_fake_pdf
+        with pytest.raises(SystemExit) as third:
+            main([
+                "--stock-code", "000858",
+                "--report-type", "auto",
+                "--latest",
+                "--save-dir", str(tmp_path),
+            ])
+        assert third.value.code == EXIT_SUCCESS
+        assert mock_download.call_count == 1
+        assert "All periods already present" not in capsys.readouterr().out

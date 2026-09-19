@@ -337,16 +337,18 @@ def _period_candidate_rank(candidate):
 def _query_cninfo_periods(stock_code, keywords, *, lookback_months, timeout, today, max_pages=5):
     """Query CNINFO for period-tagged reports, following pagination."""
 
+    page_size = 100
     se_date = build_recent_date_range(lookback_months, today=today)
     candidates = []
     for keyword in keywords:
+        scanned = 0
         for page in range(1, max_pages + 1):
             response = requests.post(
                 CNINFO_QUERY_URL,
                 headers=CNINFO_HEADERS,
                 data={
                     "pageNum": page,
-                    "pageSize": 100,
+                    "pageSize": page_size,
                     "tabName": "fulltext",
                     "stock": "",
                     "searchkey": keyword,
@@ -358,23 +360,30 @@ def _query_cninfo_periods(stock_code, keywords, *, lookback_months, timeout, tod
             )
             response.raise_for_status()
             payload = response.json()
-            page_candidates = extract_cninfo_period_candidates(payload, stock_code=stock_code)
-            candidates.extend(page_candidates)
+            candidates.extend(extract_cninfo_period_candidates(payload, stock_code=stock_code))
 
-            total_pages = payload.get("totalpages") if isinstance(payload, dict) else None
             announcements = _announcements(payload)
+            scanned += len(announcements)
             if not announcements:
                 break
-            if isinstance(total_pages, int) and page >= total_pages:
+
+            total_pages = payload.get("totalpages") if isinstance(payload, dict) else None
+            total_records = payload.get("totalRecordNum") if isinstance(payload, dict) else None
+            if isinstance(total_records, int) and total_records > 0:
+                more_pages = scanned < total_records
+            elif isinstance(total_pages, int) and total_pages > 0:
+                more_pages = page < total_pages
+            else:
+                more_pages = len(announcements) >= page_size
+
+            if not more_pages:
                 break
-            if isinstance(total_pages, int) and page >= max_pages:
+            if page >= max_pages:
                 print(
-                    f"Warning: stopped at the page cap ({max_pages}) with "
-                    f"totalpages={total_pages}; some older announcements were not scanned",
+                    f"Warning: stopped at the page cap ({max_pages}); some older "
+                    f"announcements may not have been scanned",
                     file=sys.stderr,
                 )
-                break
-            if not isinstance(total_pages, int) and len(announcements) < 100:
                 break
         if candidates:
             break
@@ -521,6 +530,11 @@ def score_candidate(candidate, year, report_type):
 
     keywords = get_required_keywords(report_type)
     if not any(keyword in title for keyword in keywords):
+        return None
+    # Substring matching alone lets "半年度报告"/"半年报" satisfy the annual
+    # keywords ("年度报告"/"年报"). Require the shared period parser to agree
+    # that this title is the requested report type.
+    if parse_period_from_title(title, report_type) is None:
         return None
     if str(year) not in title:
         return None

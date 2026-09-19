@@ -342,8 +342,19 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
-def covered_periods(index_path):
-    """Periods already recorded in a source index whose PDF still exists."""
+def _code_key(value):
+    match = re.search(r"(\d{5,6})", str(value or ""))
+    return match.group(1) if match else str(value or "")
+
+
+def covered_periods(index_path, stock_code=None):
+    """Periods already recorded in a source index and still usable on disk.
+
+    An entry only counts when its PDF exists, is non-empty, matches the recorded
+    size, and is not flagged as a failed download (a failure must be retried on
+    the next run). A relative ``filepath`` is resolved against the index
+    location, and an index belonging to a different stock is ignored.
+    """
 
     if not index_path or not os.path.exists(index_path):
         return set()
@@ -352,16 +363,38 @@ def covered_periods(index_path):
             payload = json.load(handle)
     except (OSError, ValueError):
         return set()
-    periods = payload.get("periods") if isinstance(payload, dict) else None
+    if not isinstance(payload, dict):
+        return set()
+
+    index_code = payload.get("stock_code")
+    if stock_code and isinstance(index_code, str) and index_code.strip():
+        if _code_key(index_code) != _code_key(stock_code):
+            return set()
+
+    periods = payload.get("periods")
     if not isinstance(periods, dict):
         return set()
+
+    base_dir = os.path.dirname(os.path.abspath(index_path))
     covered = set()
     for period, entry in periods.items():
         if not isinstance(entry, dict):
             continue
+        if entry.get("last_download_status") == "failed":
+            continue
         filepath = entry.get("filepath")
-        if isinstance(filepath, str) and os.path.exists(filepath):
-            covered.add(period)
+        if not isinstance(filepath, str) or not filepath:
+            continue
+        resolved = filepath if os.path.isabs(filepath) else os.path.join(base_dir, filepath)
+        if not os.path.isfile(resolved):
+            continue
+        size = os.path.getsize(resolved)
+        if size <= 0:
+            continue
+        recorded_size = entry.get("size_bytes")
+        if isinstance(recorded_size, int) and recorded_size > 0 and recorded_size != size:
+            continue
+        covered.add(period)
     return covered
 
 
@@ -462,14 +495,19 @@ def run_auto_download(args):
 
     if args.since:
         try:
-            parse_period(args.since)
+            since_year, _ = parse_period(args.since)
         except ValueError as exc:
             print(f"Error: {exc}", file=sys.stderr)
             print_result(False, stock_code=args.stock_code, report_type=args.report_type, message=str(exc))
             sys.exit(EXIT_BAD_ARGUMENTS)
+        if since_year > date.today().year:
+            message = f"--since {args.since} is in the future"
+            print(f"Error: {message}", file=sys.stderr)
+            print_result(False, stock_code=args.stock_code, report_type=args.report_type, message=message)
+            sys.exit(EXIT_BAD_ARGUMENTS)
 
     index_path = args.sources_index or os.path.join(args.save_dir, "sources_index.json")
-    covered = set() if args.force else covered_periods(index_path)
+    covered = set() if args.force else covered_periods(index_path, stock_code=args.stock_code)
 
     try:
         targets, latest, skipped = resolve_auto_targets(
@@ -572,6 +610,7 @@ def run_auto_download(args):
                     "url": download_url,
                     "filename": filename,
                     "filepath": os.path.abspath(save_path),
+                    "size_bytes": filesize,
                     "sha256": sha256_file(save_path),
                     "source": target.get("source", "cninfo"),
                 }
@@ -641,6 +680,18 @@ def main(argv=None):
     if auto_mode and args.recent_years is not None:
         print("Error: --recent-years does not apply to periodic mode", file=sys.stderr)
         print_result(False, stock_code=args.stock_code, message="--recent-years conflicts with periodic mode")
+        sys.exit(EXIT_BAD_ARGUMENTS)
+    if auto_mode and args.year:
+        print("Error: --year does not apply to periodic mode", file=sys.stderr)
+        print_result(False, stock_code=args.stock_code, message="--year conflicts with periodic mode")
+        sys.exit(EXIT_BAD_ARGUMENTS)
+    if auto_mode and args.latest and args.since:
+        print("Error: --latest and --since are mutually exclusive", file=sys.stderr)
+        print_result(False, stock_code=args.stock_code, message="--latest conflicts with --since")
+        sys.exit(EXIT_BAD_ARGUMENTS)
+    if not auto_mode and args.force:
+        print("Error: --force only applies to periodic mode", file=sys.stderr)
+        print_result(False, stock_code=args.stock_code, message="--force conflicts with the year path")
         sys.exit(EXIT_BAD_ARGUMENTS)
     if args.report_type is None:
         # --latest/--since already imply "any type"; otherwise keep 年报.

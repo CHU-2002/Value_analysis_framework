@@ -674,3 +674,49 @@ class TestMainLatestPeriod:
         with pytest.raises(SystemExit) as exc_info:
             main(["--stock-code", "000858", "--report-type", "年报"])
         assert exc_info.value.code == EXIT_BAD_ARGUMENTS
+
+
+class TestPaginationCapWarning:
+    @patch("discover_report.requests.get")
+    @patch("discover_report.requests.post")
+    def test_page_cap_warns_even_without_totalpages(self, mock_post, mock_get, capsys):
+        import requests as req
+
+        full_page = {
+            "announcements": [
+                {
+                    "announcementTitle": f"五粮液：历史公告 {index}",
+                    "announcementTime": 1700000000000,
+                    "adjunctUrl": f"finalpage/x/{index}.PDF",
+                    "secCode": "000858",
+                }
+                for index in range(100)
+            ]
+        }
+        mock_post.return_value = _cninfo_mock(full_page)
+        # No company name: one keyword only, and the name fallback finds nothing.
+        mock_get.side_effect = req.exceptions.ConnectionError("no stockpage")
+
+        assert discover_periods("000858") == []
+
+        assert mock_post.call_count == 5
+        assert "page cap" in capsys.readouterr().err
+
+    @patch("discover_report.requests.post")
+    def test_no_warning_when_last_page_is_partial(self, mock_post, capsys):
+        partial_page = {
+            "announcements": [
+                {
+                    "announcementTitle": "五粮液：2026年半年度报告",
+                    "announcementTime": 1787875200000,
+                    "adjunctUrl": "finalpage/2026-08-28/h1.PDF",
+                    "secCode": "000858",
+                }
+            ]
+        }
+        mock_post.return_value = _cninfo_mock(partial_page)
+
+        assert [candidate["period"] for candidate in discover_periods("000858", "五粮液")] == ["2026H1"]
+
+        assert mock_post.call_count == 1
+        assert "page cap" not in capsys.readouterr().err
