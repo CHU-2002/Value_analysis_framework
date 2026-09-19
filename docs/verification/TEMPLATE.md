@@ -5,7 +5,7 @@ reviewer: independent-agent
 independence: independent
 requirements: REQ-00X, REQ-00Y
 base: <被验收的 main 基线 sha>
-full-suite: "1389 passed, 3 skipped, 覆盖率 76.77%"
+full-suite: "<passed> passed, <skipped> skipped，覆盖率 <x>%"
 ---
 
 <!--

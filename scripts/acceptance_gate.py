@@ -15,7 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from pr_body_guard import section
+from pr_body_guard import section, strip_comments
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIREMENTS_DIR = ROOT / "docs" / "requirements"
@@ -45,12 +45,18 @@ def parse_front_matter(text: str) -> dict:
     return fields
 
 
+def requirement_entry(req_id: str):
+    """返回该需求条目的路径；不存在返回 None。"""
+    matches = sorted(REQUIREMENTS_DIR.glob(f"{req_id}-*.md"))
+    return matches[0] if matches else None
+
+
 def requirement_ac_ids(req_id: str) -> list:
     """从需求条目里取出 AC 编号，如 ['1', '2']。"""
-    matches = sorted(REQUIREMENTS_DIR.glob(f"{req_id}-*.md"))
-    if not matches:
+    entry = requirement_entry(req_id)
+    if entry is None:
         return []
-    return AC_RE.findall(matches[0].read_text(encoding="utf-8"))
+    return AC_RE.findall(entry.read_text(encoding="utf-8"))
 
 
 def req_sections(text: str) -> dict:
@@ -132,7 +138,8 @@ def batch_requirements(body: str) -> list:
     门禁就会去要求它们的 AC 打勾——那是误判。
     """
     declared = section(body, "需求编号")
-    scope = declared if declared else body
+    # 回退时同样剥掉 HTML 注释：模板残留注释里的 REQ-NNN 不是需求声明
+    scope = declared if declared else strip_comments(body)
     return sorted(set(REQ_RE.findall(scope)))
 
 
@@ -149,6 +156,14 @@ def evaluate(body: str, reports: list, paths=None) -> list:
     batch = batch_requirements(body)
     if not batch:
         problems.append("验收 PR 必须写明本批包含的 REQ-NNN（写在「## 需求编号」里）")
+        return problems
+    # 批次编号必须真实登记，否则「写一个不存在的 REQ」就能让 AC 校验无从下手
+    unknown = [req for req in batch if requirement_entry(req) is None]
+    if unknown:
+        problems.append(
+            f"批次中的需求编号在 docs/requirements/ 下不存在：{', '.join(unknown)}；"
+            "请先登记需求，或把编号改对"
+        )
         return problems
     if not reports:
         problems.append(

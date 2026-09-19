@@ -280,3 +280,30 @@ def test_acceptance_gate_falls_back_to_whole_body_without_the_section(tmp_path):
     assert acceptance_gate.batch_requirements(body) == ["REQ-005"]
     problems = acceptance_gate.evaluate(body, [])
     assert any("验收报告" in problem for problem in problems), problems
+
+
+def test_acceptance_gate_fallback_strips_html_comments():
+    """回退扫描也要剥注释：模板残留注释里的 REQ 不应被当成批次。"""
+    body = (
+        "## 需求编号\n\n<!-- 模板残留，提到 REQ-005 -->\n\n"
+        "## 变更概述\n\n本批交付 REQ-006。\n"
+    )
+    assert acceptance_gate.batch_requirements(body) == ["REQ-006"]
+
+
+# 故意构造一个未登记的需求编号：用拼接书写，避免治理门禁
+# （tests/test_requirement_traceability.py 要求测试里出现的 REQ-NNN 必须真实存在）
+# 把这条「不存在的编号」夹具本身判成悬空引用。
+UNKNOWN_REQ = "REQ-" + "999"
+
+
+def test_acceptance_gate_rejects_unknown_requirement_ids(tmp_path):
+    """写一个不存在的 REQ 编号不能绕过 AC 校验。"""
+    report = tmp_path / "batch.md"
+    report.write_text(
+        "---\nreviewer: r\nindependence: independent\n"
+        f"requirements: {UNKNOWN_REQ}\nfull-suite: 见正文\n---\n\n1442 passed\n",
+        encoding="utf-8",
+    )
+    problems = acceptance_gate.evaluate(f"## 需求编号\n\n{UNKNOWN_REQ}\n", [report])
+    assert any(UNKNOWN_REQ in problem and "不存在" in problem for problem in problems), problems
