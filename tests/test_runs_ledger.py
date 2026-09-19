@@ -1,3 +1,5 @@
+
+# 覆盖需求：REQ-003（分析迭代台账）—— AC-2…AC-5 run 生命周期、快照不可变、adopt 接管、指针与台账
 """Tests for the run-store ledger (``scripts/runs.py``)."""
 
 import json

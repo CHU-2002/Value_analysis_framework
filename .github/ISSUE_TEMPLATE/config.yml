@@ -3,6 +3,9 @@ contact_links:
   - name: 安全漏洞报告
     url: https://github.com/CHU-2002/Value_analysis_framework/security/advisories/new
     about: 请勿通过公开 Issue 报告安全漏洞，使用私密漏洞报告功能
+  - name: 需求与开发流程
+    url: https://github.com/CHU-2002/Value_analysis_framework/blob/main/docs/requirements/README.md
+    about: 新功能请先登记 REQ-NNN；需求、测试与开发三者的衔接规则见此文档
   - name: 使用问题
     url: https://github.com/CHU-2002/Value_analysis_framework/blob/main/README.md
     about: 常见用法与命令说明请先阅读 README

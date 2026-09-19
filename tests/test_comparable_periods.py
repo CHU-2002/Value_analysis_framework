@@ -1,3 +1,5 @@
+
+# 覆盖需求：REQ-002（同比可比期与按期次章节包）—— AC-1 补上年同期列、AC-2 ``pdf_sections_{period}.json`` 互不覆盖
 """PR2 tests: prior-year comparable display periods + per-period PDF sections.
 
 Covers two deliverables of ``docs/PERIODIC_UPDATE_PLAN.md`` §4/§6:

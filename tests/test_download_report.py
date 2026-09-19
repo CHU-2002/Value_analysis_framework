@@ -1,3 +1,5 @@
+
+# 覆盖需求：REQ-001（定期报告发现与下载）—— AC-5 sources_index.json 跳过/--force 重下、失败不留陈旧条目；AC-6 非 JSON 响应按网络失败处理
 """Tests for scripts/download_report.py"""
 
 import os

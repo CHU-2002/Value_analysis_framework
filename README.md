@@ -205,7 +205,8 @@ Value_analysis_framework/
 ├── .claude/                      # Claude Code 的 slash commands 和 skills
 ├── .opencode/commands/           # OpenCode 的 slash commands
 ├── .github/                      # CI、PR/Issue 模板、CODEOWNERS、管理员配置
-├── docs/                         # 架构与开发文档
+├── docs/                         # 架构、需求、测试与开发文档
+│   └── requirements/             # 需求条目与台账（REQ-NNN，需求唯一权威来源）
 ├── notebooks/                    # 选股 Jupyter notebooks
 ├── prompts/                      # v1 遗留提示词（只读）
 ├── ciguttprepare/                # 烟蒂策略提示词草稿
@@ -233,6 +234,7 @@ Value_analysis_framework/
 ├── strategies/                   # value（含 valuation 子模块）/ portfolio
 ├── tests/                        # pytest 测试和 mock 数据
 ├── output/                       # 运行输出（已 gitignore）
+├── Makefile                      # 本地校验入口（make verify / cov / unit / trace）
 ├── init.sh                       # 环境初始化脚本
 └── requirements.txt
 ```
@@ -240,20 +242,18 @@ Value_analysis_framework/
 ## 测试
 
 ```bash
-# 全部测试
-.venv/bin/python -m pytest -q
+make verify   # 与 CI 等价：编译检查 + 全量测试 + 覆盖率门禁（提交前跑这个）
+make test     # 全量测试
+make unit     # 只跑快层，日常迭代用
+make cov      # 覆盖率报告与门禁（≥ 74%，基线 76.77%）
 
-# 只跑一个文件
+# 也可以直接用 pytest
 .venv/bin/python -m pytest tests/test_results_pipeline.py -v
-
-# 失败就停
 .venv/bin/python -m pytest -x -q
-
-# 看覆盖率
-.venv/bin/python -m pytest --cov=scripts --cov-report=term-missing
 ```
 
-所有测试都用 mock 数据，**不需要 Tushare Token**。
+所有测试都用 mock 数据，**不需要 Tushare Token**。测试分层、覆盖率门禁与需求追溯规则见
+[docs/TESTING.md](docs/TESTING.md)。
 
 ## 参与贡献
 
@@ -262,6 +262,10 @@ Value_analysis_framework/
 - 提交 PR 后会自动跑 CI（测试、编译检查、PR 标题规范）。
 - 合并前至少需要 1 个 review 通过。
 - 管理员在 `.github/admins.yml` 里配置，改名即生效；管理员可直接合并 PR。
+- **要做什么、做到什么程度，以需求台账为准**：先看 [docs/requirements/](docs/requirements/README.md)，
+  新功能请先登记 `REQ-NNN` 并写清可判定的验收标准。
+- 开发流程与就绪/完成定义（DoR / DoD）见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)，
+  测试策略见 [docs/TESTING.md](docs/TESTING.md)。
 - 详细的开发流程、分支命名和提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 - 提交信息请遵循 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/)。
 - 参与讨论请遵守 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。

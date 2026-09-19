@@ -1,3 +1,5 @@
+
+# 覆盖需求：REQ-003（分析迭代台账）—— AC-1 框架版本 / 提示词指纹 / 代码指纹 / schema 版本
 """Tests for the framework version / fingerprint helpers."""
 
 import json

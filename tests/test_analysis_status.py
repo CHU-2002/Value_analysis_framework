@@ -1,3 +1,5 @@
+
+# 覆盖需求：REQ-003（分析迭代台账）—— AC-6/AC-7 状态判定与 reasons、failed run 不得判 up_to_date
 """Tests for the analysis status detector (``scripts/analysis_status.py``)."""
 
 import json

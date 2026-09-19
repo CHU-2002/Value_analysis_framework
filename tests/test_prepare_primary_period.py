@@ -1,3 +1,5 @@
+
+# 覆盖需求：REQ-002（同比可比期与按期次章节包）—— AC-3 ``--primary-period`` 指定主期次、AC-4 兼容 inputs/ 快照
 """PR2 tests: ``prepare --primary-period`` and the ``inputs/`` snapshot layout.
 
 Covers:

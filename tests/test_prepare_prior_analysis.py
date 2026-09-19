@@ -1,3 +1,5 @@
+
+# 覆盖需求：REQ-004（增量更新分析）—— AC-3 --prior-analysis 注册上一 run 结论
 """Tests for prepare's --prior-analysis evidence source (incremental updates)."""
 
 import json

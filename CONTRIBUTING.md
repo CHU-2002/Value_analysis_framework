@@ -4,6 +4,7 @@
 
 ## 目录
 
+- [需求、测试与开发](#需求测试与开发)
 - [开发环境](#开发环境)
 - [分支模型](#分支模型)
 - [提交规范](#提交规范)
@@ -91,11 +92,9 @@ Closes #42
 1. 从最新 `main` 切出主题分支。
 2. 保持 PR 聚焦：一个 PR 解决一个问题。较大的改动请拆分为可独立审阅的 PR。
 3. 填写 PR 模板（仓库会自动加载）。
-4. 确保本地验证通过：
+4. 确保本地验证通过（等价于 CI）：
    ```bash
-   .venv/bin/python -m pytest -q
-   .venv/bin/python -m compileall -q scripts tests
-   git diff --check
+   make verify   # = make lint + make cov：全量测试 + 覆盖率门禁 + 编译/空白检查
    ```
 5. 至少完成一次自查后再请求 review；CI 通过且至少 1 个 review 批准后才能合并。
 6. 合并前解决所有 review 评论，保持分支与 `main` 同步。
@@ -118,6 +117,22 @@ Closes #42
 - 至少 1 个 review 批准，且 CODEOWNERS 指定的审阅人已批准；
 - 所有 review 对话已解决；
 - 分支与 `main` 同步（`strict` 模式）。
+
+## 需求、测试与开发
+
+三者用需求编号连成闭环，各有独立权威文档：
+
+| 部分 | 权威文档 | 你要交的产物 |
+|------|----------|--------------|
+| 需求 | [`docs/requirements/README.md`](docs/requirements/README.md) | `REQ-NNN` 条目 + [台账](docs/requirements/ledger.md) 一行，验收标准必须可判定 |
+| 测试 | [`docs/TESTING.md`](docs/TESTING.md) | 覆盖新行为的测试，文件里标注 `# 覆盖需求：REQ-NNN` |
+| 开发 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | 主题分支 + Conventional Commits + 聚焦的 PR，正文写 `REQ-NNN` |
+
+闭环：**需求登记 → 验收标准定稿 → 实现（PR）→ 测试追溯 → 逐条验收 → 台账状态推进**。
+就绪定义（DoR）与完成定义（DoD）见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
+
+[tests/test_requirement_traceability.py](tests/test_requirement_traceability.py) 在 CI 中强制这条链：
+台账漏登记、编号对不上、已交付需求没有测试引用，都会直接失败。
 
 ## 管理员与分支保护
 
@@ -146,8 +161,14 @@ Closes #42
 - 修改公共接口（schema、命令、解析器）时，同步更新合同测试
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
+make verify   # 全量测试 + 覆盖率门禁；日常迭代可用 make unit 只跑快层
 ```
+
+额外要求：
+
+- 覆盖率不得低于 74%（基线 76.77%）；门禁与基线见 [docs/TESTING.md](docs/TESTING.md) §5
+- 测试文件用注释标注 `# 覆盖需求：REQ-NNN`，并写明覆盖到的 `AC-n`
+- 「要么全用新结果，要么整体退回旧报告」等既有原则要有合同测试守护
 
 ## 文档
 
@@ -162,6 +183,7 @@ Closes #42
 
 - [ ] 改动目标清晰，范围聚焦，无无关文件
 - [ ] 与现有架构和约定一致
+- [ ] 需求台账与状态已同步推进，测试里标注了 `REQ-NNN`
 - [ ] 测试覆盖新行为与失败路径，且全部通过
 - [ ] 无硬编码密钥、调试输出或临时代码
 - [ ] 错误信息可操作，不会静默失败
