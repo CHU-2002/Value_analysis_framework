@@ -57,6 +57,7 @@ RUN_STATUSES = ("complete", "partial", "failed")
 FLAT_DIRECTORIES = ("evidence", "contexts", "modules", "synthesis")
 FLAT_FILES = (
     "run_manifest.json",
+    "d6_trigger.json",
     "qualitative_report.md",
     "qualitative_input.json",
     "data_pack_market.md",
@@ -151,18 +152,25 @@ def _unique_destination(directory: Path, name: str) -> Path:
     return candidate
 
 
-def _snapshot_file(source: Path, destination: Path) -> bool:
-    """Hardlink ``source`` to ``destination``, falling back to a real copy.
+def _snapshot_file(source: Path, destination: Path, *, hardlink: bool = False) -> str:
+    """Freeze ``source`` into ``destination`` and return the method used.
 
-    Returns ``True`` when a hardlink was created.
+    The default is a real ``shutil.copy2`` copy. Hardlinks are *not* safe by
+    default because this repository refreshes shared artifacts in place
+    (``pdf_preprocessor`` / ``tushare_collector`` open the same path with ``"w"``,
+    ``download_report`` may ``os.rename`` over a PDF), which would silently
+    rewrite the "immutable" run snapshot through the shared inode. A hardlink is
+    only attempted when explicitly requested via ``hardlink=True``.
     """
 
-    try:
-        os.link(source, destination)
-        return True
-    except OSError:
-        shutil.copy2(source, destination)
-        return False
+    if hardlink:
+        try:
+            os.link(source, destination)
+            return "hardlink"
+        except OSError:
+            pass
+    shutil.copy2(source, destination)
+    return "copy"
 
 
 def _snapshot_digest(run_path: Path) -> str | None:
@@ -236,9 +244,15 @@ def create_run(
     inputs: Iterable[str | Path] = (),
     run_id: str | None = None,
     framework: dict[str, Any] | None = None,
+    hardlink: bool = False,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Create an immutable run directory and snapshot its inputs."""
+    """Create an immutable run directory and snapshot its inputs.
+
+    Input snapshots are real copies by default (see :func:`_snapshot_file`);
+    ``hardlink=True`` is an explicit opt-in for callers who know the sources are
+    never rewritten in place.
+    """
 
     if kind not in RUN_KINDS:
         raise LedgerError(f"unknown run kind: {kind!r} (expected one of {', '.join(RUN_KINDS)})")
@@ -251,53 +265,62 @@ def create_run(
     if (run_path / "run.json").exists() or run_path.exists():
         raise DuplicateRunError(f"run already exists: {run_path}")
 
-    inputs_dir = run_path / "inputs"
-    inputs_dir.mkdir(parents=True, exist_ok=True)
-
-    snapshots: list[dict[str, Any]] = []
+    # Validate every input *before* creating anything, so a bad invocation leaves
+    # no half-built run directory behind and does not burn the run id.
+    resolved_inputs: list[Path] = []
     for item in inputs:
         source = Path(item).expanduser()
         if not source.is_file():
             raise LedgerError(f"input is not a regular file: {source}")
-        source = source.resolve()
-        destination = _unique_destination(inputs_dir, source.name)
-        hardlinked = _snapshot_file(source, destination)
-        snapshots.append(
-            {
-                "source_path": str(source),
-                "snapshot_path": str(destination),
-                "sha256": sha256_file(destination),
-                "size_bytes": destination.stat().st_size,
-                "hardlinked": hardlinked,
-            }
-        )
+        resolved_inputs.append(source.resolve())
 
+    inputs_dir = run_path / "inputs"
+    snapshots: list[dict[str, Any]] = []
     created_at = iso_timestamp(now)
-    if snapshots:
-        _write_json(
-            inputs_dir / "sources_manifest.json",
-            {
-                "schema": SOURCES_SCHEMA,
-                "schema_version": LEDGER_SCHEMA_VERSION,
-                "run_id": resolved_run_id,
-                "created_at": created_at,
-                "sources": snapshots,
-            },
-        )
+    try:
+        inputs_dir.mkdir(parents=True, exist_ok=True)
+        for source in resolved_inputs:
+            destination = _unique_destination(inputs_dir, source.name)
+            method = _snapshot_file(source, destination, hardlink=hardlink)
+            snapshots.append(
+                {
+                    "source_path": str(source),
+                    "snapshot_path": str(destination),
+                    "sha256": sha256_file(destination),
+                    "size_bytes": destination.stat().st_size,
+                    "hardlinked": method == "hardlink",
+                    "method": method,
+                }
+            )
 
-    framework_meta = framework if framework is not None else framework_block()
-    run_meta = {
-        "schema": RUN_SCHEMA,
-        "schema_version": LEDGER_SCHEMA_VERSION,
-        "run_id": resolved_run_id,
-        "kind": kind,
-        "created_at": created_at,
-        "subject": {"ticker": ticker, "company": company, "market": market},
-        "primary_period": period,
-        "supersedes": supersedes,
-        "framework": framework_meta,
-    }
-    _write_json(run_path / "run.json", run_meta)
+        if snapshots:
+            _write_json(
+                inputs_dir / "sources_manifest.json",
+                {
+                    "schema": SOURCES_SCHEMA,
+                    "schema_version": LEDGER_SCHEMA_VERSION,
+                    "run_id": resolved_run_id,
+                    "created_at": created_at,
+                    "sources": snapshots,
+                },
+            )
+
+        framework_meta = framework if framework is not None else framework_block()
+        run_meta = {
+            "schema": RUN_SCHEMA,
+            "schema_version": LEDGER_SCHEMA_VERSION,
+            "run_id": resolved_run_id,
+            "kind": kind,
+            "created_at": created_at,
+            "subject": {"ticker": ticker, "company": company, "market": market},
+            "primary_period": period,
+            "supersedes": supersedes,
+            "framework": framework_meta,
+        }
+        _write_json(run_path / "run.json", run_meta)
+    except OSError as exc:
+        shutil.rmtree(run_path, ignore_errors=True)
+        raise LedgerError(f"failed to snapshot run inputs: {exc}") from exc
 
     return {
         "company_dir": str(company_path),
@@ -404,6 +427,11 @@ def finish_run(
         cwd_candidate = Path.cwd() / run_path
         run_path = cwd_candidate if cwd_candidate.exists() else company_path / run_path
     run_path = run_path.resolve()
+    runs_root = (company_path / "runs").resolve()
+    try:
+        run_path.relative_to(runs_root)
+    except ValueError as exc:
+        raise LedgerError(f"run directory must live under {runs_root}: {run_path}") from exc
     run_meta = _read_json(run_path / "run.json")
     if not run_meta:
         raise LedgerError(f"run.json is missing or invalid: {run_path / 'run.json'}")
@@ -518,11 +546,18 @@ def _line_matches_run(line: str, run_id: str) -> bool:
 
 
 def infer_report_periods(company_dir: str | Path) -> list[str]:
-    """Infer covered periods from PDF names and ``pdf_sections*.json`` metadata."""
+    """Infer covered periods from PDF names and ``pdf_sections*.json`` metadata.
+
+    A ``metadata.pdf_file`` clue is only trusted when that PDF actually exists in
+    the directory; otherwise a stale or edited sections file would invent a
+    phantom period that was never analyzed.
+    """
 
     company_path = Path(company_dir)
     periods: set[str] = set()
+    pdf_names: set[str] = set()
     for pdf in sorted(company_path.glob("*.pdf")):
+        pdf_names.add(pdf.name)
         period = filename_to_period(pdf.name)
         if period:
             periods.add(period)
@@ -534,7 +569,7 @@ def infer_report_periods(company_dir: str | Path) -> list[str]:
         if not isinstance(metadata, dict):
             continue
         pdf_file = metadata.get("pdf_file")
-        if isinstance(pdf_file, str) and pdf_file:
+        if isinstance(pdf_file, str) and pdf_file in pdf_names:
             period = filename_to_period(pdf_file)
             if period:
                 periods.add(period)
@@ -590,49 +625,119 @@ def _verify_copy(source: Path, destination: Path) -> None:
         raise LedgerError(f"adopt verification failed: content differs for {destination}")
 
 
-def _rewrite_manifest_paths(run_path: Path, company_dir: Path) -> None:
-    """Point a copied legacy manifest at the run-local copies of its inputs."""
+def _remap_to_run(raw: Any, run_path: Path, company_root: Path) -> Path | None:
+    """Return the run-local copy of a company-dir path, if one exists."""
+
+    if not isinstance(raw, str):
+        return None
+    try:
+        relative = Path(raw).resolve().relative_to(company_root)
+    except (OSError, ValueError):
+        return None
+    candidate = run_path / relative
+    return candidate if candidate.is_file() else None
+
+
+def _rewrite_manifest_paths(run_path: Path, company_dir: Path) -> str | None:
+    """Point a copied legacy manifest at run-local copies and return its digest.
+
+    Rewrites ``inputs[].path`` (recomputing ``input_digest``) and
+    ``artifacts[].path``. The returned digest must then be propagated into the
+    evidence index and context bundles, and the artifact hashes re-stamped, or
+    ``resolve_qualitative`` will reject the adopted run.
+    """
 
     manifest_path = run_path / "run_manifest.json"
     manifest = _read_json(manifest_path)
     if not manifest:
-        return
+        return None
     company_root = company_dir.resolve()
 
     def _remap(entry: Any) -> Any:
-        if not isinstance(entry, dict):
-            return entry
-        raw = entry.get("path")
-        if not isinstance(raw, str):
-            return entry
-        try:
-            relative = Path(raw).resolve().relative_to(company_root)
-        except (OSError, ValueError):
-            return entry
-        candidate = run_path / relative
-        if not candidate.is_file():
+        candidate = _remap_to_run(entry.get("path") if isinstance(entry, dict) else None, run_path, company_root)
+        if candidate is None:
             return entry
         entry = dict(entry)
         entry["path"] = str(candidate)
         return entry
 
-    changed = False
     inputs = manifest.get("inputs")
     if isinstance(inputs, list):
         remapped = [_remap(item) for item in inputs]
-        changed = changed or remapped != inputs
-        manifest["inputs"] = remapped
         if remapped != inputs:
+            manifest["inputs"] = remapped
             manifest["input_digest"] = input_set_digest(
                 [item for item in remapped if isinstance(item, dict)]
             )
     artifacts = manifest.get("artifacts")
     if isinstance(artifacts, list):
-        remapped_artifacts = [_remap(item) for item in artifacts]
-        changed = changed or remapped_artifacts != artifacts
-        manifest["artifacts"] = remapped_artifacts
-    if changed:
-        _write_json(manifest_path, manifest)
+        manifest["artifacts"] = [_remap(item) for item in artifacts]
+
+    _write_json(manifest_path, manifest)
+    digest = manifest.get("input_digest")
+    return digest if isinstance(digest, str) and digest else None
+
+
+def _propagate_input_digest(run_path: Path, input_digest: str, company_dir: Path) -> None:
+    """Re-stamp the new input digest into the copied evidence index/contexts.
+
+    ``prepare`` embeds ``input_digest`` in ``evidence/index.json`` and every
+    ``contexts/*.json``; ``resolve_qualitative`` cross-checks the evidence index
+    against the manifest, so adopting a run without this step makes it
+    unconsumable.
+    """
+
+    company_root = company_dir.resolve()
+    evidence_path = run_path / "evidence" / "index.json"
+    evidence = _read_json(evidence_path)
+    if evidence is not None:
+        evidence["input_digest"] = input_digest
+        sources = evidence.get("sources")
+        if isinstance(sources, list):
+            remapped_sources = []
+            for item in sources:
+                if not isinstance(item, dict):
+                    remapped_sources.append(item)
+                    continue
+                candidate = _remap_to_run(item.get("path"), run_path, company_root)
+                if candidate is not None:
+                    item = dict(item)
+                    item["path"] = str(candidate)
+                remapped_sources.append(item)
+            evidence["sources"] = remapped_sources
+        _write_json(evidence_path, evidence)
+
+    contexts_dir = run_path / "contexts"
+    if contexts_dir.is_dir():
+        for context_path in sorted(contexts_dir.glob("*.json")):
+            bundle = _read_json(context_path)
+            if bundle is None:
+                continue
+            bundle["input_digest"] = input_digest
+            _write_json(context_path, bundle)
+
+
+def _restamp_manifest_artifacts(run_path: Path) -> None:
+    """Recompute sha256/size_bytes for every manifest artifact after a rewrite."""
+
+    manifest_path = run_path / "run_manifest.json"
+    manifest = _read_json(manifest_path)
+    if not manifest:
+        return
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list):
+        return
+    restamped = []
+    for item in artifacts:
+        if isinstance(item, dict) and isinstance(item.get("path"), str):
+            path = Path(item["path"])
+            if path.is_file():
+                item = dict(item)
+                item["size_bytes"] = path.stat().st_size
+                item["sha256"] = sha256_file(path)
+        restamped.append(item)
+    manifest["artifacts"] = restamped
+    _write_json(manifest_path, manifest)
 
 
 def adopt_legacy(
@@ -659,7 +764,23 @@ def adopt_legacy(
     if not items:
         raise LedgerError(f"no legacy artifacts found to adopt in {company_path}")
 
-    resolved_run_id = _validate_run_id(run_id) if run_id else timestamp_run_id(now)
+    manifest_meta = _read_json(company_path / "run_manifest.json") or {}
+    legacy_run_id = manifest_meta.get("run_id")
+    legacy_run_id = legacy_run_id if isinstance(legacy_run_id, str) and legacy_run_id else None
+    if run_id and legacy_run_id and run_id != legacy_run_id:
+        # The copied manifest / evidence index / module results all embed the
+        # legacy run id; overriding it here would split the run's identity.
+        raise LedgerError(
+            f"run id {run_id!r} conflicts with legacy manifest run id {legacy_run_id!r}; "
+            "omit --run-id to adopt under the recorded identity"
+        )
+    resolved_run_id = (
+        _validate_run_id(run_id)
+        if run_id
+        else _validate_run_id(legacy_run_id)
+        if legacy_run_id
+        else timestamp_run_id(now)
+    )
     run_path = company_path / "runs" / resolved_run_id
     if run_path.exists():
         raise DuplicateRunError(f"run already exists: {run_path}")
@@ -673,12 +794,14 @@ def adopt_legacy(
     for source, destination in copied:
         _verify_copy(source, destination)
 
-    _rewrite_manifest_paths(run_path, company_path)
+    input_digest = _rewrite_manifest_paths(run_path, company_path)
+    if input_digest:
+        _propagate_input_digest(run_path, input_digest, company_path)
+        _restamp_manifest_artifacts(run_path)
 
     periods = infer_report_periods(company_path)
     primary_period = periods[-1] if periods else None
 
-    manifest_meta = _read_json(company_path / "run_manifest.json") or {}
     subject = manifest_meta.get("subject") if isinstance(manifest_meta.get("subject"), dict) else {}
     if not subject:
         subject = _subject_from_directory(company_path)
@@ -847,6 +970,11 @@ def _build_parser() -> argparse.ArgumentParser:
     new_parser.add_argument("--supersedes")
     new_parser.add_argument("--input", action="append", default=[], help="file to snapshot into inputs/")
     new_parser.add_argument("--run-id")
+    new_parser.add_argument(
+        "--hardlink",
+        action="store_true",
+        help="opt in to hardlink snapshots (unsafe if sources are overwritten in place)",
+    )
 
     resolve_parser = subparsers.add_parser("resolve", help="print a run directory path")
     resolve_parser.add_argument("--company-dir", required=True)
@@ -890,6 +1018,7 @@ def main(argv: list[str] | None = None) -> int:
                 supersedes=args.supersedes,
                 inputs=args.input,
                 run_id=args.run_id,
+                hardlink=args.hardlink,
             )
             print(result["run_dir"])
             return 0
@@ -923,6 +1052,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 3
     except (LedgerError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    except OSError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     return 2  # pragma: no cover - argparse rejects unknown commands first

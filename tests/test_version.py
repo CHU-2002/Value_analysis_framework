@@ -39,16 +39,25 @@ def test_framework_version_is_next_semver():
 
 
 def test_schema_versions_match_result_protocol():
-    assert schema_versions() == {
-        "result": "1.0",
-        "manifest": "1.0",
-        "evidence_index": "1.0",
-        "context_bundle": "1.0",
+    """Lock the reported versions to the constants/builders that write them."""
+
+    from results.context import build_module_context
+    from results.evidence import build_evidence_index
+    from results.manifest import build_manifest
+    from results.schema import RESULT_SCHEMA_VERSION
+
+    written = {
+        "result": RESULT_SCHEMA_VERSION,
+        "manifest": build_manifest(run_id="probe", subject={}, inputs=[])["schema_version"],
+        "evidence_index": build_evidence_index([], input_digest="probe")["schema_version"],
+        "context_bundle": build_module_context("business_moat", input_digest="probe")["schema_version"],
     }
+    assert schema_versions() == written
+
     # A fresh copy is returned so callers cannot mutate module state.
     first = schema_versions()
     first["result"] = "9.9"
-    assert schema_versions()["result"] == "1.0"
+    assert schema_versions()["result"] == written["result"]
 
 
 def test_prompt_fingerprint_is_stable_and_location_independent(tmp_path):
@@ -101,7 +110,7 @@ def test_code_fingerprint_uses_git_when_available(tmp_path, monkeypatch):
     def fake_git(_root, *arguments):
         if arguments == ("rev-parse", "HEAD"):
             return "abc1234"
-        if arguments == ("status", "--porcelain"):
+        if arguments[:2] == ("status", "--porcelain"):
             return ""
         return None
 
@@ -114,6 +123,42 @@ def test_code_fingerprint_uses_git_when_available(tmp_path, monkeypatch):
         lambda _root, *arguments: "abc1234" if arguments == ("rev-parse", "HEAD") else " M scripts/engine.py",
     )
     assert code_fingerprint(root) == "abc1234-dirty"
+
+
+def test_code_fingerprint_scopes_dirty_to_fingerprinted_paths(tmp_path):
+    """S7: an unrelated untracked file must not mark every run as dirty."""
+
+    root = tmp_path / "repo"
+    (root / "scripts").mkdir(parents=True)
+    (root / "scripts" / "engine.py").write_text("print('engine')\n", encoding="utf-8")
+
+    def git(*arguments):
+        return subprocess.run(
+            ["git", "-c", "user.email=test@example.com", "-c", "user.name=Test", *arguments],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    init = git("init")
+    if init.returncode != 0:
+        pytest.skip("git is not available in this environment")
+    git("add", "scripts/engine.py")
+    commit = git("commit", "-m", "initial")
+    if commit.returncode != 0:
+        pytest.skip(f"cannot create a git commit: {commit.stderr.strip()}")
+
+    clean = code_fingerprint(root)
+    assert not clean.endswith("-dirty")
+
+    # A scratch file at the repo root is irrelevant to the framework identity.
+    (root / "NOTES_scratch.md").write_text("scratch\n", encoding="utf-8")
+    assert code_fingerprint(root) == clean
+
+    # Editing a fingerprinted path does count.
+    (root / "scripts" / "engine.py").write_text("print('changed')\n", encoding="utf-8")
+    assert code_fingerprint(root).endswith("-dirty")
 
 
 def test_framework_block_degrades_without_root(tmp_path):

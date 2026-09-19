@@ -1,6 +1,7 @@
 """Tests for the analysis status detector (``scripts/analysis_status.py``)."""
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,12 @@ def _write(path: Path, text: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def _company_dir_with_run(base: Path, *, name: str = "600887_伊利") -> Path:
+    company = base / name
+    company.mkdir(parents=True)
+    return company
 
 
 def _ledger_company(base: Path, *, name: str = "600887_伊利", run_id: str = "20260919T221000000000Z"):
@@ -60,6 +67,66 @@ def test_local_new_report_requests_incremental_update(tmp_path):
     (company / "sources" / "pdf" / "600887_2026_半年报.pdf").unlink()
     _write(company / "600887_2026_年报.pdf", "%PDF-1.4 fake\n")
     assert exit_code_for(evaluate_company(company)) == 1
+
+
+def test_older_local_report_is_not_a_new_report(tmp_path):
+    """N1: backfilling an older period must not trigger a report-update."""
+
+    company, _run_path = _ledger_company(tmp_path)
+    _write(company / "sources" / "pdf" / "600887_2023_年报.pdf", "%PDF-1.4 fake\n")
+
+    result = evaluate_company(company)
+    assert result["state"] == "up_to_date"
+    assert result["reasons"] == []
+    assert exit_code_for(result) == 0
+
+
+@pytest.mark.parametrize("status", ["failed", "partial"])
+def test_incomplete_run_is_stale_and_needs_full_rerun(tmp_path, status):
+    """B3: a failed/partial latest run must never look up_to_date."""
+
+    company = _company_dir_with_run(tmp_path)
+    created = runs.create_run(company, ticker="600887.SH", company="伊利股份", run_id="run-status")
+    runs.finish_run(company, created["run_dir"], status=status, report_periods=["2025FY"])
+
+    result = evaluate_company(company)
+    assert result["state"] == "stale"
+    assert result["recommended_action"] == "full-rerun"
+    codes = {reason["code"] for reason in result["reasons"]}
+    assert "run_failed" in codes
+    assert exit_code_for(result) == 3
+
+
+def test_downstream_stale_is_surfaced(tmp_path):
+    """B3: downstream.stale must be visible, not silently up_to_date."""
+
+    company = _company_dir_with_run(tmp_path)
+    created = runs.create_run(
+        company,
+        ticker="600887.SH",
+        company="伊利股份",
+        kind="report-update",
+        primary_period="2026H1",
+        run_id="run-update",
+    )
+    runs.finish_run(company, created["run_dir"], primary_period="2026H1")
+    assert runs.read_record(company)["downstream"]["stale"] is True
+
+    result = evaluate_company(company)
+    assert result["state"] == "stale"
+    assert result["recommended_action"] == "report-update"
+    assert {reason["code"] for reason in result["reasons"]} == {"downstream_stale"}
+    assert exit_code_for(result) == 1
+
+
+def test_complete_baseline_run_stays_up_to_date(tmp_path):
+    """B3: the complete path is unchanged (no false positives)."""
+
+    company, _run_path = _ledger_company(tmp_path)
+    record = runs.read_record(company)
+    assert record["status"] == "complete"
+    assert record["downstream"]["stale"] is False
+    assert evaluate_company(company)["state"] == "up_to_date"
 
 
 def test_framework_change_requests_full_rerun(tmp_path, monkeypatch):
@@ -214,6 +281,61 @@ def test_cli_rejects_bad_arguments(tmp_path, capsys):
     with pytest.raises(SystemExit) as excinfo:
         analysis_status.main(["--all"])
     assert excinfo.value.code == 2
+
+
+def test_ticker_filter_never_relabels_companies(tmp_path):
+    """S2: --ticker is a filter; it must not overwrite other subjects."""
+
+    root = tmp_path / "output"
+    root.mkdir()
+    _ledger_company(root, name="600887_伊利")
+    legacy = root / "000858_五粮液"
+    legacy.mkdir()
+    _write(legacy / "run_manifest.json", "{}\n")
+    unknown = root / "portfolio_2026Q2_trial"
+    unknown.mkdir()
+    _write(unknown / "qualitative_report.md", "legacy\n")
+
+    filtered = evaluate_root(root, ticker="600887.SH")
+    assert [item["subject"]["ticker"] for item in filtered["companies"]] == ["600887.SH"]
+    assert filtered["summary"]["total"] == 1
+
+    everything = evaluate_root(root)
+    tickers = {item["subject"]["ticker"] for item in everything["companies"]}
+    assert tickers == {"600887.SH", "000858", None}
+
+
+def test_all_scan_reports_oserror_with_exit_two(tmp_path, monkeypatch, capsys):
+    """S1(b): an OSError during a batch scan must not escape as a traceback."""
+
+    root = tmp_path / "output"
+    root.mkdir()
+
+    def explode(_root):
+        raise PermissionError("permission denied")
+
+    monkeypatch.setattr(analysis_status, "discover_company_dirs", explode)
+    assert analysis_status.main(["--root", str(root), "--all", "--json"]) == 2
+    assert "permission denied" in capsys.readouterr().err
+
+
+def test_unreadable_subdirectory_reports_clean_error(tmp_path, capsys):
+    """S1(b): an unreadable child must fail cleanly with exit 2, not traceback."""
+
+    root = tmp_path / "output"
+    root.mkdir()
+    _ledger_company(root, name="600887_伊利")
+    broken = root / "000858_五粮液"
+    broken.mkdir()
+    _write(broken / "run_manifest.json", "{}\n")
+    broken.chmod(0o000)
+    try:
+        if os.access(broken, os.R_OK):  # running as root: permission bits do not apply
+            pytest.skip("cannot make a directory unreadable in this environment")
+        assert analysis_status.main(["--root", str(root), "--all", "--json"]) == 2
+        assert "Permission denied" in capsys.readouterr().err
+    finally:
+        broken.chmod(0o755)
 
 
 def test_root_all_summary_and_exit_code(tmp_path, capsys):

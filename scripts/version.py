@@ -39,6 +39,16 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "context_bundle": "1.0",
 }
 
+#: Paths whose working-tree changes count as "dirty" for :func:`code_fingerprint`.
+#: Unrelated untracked files (scratch notes, local output) must not invalidate a run.
+DIRTY_TRACKED_PATHS: tuple[str, ...] = (
+    "scripts",
+    "strategies",
+    "shared",
+    ".claude/commands",
+    ".opencode/commands",
+)
+
 _GIT_TIMEOUT_SECONDS = 10
 
 
@@ -123,13 +133,16 @@ def code_fingerprint(root: str | Path | None = None) -> str:
 
     Prefers git (``<commit>`` or ``<commit>-dirty``) and degrades to a sha256
     over ``scripts/**/*.py`` when git is unavailable or ``root`` is not a
-    repository. Raises ``ValueError`` when ``root`` does not exist.
+    repository. ``dirty`` only considers changes to :data:`DIRTY_TRACKED_PATHS`
+    (``scripts``/``strategies``/``shared``/command definitions): unrelated
+    untracked files such as scratch notes must not invalidate every run.
+    Raises ``ValueError`` when ``root`` does not exist.
     """
 
     resolved = _require_directory(repo_root() if root is None else root)
     commit = _git(resolved, "rev-parse", "HEAD")
     if commit:
-        porcelain = _git(resolved, "status", "--porcelain")
+        porcelain = _git(resolved, "status", "--porcelain", "--", *DIRTY_TRACKED_PATHS)
         dirty = bool(porcelain)
         return f"{commit}-dirty" if dirty else commit
     pairs = [

@@ -20,9 +20,9 @@ from pathlib import Path
 from typing import Any
 
 try:  # Support importing the package with the repository root on sys.path.
-    from scripts.periods import filename_to_period
+    from scripts.periods import filename_to_period, is_valid_period, period_sort_key
 except ImportError:  # Support importing with scripts/ on sys.path.
-    from periods import filename_to_period
+    from periods import filename_to_period, is_valid_period, period_sort_key
 
 try:
     from scripts.version import framework_block, schema_versions
@@ -116,9 +116,32 @@ def is_supported_market(ticker: str | None, market: str | None = None) -> bool:
     return len(code) == 6 and code[0] in {"0", "3", "6"}
 
 
+def _derived_ticker(company_dir: Path, record: dict[str, Any] | None) -> str | None:
+    """Ticker recorded in ``record.json``, else the numeric directory prefix."""
+
+    base = record.get("subject") if isinstance(record, dict) and isinstance(record.get("subject"), dict) else {}
+    recorded = base.get("ticker")
+    if isinstance(recorded, str) and recorded:
+        return recorded
+    return _ticker_from_directory(company_dir)
+
+
+def _ticker_key(ticker: str | None) -> str | None:
+    """Normalise a ticker for CLI filtering (``600887.SH`` == ``600887``)."""
+
+    if not ticker:
+        return None
+    digits = re.sub(r"\D", "", str(ticker))
+    if len(digits) >= 5:
+        return digits
+    return str(ticker).strip().upper() or None
+
+
 def _subject(company_dir: Path, record: dict[str, Any] | None, ticker: str | None) -> dict[str, Any]:
     base = record.get("subject") if isinstance(record, dict) and isinstance(record.get("subject"), dict) else {}
-    resolved_ticker = base.get("ticker") or ticker or _ticker_from_directory(company_dir)
+    # The ledger/directory identity wins; a CLI ticker is only a fallback, so a
+    # batch ``--ticker`` filter can never relabel other companies.
+    resolved_ticker = _derived_ticker(company_dir, record) or ticker
     market = base.get("market")
     if not market and is_supported_market(resolved_ticker):
         market = "CN"
@@ -170,11 +193,23 @@ def _upstream_periods(ticker: str | None) -> list[str]:
     return periods
 
 
+def _path_exists(path: Path) -> bool:
+    """``Path.exists()`` that treats permission errors as "not there"."""
+
+    try:
+        return path.exists()
+    except OSError:
+        return False
+
+
 def _has_legacy_artifacts(company_dir: Path) -> bool:
     for marker in LEGACY_MARKERS:
-        if (company_dir / marker).exists():
+        if _path_exists(company_dir / marker):
             return True
-    return any(company_dir.glob("*.pdf"))
+    try:
+        return any(company_dir.glob("*.pdf"))
+    except OSError:
+        return False
 
 
 def _build_result(
@@ -277,13 +312,34 @@ def evaluate_company(
 
     reasons: list[dict[str, str]] = []
 
-    covered = set(record.get("report_periods") or [])
+    # A failed/partial run, or a record whose downstream consumers are marked
+    # stale, must never be reported as up_to_date.
+    status = record.get("status")
+    if isinstance(status, str) and status != "complete":
+        reasons.append(_reason("run_failed", f"latest run status is {status!r}"))
+    downstream = record.get("downstream")
+    if isinstance(downstream, dict) and downstream.get("stale"):
+        reasons.append(
+            _reason("downstream_stale", "value_computed / buy_sell_basis are marked stale for the latest run")
+        )
+
+    covered = {period for period in (record.get("report_periods") or []) if is_valid_period(period)}
+    covered_keys = [period_sort_key(period) for period in covered]
+    newest_covered = max(covered_keys) if covered_keys else None
+
+    def _is_new_report(period: str) -> bool:
+        if period in covered:
+            return False
+        # Only periods *newer* than everything already analyzed are new; a
+        # backfilled older PDF must not trigger a report-update.
+        return newest_covered is None or period_sort_key(period) > newest_covered
+
     for period, filename in _local_pdf_periods(company_path):
-        if period not in covered:
+        if _is_new_report(period):
             reasons.append(_reason("new_report", f"{period} present locally as {filename} but not covered by the record"))
     if check_upstream:
         for period in _upstream_periods(subject.get("ticker")):
-            if period not in covered:
+            if _is_new_report(period):
                 reasons.append(_reason("new_report", f"{period} published upstream but not covered by the record"))
 
     current = current_framework if current_framework is not None else framework_block()
@@ -321,7 +377,7 @@ def evaluate_company(
         )
 
     codes = {reason["code"] for reason in reasons}
-    action = ACTION_REPORT_UPDATE if codes <= {"new_report"} else ACTION_FULL_RERUN
+    action = ACTION_REPORT_UPDATE if codes <= {"new_report", "downstream_stale"} else ACTION_FULL_RERUN
     return _build_result(
         state=STATE_STALE,
         action=action,
@@ -349,6 +405,13 @@ def exit_code_for(result: dict[str, Any]) -> int:
 
 
 def looks_like_company_dir(directory: Path) -> bool:
+    """Return ``True`` when a directory holds analysis artifacts.
+
+    OSError (e.g. ``PermissionError`` on an unreadable child) is deliberately
+    left to propagate: :func:`main` turns it into a clean exit code 2 instead of
+    silently skipping a company that was never evaluated.
+    """
+
     if not directory.is_dir():
         return False
     if (directory / "latest.json").exists() or (directory / "record.json").exists():
@@ -378,18 +441,24 @@ def evaluate_root(
     ticker: str | None = None,
     current_framework: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Evaluate every company directory below ``root`` and summarise it."""
+    """Evaluate every company directory below ``root`` and summarise it.
+
+    ``ticker`` is a pure filter in batch mode: it is matched against the ticker
+    recorded in ``record.json`` (or the numeric directory prefix) and is never
+    injected into a company's subject.
+    """
 
     companies: list[dict[str, Any]] = []
+    wanted = _ticker_key(ticker) if ticker else None
     for company_path in discover_company_dirs(root):
+        record = _load_json(company_path / "record.json")
+        if wanted is not None and _ticker_key(_derived_ticker(company_path, record)) != wanted:
+            continue
         result = evaluate_company(
             company_path,
-            ticker=ticker,
             check_upstream=check_upstream,
             current_framework=current_framework,
         )
-        if ticker and (result.get("subject") or {}).get("ticker") != ticker:
-            continue
         position = dict(result)
         position["company_dir"] = str(company_path.resolve())
         position["exit_code"] = exit_code_for(result)
@@ -436,7 +505,11 @@ def main(argv: list[str] | None = None) -> int:
         root_path = Path(args.root)
         if not root_path.is_dir():
             parser.error(f"root is not a directory: {root_path}")
-        payload = evaluate_root(root_path, check_upstream=args.check_upstream, ticker=args.ticker)
+        try:
+            payload = evaluate_root(root_path, check_upstream=args.check_upstream, ticker=args.ticker)
+        except OSError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
         if args.json:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
@@ -454,7 +527,11 @@ def main(argv: list[str] | None = None) -> int:
     company_path = Path(args.company_dir)
     if not company_path.is_dir():
         parser.error(f"company directory is not a directory: {company_path}")
-    result = evaluate_company(company_path, ticker=args.ticker, check_upstream=args.check_upstream)
+    try:
+        result = evaluate_company(company_path, ticker=args.ticker, check_upstream=args.check_upstream)
+    except OSError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
