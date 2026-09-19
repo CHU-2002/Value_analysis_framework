@@ -65,7 +65,7 @@ def _load_optional(
         if strict:
             raise
         if errors is not None:
-            errors.append({"path": str(candidate), "error": str(exc)})
+            errors.append({"path": str(candidate), "error": str(exc)[:300]})
         return None
 
 

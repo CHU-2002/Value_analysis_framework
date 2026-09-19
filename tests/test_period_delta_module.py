@@ -324,7 +324,8 @@ class TestPriorAnalysisBudget:
         omitted = set(MODULE_CONFIG["period_delta"]["prior_analysis"]) - {
             evidence_id.split(":")[1] for evidence_id in prior_ids
         }
-        assert set(bundle["selection"]["missing_prior_analysis"]) == omitted
+        assert set(bundle["selection"]["omitted_prior_analysis"]) == omitted
+        assert bundle["selection"]["missing_prior_analysis"] == []
         assert omitted
 
     def test_other_modules_do_not_carry_prior_keys(self, tmp_path):
@@ -370,4 +371,5 @@ class TestUpdateFlowDocumentation:
         for command_dir in (".claude/commands", ".opencode/commands"):
             command = (ROOT / command_dir / "update-analysis.md").read_text(encoding="utf-8")
             assert "| 1 | a new report is available |" in command
-            assert "changed inputs" in command
+            exit3_row = next(line for line in command.splitlines() if line.startswith("| 3 |"))
+            assert "changed inputs" in exit3_row

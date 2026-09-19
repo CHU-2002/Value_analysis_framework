@@ -51,7 +51,7 @@ Requirements per section:
 - **五**：pledges, reductions, buybacks, litigation, related-party transactions from this period's 重要事项; when the period does not disclose the section, state that the previous annual report is the latest basis.
 - **六**：the conclusion diff table — 上次结论 | 本次结论 | 是否改变 | 证据 | 置信度.
 - **七**：the previous watchlist and risks against this period's evidence.
-- **八**：missing sections, degraded inputs, and the confidence impact.
+- **八**：missing sections, degraded inputs, and the confidence impact. Disclose every non-empty field under `degraded` (`prior_synthesis_dropped`、`synthesis_dropped`、`prior_evidence_unavailable`、`missing_inputs`、`unusable_inputs`) and say how each one lowers confidence.
 
 Also write the machine sidecar `{output_dir}/change_report_{period}.json`:
 

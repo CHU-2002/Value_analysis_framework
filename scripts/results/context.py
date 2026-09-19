@@ -293,8 +293,12 @@ def build_module_context(
                         "missing_prior_analysis": [
                             key
                             for key in config["prior_analysis"]
-                            if retained_coverage.get(f"prior_analysis:{key}")
-                            in {"missing", "omitted"}
+                            if retained_coverage.get(f"prior_analysis:{key}") == "missing"
+                        ],
+                        "omitted_prior_analysis": [
+                            key
+                            for key in config["prior_analysis"]
+                            if retained_coverage.get(f"prior_analysis:{key}") == "omitted"
                         ],
                     }
                     if config.get("prior_analysis")
