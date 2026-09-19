@@ -78,7 +78,7 @@ export TUSHARE_TOKEN='your_token_here'
 
 | 命令 | 作用 | 需要先做什么 |
 |------|------|--------------|
-| `/download-report {code}` | 搜索并下载最近一年的年报 PDF | 无 |
+| `/download-report {code}` | 搜索并下载定期报告 PDF（年报默认近 3 年；支持中报/一季报/三季报与"最新一期"） | 无 |
 | `/business-analysis {code}` | 从 6 个角度分析公司（AI 主要工作在这里） | 无 |
 | `/value-analysis {code}` | 价值分析：现金流折现、收购视角、可执行分批买入与卖出计划 | 先跑 `/business-analysis` |
 | `/valuation {code}` | 价值分析子模块 · 通用估值：DCF、DDM、可比公司、Graham（可单独调用） | 先跑 `/business-analysis` |
@@ -100,6 +100,22 @@ export TUSHARE_TOKEN='your_token_here'
 .venv/bin/python scripts/tushare_collector.py --code 600887.SH
 .venv/bin/python scripts/tushare_collector.py --code 00700.HK --output output/data_pack_market.md
 .venv/bin/python scripts/tushare_collector.py --code 600887 --dry-run
+```
+
+**下载定期报告**
+
+```bash
+# 年报（默认近 3 年）
+.venv/bin/python scripts/download_report.py --stock-code 600887 --report-type 年报 --save-dir output/600887_伊利
+
+# 最新一期（自动判定 2026H1 / 2026Q1 / 2025FY ...）
+.venv/bin/python scripts/download_report.py --stock-code 600887 --report-type auto --save-dir output/600887_伊利
+
+# 补齐某期次之后的所有已发布期次，并写 sources_index.json
+.venv/bin/python scripts/download_report.py --stock-code 600887 --report-type auto --since 2026Q1 --save-dir output/600887_伊利
+
+# 只看最新一期是什么
+.venv/bin/python scripts/discover_report.py --stock-code 600887 --report-type auto
 ```
 
 **解析年报 PDF**
@@ -178,6 +194,9 @@ Value_analysis_framework/
 │   ├── results/                  # 结构化结果管线
 │   ├── tushare_modules/          # Tushare 模块化实现
 │   ├── tushare_collector.py      # 取数入口
+│   ├── discover_report.py        # 定期报告链接发现（CNINFO 四类 + 10jqka 兜底）
+│   ├── download_report.py        # 定期报告 PDF 下载（年报/中报/一季报/三季报）
+│   ├── periods.py                # 期次标识（2026Q1/H1/Q3/FY）解析与推算
 │   ├── pdf_preprocessor.py       # 年报章节提取
 │   ├── value_analysis_engine.py  # 价值分析预计算
 │   ├── buy_sell_plan.py          # 触发式买卖计划：采集当时行情 + 离线生成
