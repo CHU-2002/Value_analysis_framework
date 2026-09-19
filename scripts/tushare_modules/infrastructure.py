@@ -95,10 +95,17 @@ class InfrastructureMixin:
     def _prepare_display_periods(self, df, max_annual=5):
         """Select up to max_annual annual reports + any newer interim reports.
 
+        Every retained interim period additionally pulls in its prior-year
+        counterpart (same month/day with the year minus one, e.g. ``2026H1``
+        -> ``2025H1``) whenever the input actually carries it, so a newly
+        published interim report still ships a year-on-year comparable column.
+        The prior-year columns are purely additive: the values and relative
+        order of the pre-existing interim annual columns never change.
+
         Returns (display_df, column_labels) where column_labels are like:
-        ["2025Q3", "2025H1", "2025Q1", "2024", "2023", "2022", "2021", "2020"]
+        ["2026H1", "2026Q1", "2025H1", "2025Q1", "2025", "2024", "2023", "2022", "2021"]
         """
-        if df.empty:
+        if df.empty or "end_date" not in df.columns:
             return df, []
 
         df = df.drop_duplicates(subset=["end_date"])
@@ -136,8 +143,34 @@ class InfrastructureMixin:
             else:
                 return f"{year}_{mmdd}"
 
-        # Combine: interim (desc) + annual (desc)
-        display_df = pd.concat([interim, annual], ignore_index=True)
+        # Prior-year comparables for the retained interim periods. Any date
+        # already present in interim/annual is skipped so that a single
+        # end_date can never be duplicated by the new columns.
+        reserved = {str(d) for d in interim["end_date"]} | {str(d) for d in annual["end_date"]}
+        comparable_dates: list[str] = []
+        for end_date in interim["end_date"]:
+            end_date = str(end_date)
+            if len(end_date) < 8 or not end_date[:4].isdigit():
+                continue
+            prior_date = f"{int(end_date[:4]) - 1:04d}{end_date[4:]}"
+            if prior_date in reserved:
+                continue
+            reserved.add(prior_date)
+            comparable_dates.append(prior_date)
+
+        comparable = pd.DataFrame()
+        if comparable_dates:
+            comparable = df[df["end_date"].astype(str).isin(comparable_dates)].copy()
+            if not comparable.empty:
+                comparable = comparable.sort_values("end_date", ascending=False)
+
+        # Combine: interim (desc) + prior-year comparables (desc) + annual (desc)
+        parts = [interim]
+        if not comparable.empty:
+            parts.append(comparable)
+        parts.append(annual)
+        display_df = pd.concat(parts, ignore_index=True)
+        display_df = display_df.drop_duplicates(subset=["end_date"])
         if display_df.empty:
             return display_df, []
 

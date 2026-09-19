@@ -18,7 +18,15 @@ Target sections:
 Usage:
     python3 scripts/pdf_preprocessor.py --pdf report.pdf
     python3 scripts/pdf_preprocessor.py --pdf report.pdf --output output/sections.json
+    python3 scripts/pdf_preprocessor.py --pdf 600887_2025_年报.pdf
+    python3 scripts/pdf_preprocessor.py --pdf report.pdf --period 2026H1
     python3 scripts/pdf_preprocessor.py --pdf report.pdf --verbose --dry-run
+
+When the report period can be resolved (either from ``--period`` or from the
+canonical ``{code}_{year}_{report_type}.pdf`` filename) and no ``--output`` is
+given, the sections are written to ``pdf_sections_{period}.json`` next to the
+PDF. Without a resolvable period the legacy ``output/pdf_sections.json``
+default is kept unchanged.
 """
 
 from __future__ import annotations
@@ -32,6 +40,15 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 import pdfplumber
+
+try:  # Imported as a package (``scripts.pdf_preprocessor``).
+    from scripts.periods import filename_to_period, is_valid_period
+except ImportError:  # ``scripts/`` is on sys.path (direct script execution).
+    from periods import filename_to_period, is_valid_period
+
+
+# Legacy default, kept for backward compatibility when no period is resolvable.
+DEFAULT_OUTPUT = "output/pdf_sections.json"
 
 
 # ---------------------------------------------------------------------------
@@ -676,8 +693,12 @@ def write_output(
     pdf_path: str,
     total_pages: int,
     output_path: str,
+    period: str = "",
 ) -> dict:
     """Write pdf_sections.json with all configured sections plus metadata.
+
+    ``period`` is the resolved report period (``2026H1`` / ``2025FY`` ...) and
+    is recorded as an empty string in the metadata when it cannot be resolved.
 
     Returns the output dict for inspection.
     """
@@ -690,6 +711,7 @@ def write_output(
             "extract_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "sections_found": found_count,
             "sections_total": len(contexts),
+            "period": period or "",
         },
     }
 
@@ -711,6 +733,34 @@ def write_output(
 # Feature #42: Main pipeline
 # ---------------------------------------------------------------------------
 
+def _period_arg(value: str) -> str:
+    """Argparse type for ``--period``: normalize and reject unknown periods."""
+
+    normalized = str(value).strip().upper()
+    if not is_valid_period(normalized):
+        raise argparse.ArgumentTypeError(
+            f"invalid period {value!r}: expected one of YYYYQ1, YYYYH1, YYYYQ3, YYYYFY"
+        )
+    return normalized
+
+
+def resolve_output_path(pdf_path: str, period: str, output: Optional[str]) -> str:
+    """Resolve the effective output path.
+
+    An explicit ``--output`` always wins. Otherwise a resolvable period writes
+    ``pdf_sections_{period}.json`` next to the PDF, while an unresolvable
+    period keeps the legacy ``output/pdf_sections.json`` default.
+    """
+
+    if output is not None and str(output) == "":
+        raise ValueError("--output must not be empty (omit it to use the default)")
+    if output:
+        return output
+    if period:
+        return os.path.join(os.path.dirname(str(pdf_path)), f"pdf_sections_{period}.json")
+    return DEFAULT_OUTPUT
+
+
 def parse_args(args=None):
     parser = argparse.ArgumentParser(
         description="Extract target sections from annual report PDFs",
@@ -719,6 +769,8 @@ def parse_args(args=None):
 Examples:
   %(prog)s --pdf 伊利股份_2024_年报.pdf
   %(prog)s --pdf report.pdf --output output/pdf_sections.json --verbose
+  %(prog)s --pdf 600887_2025_年报.pdf            # -> ./pdf_sections_2025FY.json
+  %(prog)s --pdf report.pdf --period 2026H1      # -> ./pdf_sections_2026H1.json
         """,
     )
     parser.add_argument(
@@ -728,8 +780,20 @@ Examples:
     )
     parser.add_argument(
         "--output",
-        default="output/pdf_sections.json",
-        help="Output JSON file path (default: output/pdf_sections.json)",
+        default=None,
+        help=(
+            "Output JSON file path. Defaults to pdf_sections_{period}.json next "
+            f"to the PDF when the period is known, otherwise {DEFAULT_OUTPUT}"
+        ),
+    )
+    parser.add_argument(
+        "--period",
+        type=_period_arg,
+        default=None,
+        help=(
+            "Report period such as 2026H1 or 2025FY. When omitted the period is "
+            "inferred from the PDF filename (e.g. 600887_2025_年报.pdf -> 2025FY)"
+        ),
     )
     parser.add_argument(
         "--hints",
@@ -746,7 +810,20 @@ Examples:
         action="store_true",
         help="Print parsed arguments and exit without processing",
     )
-    return parser.parse_args(args)
+    parsed = parser.parse_args(args)
+
+    # Resolve the period (explicit first, then filename inference) and default
+    # the output path from it. Both are applied here so that callers -- and the
+    # existing CLI tests -- see the effective values on ``args``.
+    if parsed.period is None:
+        # Only the basename is meaningful: a year in the parent directory
+        # would otherwise win over the report label in the filename.
+        parsed.period = filename_to_period(os.path.basename(str(parsed.pdf))) or ""
+    try:
+        parsed.output = resolve_output_path(parsed.pdf, parsed.period, parsed.output)
+    except ValueError as exc:
+        parser.error(str(exc))
+    return parsed
 
 
 def _load_hints(hints_path: Optional[str]) -> Dict[str, dict]:
@@ -769,7 +846,7 @@ def _load_hints(hints_path: Optional[str]) -> Dict[str, dict]:
 
 
 def run_pipeline(pdf_path: str, output_path: str, verbose: bool = False,
-                 hints_path: Optional[str] = None) -> dict:
+                 hints_path: Optional[str] = None, period: str = "") -> dict:
     """Run the full extraction pipeline.
 
     Args:
@@ -777,6 +854,7 @@ def run_pipeline(pdf_path: str, output_path: str, verbose: bool = False,
         output_path: Path for JSON output.
         verbose: Print progress.
         hints_path: Optional path to toc_hints.json for TOC-based page overrides.
+        period: Resolved report period, recorded in the output metadata.
 
     Returns:
         The output dict written to JSON.
@@ -836,7 +914,7 @@ def run_pipeline(pdf_path: str, output_path: str, verbose: bool = False,
 
     # Step 4: Write output
     print(f"[4/4] Writing output to {output_path}...")
-    result = write_output(contexts, pdf_path, total_pages, output_path)
+    result = write_output(contexts, pdf_path, total_pages, output_path, period=period)
 
     found = result["metadata"]["sections_found"]
     total = result["metadata"]["sections_total"]
@@ -852,13 +930,14 @@ def main():
         print("=== Dry Run ===")
         print(f"  PDF: {args.pdf}")
         print(f"  Output: {args.output}")
+        print(f"  Period: {args.period or '(unresolved)'}")
         print(f"  Hints: {args.hints}")
         print(f"  Verbose: {args.verbose}")
         return
 
     try:
         result = run_pipeline(args.pdf, args.output, verbose=args.verbose,
-                              hints_path=args.hints)
+                              hints_path=args.hints, period=args.period)
         found = result["metadata"]["sections_found"]
         total = result["metadata"]["sections_total"]
         print(f"Extracted {found}/{total} sections -> {args.output}")
