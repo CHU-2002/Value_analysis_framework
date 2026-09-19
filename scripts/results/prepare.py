@@ -27,6 +27,11 @@ try:
 except ImportError:  # Support importing the package with scripts/ on sys.path.
     from periods import filename_to_period, is_valid_period
 
+try:
+    from scripts.version import framework_block
+except ImportError:  # Support importing the package with scripts/ on sys.path.
+    from version import framework_block
+
 
 def _period_arg(value: str) -> str:
     """Argparse type for ``--primary-period``: normalize and reject unknowns."""
@@ -222,6 +227,7 @@ def prepare_run(
         run_id=resolved_run_id,
         subject=subject,
         inputs=input_paths,
+        framework=framework_block(),
         artifacts=[
             describe_artifact(evidence_path, format="json", role="evidence_index"),
             describe_artifact(d6_trigger_path, format="json", role="routing_decision"),
