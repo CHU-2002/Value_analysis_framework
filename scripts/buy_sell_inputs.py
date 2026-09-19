@@ -121,7 +121,8 @@ def market_snapshot(engine, *, now=None):
             "daily_closes": daily_rows, "weekly_closes": sorted(weekly_rows, key=lambda r: r["date"])[-2:]}
 
 
-def export_inputs(engine, *, cycle=None, now=None):
+def export_value(engine, *, cycle=None, now=None):
+    """Frozen valuation snapshot the report reads; never touches market data."""
     now = market_time(engine.market, now)
     root = Path(engine.output_dir)
     previous_path = root / "value_computed.json"
@@ -130,4 +131,12 @@ def export_inputs(engine, *, cycle=None, now=None):
         cycle = load_json(previous_path).get("cycle")
     snapshot = value_snapshot(engine, engine.computed, as_of=now.date().isoformat(), cycle=cycle)
     write_json(root / "value_computed.json", snapshot)
-    write_json(root / "buy_sell_market.json", market_snapshot(engine, now=now))
+    return snapshot
+
+
+def export_market(engine, *, now=None):
+    """Fresh quote for the triggered buy/sell plan; only runs on demand."""
+    root = Path(engine.output_dir)
+    quotes = market_snapshot(engine, now=now)
+    write_json(root / "buy_sell_market.json", quotes)
+    return quotes

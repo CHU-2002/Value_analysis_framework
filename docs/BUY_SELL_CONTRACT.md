@@ -8,14 +8,18 @@
 - 现有周线混有 Tushare 周末标签和 yfinance 周初标签/默认复权，不能直接当完整未复权周收盘确认。复用已取回的 A 股日线、美股 us_daily、港股 fallback 日线（不新增请求）；A 股完整周五收盘可确认。港美股不确定的周线不确认，可提供合同化完整收盘数据。行情未带日期时暂停交易，绝不把运行日期冒充行情日期。
 - `/valuation` 继续作为研究子命令，不生成或覆盖交易计划：其分类不包含主流程的银行适配和固定基准。独立估值方法由主流程复用，执行计划统一由 `/value-analysis` 交付。
 
-## 产物与调用
+## 触发方式与产物
+
+买卖计划是**触发式**的：主流程只产出研究报告与冻结的 `value_computed.json`，不自动生成计划或 `buy_sell_market.json`。用户阅读报告后，若决定生成，运行 `/buy-sell-plan {ticker}`（等价命令见下），采集当时行情并对冻结基准离线运算；它不重算、不覆盖 `value_computed.json`。
 
 ```bash
-# 正常主流程：采集/预计算，然后离线生成计划；命令仍只要求股票代码
+# 主流程：只产出报告与冻结估值，不生成买卖计划
 .venv/bin/python scripts/value_analysis_engine.py --code 600887 --output-dir output/600887_伊利
-.venv/bin/python scripts/buy_sell_engine.py --output-dir output/600887_伊利
 
-# 离线重放，读取同一组已导出的 JSON，不访问网络
+# 触发买卖计划：采集当时行情 + 离线生成计划（不重算估值基准）
+.venv/bin/python scripts/buy_sell_plan.py --code 600887 --output-dir output/600887_伊利
+
+# 纯离线重放，读取已写入的 JSON，不访问网络
 .venv/bin/python scripts/buy_sell_engine.py --output-dir output/600887_伊利 --as-of 2026-09-14
 
 # 明确周期复核（例如新周期判断/财报更正/拆并股），理由会被记录并延续

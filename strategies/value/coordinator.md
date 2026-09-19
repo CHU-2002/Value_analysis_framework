@@ -142,7 +142,7 @@ cp "{output_dir}/data_pack_market.md" "{output_dir}/data_pack_market_current.md"
 
 ### 输出
 
-`{output_dir}/value_computed.md`、`value_computed.json`、`buy_sell_market.json`
+`{output_dir}/value_computed.md`、`value_computed.json`（默认**不**生成买卖计划或 `buy_sell_market.json`）
 
 ### 包含内容
 - 默认估值锚（FCF / Owner Earnings / Profit）
@@ -156,19 +156,19 @@ cp "{output_dir}/data_pack_market.md" "{output_dir}/data_pack_market_current.md"
 
 ---
 
-## Step 2B: 买卖计划
+## Step 2B: 买卖计划（触发式，默认不执行）
 
-先读取 `docs/BUY_SELL_CONTRACT.md`，执行：
+主流程只产出研究报告与冻结的 `value_computed.json`，**不自动生成**买卖计划。用户阅读报告后，若决定生成，再单独运行 `/buy-sell-plan {ticker}`：
 
 ```bash
-.venv/bin/python scripts/buy_sell_engine.py --output-dir "{output_dir}"
+.venv/bin/python scripts/buy_sell_plan.py --code "{ticker}" --output-dir "{output_dir}"
 ```
 
-输出 `buy_sell_basis.json`、`buy_sell_plan.json`、`buy_sell_plan.md`。同财报期沿用固定基准，只有新财报期或显式 `--valuation-cycle "日期-原因"` 更新；不得因每日行情变化删除基准或重建周期。`buy_sell_state.json` 仅记录实际成交，不把推荐当成交。无状态时按首次投入百分比输出。
+该命令采集当时行情、写出 `buy_sell_market.json`，再对冻结基准离线运行 `buy_sell_engine.py`，输出 `buy_sell_basis.json`、`buy_sell_plan.json`、`buy_sell_plan.md`。它不重算、不覆盖 `value_computed.json`；同财报期沿用固定基准，只有新财报期或显式 `--valuation-cycle "日期-原因"` 更新。`buy_sell_state.json` 仅记录实际成交，不把推荐当成交。无状态时按首次投入百分比输出。
 
 硬退出优先：结构化 `integrity_rating=不可靠` 自动卖出全部持仓；明确的重大财务造假、治理失效、偿债失败、核心业务失效，按合同记录带证据的 `buy_sell_risk.json` 并重跑。一般防守层 caution/severe flags 不能等同于已确认硬退出。
 
-退出码 3：已生成 BLOCKED 计划，报告原样披露缺失项；退出码 2：修复输入后重跑，禁止使用上次产物。
+退出码 3：已生成 BLOCKED 计划，报告原样披露缺失项；退出码 2：修复输入后重跑，禁止使用上次产物。详见 `docs/BUY_SELL_CONTRACT.md`。
 
 ## Step 3: 价值分析与报告生成
 
@@ -185,7 +185,7 @@ cp "{output_dir}/data_pack_market.md" "{output_dir}/data_pack_market_current.md"
 7. `{output_dir}/qualitative_input.json`
 8. `{output_dir}/data_pack_market_current.md`（刷新失败时可读原始包并披露时效性）
 9. `{output_dir}/data_pack_report.md`（若存在）
-10. `{output_dir}/buy_sell_plan.json` 与 `{output_dir}/buy_sell_plan.md`（必须读取并原样引用确定性数字；Markdown 整段原样插入）
+10. `{output_dir}/buy_sell_plan.json` 与 `{output_dir}/buy_sell_plan.md`（**仅当用户已触发 `/buy-sell-plan` 时存在**；存在则必须读取并原样引用确定性数字，Markdown 整段原样插入；不存在时明确说明尚未生成，不得编造）
 
 `source=structured` 时只从 `parameters` 和模块卡片读取定性参数，不再读取旧报告；`source=legacy` 时读取 `legacy_report.path`。
 
@@ -201,7 +201,7 @@ cp "{output_dir}/data_pack_market.md" "{output_dir}/data_pack_market_current.md"
 - 未来现金流/所有者收益估值主线（基于 `value_computed.md`）
 - `EE` 指标与解读（基于 `value_computed.md`）
 - 当前价格与内在价值比较
-- 四档买入价格、20/30/30/20 资金比例、单日最多 30%、明确卖出价、确认状态，以及当前档位/动作/累计比例/下一档价格均与 `buy_sell_plan.json` 一致；禁止 LLM 自行重算
+- 若已触发买卖计划：四档买入价格、20/30/30/20 资金比例、单日最多 30%、明确卖出价、确认状态，以及当前档位/动作/累计比例/下一档价格均与 `buy_sell_plan.json` 一致；禁止 LLM 自行重算。未触发时明确标注“尚未生成买卖计划”，不用占位或定性结论替代
 - 明确区分当日研究估值与带日期的固定买卖基准；最终交易动作只引用买卖计划
 - 先别买的理由 / 反方论证 / 能力圈与复杂性判断
 - 关键假设、风险与置信度

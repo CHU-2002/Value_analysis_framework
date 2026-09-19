@@ -1868,9 +1868,9 @@ def main():
     with open(out_path, "w", encoding="utf-8") as handle:
         handle.write(output_md)
 
-    from buy_sell_inputs import export_inputs
+    from buy_sell_inputs import export_value
 
-    export_inputs(engine, cycle=args.valuation_cycle)
+    export_value(engine, cycle=args.valuation_cycle)
 
     print(f"[value_analysis_engine] 完成: {out_path}", file=sys.stderr)
 
