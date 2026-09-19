@@ -134,7 +134,9 @@ class TestPdfSourcePeriodMetadata:
         assert "period" not in source
 
     def test_period_metadata_does_not_change_input_digest_contract(self, tmp_path):
-        """The digest still covers identity + content, so a period is additive."""
+        """``period`` is additive: it must not participate in the input digest."""
+        from results.manifest import input_set_digest
+
         root = tmp_path / "600887_伊利"
         root.mkdir()
         (root / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
@@ -144,8 +146,15 @@ class TestPdfSourcePeriodMetadata:
         manifest = _manifest(root)
 
         assert len(manifest["input_digest"]) == 64
-        assert all(isinstance(item.get("sha256"), str) for item in manifest["inputs"]
-                   if item["exists"] is True)
+        assert any("period" in item for item in manifest["inputs"])
+        stripped = [
+            {key: value for key, value in item.items() if key != "period"}
+            for item in manifest["inputs"]
+        ]
+        # Digest identity fields (source_id/path/exists/sha256) are untouched, so
+        # a manifest written before this change stays verifiable.
+        assert input_set_digest(stripped) == manifest["input_digest"]
+        assert input_set_digest(manifest["inputs"]) == manifest["input_digest"]
 
 
 # ============================================================
@@ -330,7 +339,8 @@ class TestPrimaryPeriodSections:
         assert result["warnings"] == []
         assert "MATCH" in _pdf_section_quotes(root)
 
-    def test_sections_without_period_metadata_do_not_warn(self, tmp_path):
+    def test_sections_without_period_metadata_warn(self, tmp_path):
+        # Unknown provenance cannot be trusted to match the requested period.
         root = tmp_path / "runs" / "test-run"
         inputs = root / "inputs"
         inputs.mkdir(parents=True)
@@ -340,7 +350,40 @@ class TestPrimaryPeriodSections:
         result = _prepare(root, primary_period="2026H1")
 
         assert _manifest(root)["primary_period"] == "2026H1"
-        assert result["warnings"] == []
+        assert len(result["warnings"]) == 1
+        assert "unknown" in result["warnings"][0]
+        assert "2026H1" in result["warnings"][0]
+        assert "NOPERIOD" in _pdf_section_quotes(root)
+
+    def test_per_period_file_with_mismatching_metadata_warns(self, tmp_path):
+        # Regression: the selected per-period file's own metadata was never checked.
+        root = tmp_path / "runs" / "test-run"
+        inputs = root / "inputs"
+        inputs.mkdir(parents=True)
+        (inputs / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+        _write_sections(inputs / "pdf_sections_2026H1.json", period="2025FY", marker="WRONG")
+
+        result = _prepare(root, primary_period="2026H1")
+
+        warnings = result["warnings"]
+        assert len(warnings) == 1
+        assert "pdf_sections_2026H1.json" in warnings[0]
+        assert "2025FY" in warnings[0]
+        # The requested file is still used; the warning is what makes it audible.
+        assert "WRONG" in _pdf_section_quotes(root)
+
+    def test_inputs_directory_empty_is_still_used(self, tmp_path):
+        root = tmp_path / "runs" / "test-run"
+        (root / "inputs").mkdir(parents=True)
+        (root / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+
+        _prepare(root)
+
+        manifest = _manifest(root)
+        search_root = str((root / "inputs").resolve())
+        market = next(item for item in manifest["inputs"] if item["source_id"] == "market_data")
+        assert market["path"].startswith(search_root)
+        assert market["exists"] is False
 
     def test_primary_period_without_sections_file_is_safe(self, tmp_path):
         root = tmp_path / "runs" / "test-run"

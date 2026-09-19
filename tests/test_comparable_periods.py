@@ -335,6 +335,18 @@ class TestPdfPreprocessorParseArgsPeriods:
         assert args.period == "2026H1"
         assert args.output == "pdf_sections_2026H1.json"
 
+    def test_period_inference_ignores_parent_directory_year(self):
+        # Regression: a year in the parent directory used to win over the
+        # report label in the filename, silently mislabelling every section.
+        args = parse_args(["--pdf", "/data/2025年报分析/600887_2026_中报.pdf"])
+        assert args.period == "2026H1"
+        assert args.output == "/data/2025年报分析/pdf_sections_2026H1.json"
+
+    def test_period_inference_ignores_parent_directory_without_filename_period(self):
+        args = parse_args(["--pdf", "/data/2024年报归档/report.pdf"])
+        assert args.period == ""
+        assert args.output == DEFAULT_OUTPUT
+
     def test_explicit_period_wins_over_filename(self):
         args = parse_args(["--pdf", "600887_2025_年报.pdf", "--period", "2026H1"])
         assert args.period == "2026H1"
@@ -348,6 +360,12 @@ class TestPdfPreprocessorParseArgsPeriods:
     def test_period_is_normalized(self):
         args = parse_args(["--pdf", "report.pdf", "--period", "2026h1"])
         assert args.period == "2026H1"
+
+    def test_empty_output_argument_is_rejected(self, capsys):
+        with pytest.raises(SystemExit) as excinfo:
+            parse_args(["--pdf", "report.pdf", "--output", ""])
+        assert excinfo.value.code == 2
+        assert "must not be empty" in capsys.readouterr().err
 
     @pytest.mark.parametrize("bad", ["2026Q2", "2026", "H1", "2026M6", ""])
     def test_invalid_period_exits_non_zero_without_traceback(self, bad):

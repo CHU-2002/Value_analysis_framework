@@ -103,7 +103,7 @@ class InfrastructureMixin:
         order of the pre-existing interim annual columns never change.
 
         Returns (display_df, column_labels) where column_labels are like:
-        ["2026H1", "2026Q1", "2025H1", "2025Q1", "2024", "2023", "2022", "2021"]
+        ["2026H1", "2026Q1", "2025H1", "2025Q1", "2025", "2024", "2023", "2022", "2021"]
         """
         if df.empty or "end_date" not in df.columns:
             return df, []

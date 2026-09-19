@@ -752,6 +752,8 @@ def resolve_output_path(pdf_path: str, period: str, output: Optional[str]) -> st
     period keeps the legacy ``output/pdf_sections.json`` default.
     """
 
+    if output is not None and str(output) == "":
+        raise ValueError("--output must not be empty (omit it to use the default)")
     if output:
         return output
     if period:
@@ -814,8 +816,13 @@ Examples:
     # the output path from it. Both are applied here so that callers -- and the
     # existing CLI tests -- see the effective values on ``args``.
     if parsed.period is None:
-        parsed.period = filename_to_period(parsed.pdf) or ""
-    parsed.output = resolve_output_path(parsed.pdf, parsed.period, parsed.output)
+        # Only the basename is meaningful: a year in the parent directory
+        # would otherwise win over the report label in the filename.
+        parsed.period = filename_to_period(os.path.basename(str(parsed.pdf))) or ""
+    try:
+        parsed.output = resolve_output_path(parsed.pdf, parsed.period, parsed.output)
+    except ValueError as exc:
+        parser.error(str(exc))
     return parsed
 
 

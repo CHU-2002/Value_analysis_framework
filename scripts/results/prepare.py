@@ -80,14 +80,20 @@ def _select_pdf_sections(inputs_root: Path, primary_period: str) -> tuple[Path, 
     legacy = inputs_root / "pdf_sections.json"
     per_period = inputs_root / f"pdf_sections_{primary_period}.json" if primary_period else None
     if per_period is not None and per_period.is_file():
+        recorded = _read_recorded_period(per_period)
+        if recorded != primary_period:
+            warnings.append(
+                f"period mismatch: {per_period.name} metadata.period="
+                f"{recorded or '<unknown>'!r} does not match primary_period={primary_period!r}"
+            )
         return per_period, warnings
 
     if primary_period and legacy.is_file():
         recorded = _read_recorded_period(legacy)
-        if recorded and recorded != primary_period:
+        if recorded != primary_period:
             warnings.append(
-                f"period mismatch: pdf_sections.json metadata.period={recorded!r} "
-                f"does not match primary_period={primary_period!r}"
+                f"period mismatch: pdf_sections.json metadata.period="
+                f"{recorded or '<unknown>'!r} does not match primary_period={primary_period!r}"
             )
     return legacy, warnings
 
@@ -110,6 +116,7 @@ def prepare_run(
     """
 
     root = Path(output_dir).resolve()
+    normalized_primary = _normalize_primary_period(primary_period)
     root.mkdir(parents=True, exist_ok=True)
     evidence_dir = root / "evidence"
     contexts_dir = root / "contexts"
@@ -120,7 +127,6 @@ def prepare_run(
     for module in MODULE_CONFIG:
         (modules_dir / module).mkdir(exist_ok=True)
 
-    normalized_primary = _normalize_primary_period(primary_period)
     inputs_dir = root / "inputs"
     inputs_root = inputs_dir if inputs_dir.is_dir() else root
 
