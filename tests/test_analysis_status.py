@@ -129,6 +129,34 @@ def test_complete_baseline_run_stays_up_to_date(tmp_path):
     assert evaluate_company(company)["state"] == "up_to_date"
 
 
+def test_downstream_refresh_returns_status_to_up_to_date(tmp_path):
+    """NEW-3: report-update -> stale/1 -> mark fresh -> up_to_date/0."""
+
+    company = _company_dir_with_run(tmp_path)
+    created = runs.create_run(
+        company,
+        ticker="600887.SH",
+        company="伊利股份",
+        kind="report-update",
+        primary_period="2026H1",
+        run_id="run-refresh",
+    )
+    runs.finish_run(company, created["run_dir"], primary_period="2026H1")
+
+    stale = evaluate_company(company)
+    assert stale["state"] == "stale"
+    assert {reason["code"] for reason in stale["reasons"]} == {"downstream_stale"}
+    assert exit_code_for(stale) == 1
+
+    assert runs.main(["downstream", "--company-dir", str(company), "--fresh", "all"]) == 0
+
+    fresh = evaluate_company(company)
+    assert fresh["state"] == "up_to_date"
+    assert fresh["recommended_action"] == "none"
+    assert fresh["reasons"] == []
+    assert exit_code_for(fresh) == 0
+
+
 def test_framework_change_requests_full_rerun(tmp_path, monkeypatch):
     company, _run_path = _ledger_company(tmp_path)
     record = runs.read_record(company)

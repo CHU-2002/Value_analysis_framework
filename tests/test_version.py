@@ -125,12 +125,16 @@ def test_code_fingerprint_uses_git_when_available(tmp_path, monkeypatch):
     assert code_fingerprint(root) == "abc1234-dirty"
 
 
-def test_code_fingerprint_scopes_dirty_to_fingerprinted_paths(tmp_path):
-    """S7: an unrelated untracked file must not mark every run as dirty."""
+def _git_repo(tmp_path):
+    """Create a tiny git repo with code, a prompt and a skill, all committed."""
 
     root = tmp_path / "repo"
     (root / "scripts").mkdir(parents=True)
+    (root / "prompts").mkdir()
+    (root / ".claude" / "skills" / "demo").mkdir(parents=True)
     (root / "scripts" / "engine.py").write_text("print('engine')\n", encoding="utf-8")
+    (root / "prompts" / "phase2_PDF解析.md").write_text("prompt v1\n", encoding="utf-8")
+    (root / ".claude" / "skills" / "demo" / "SKILL.md").write_text("skill v1\n", encoding="utf-8")
 
     def git(*arguments):
         return subprocess.run(
@@ -141,14 +145,18 @@ def test_code_fingerprint_scopes_dirty_to_fingerprinted_paths(tmp_path):
             check=False,
         )
 
-    init = git("init")
-    if init.returncode != 0:
+    if git("init").returncode != 0:
         pytest.skip("git is not available in this environment")
-    git("add", "scripts/engine.py")
-    commit = git("commit", "-m", "initial")
-    if commit.returncode != 0:
-        pytest.skip(f"cannot create a git commit: {commit.stderr.strip()}")
+    git("add", "-A")
+    if git("commit", "-m", "initial").returncode != 0:
+        pytest.skip("cannot create a git commit in this environment")
+    return root, git
 
+
+def test_code_fingerprint_dirty_scopes_to_code_prompts_and_skills(tmp_path):
+    """S7 + NEW-1: unrelated files are ignored, real prompt/skill edits count."""
+
+    root, git = _git_repo(tmp_path)
     clean = code_fingerprint(root)
     assert not clean.endswith("-dirty")
 
@@ -156,9 +164,38 @@ def test_code_fingerprint_scopes_dirty_to_fingerprinted_paths(tmp_path):
     (root / "NOTES_scratch.md").write_text("scratch\n", encoding="utf-8")
     assert code_fingerprint(root) == clean
 
-    # Editing a fingerprinted path does count.
+    # NEW-1: prompts/phase2_PDF解析.md is still read by business-analysis commands.
+    (root / "prompts" / "phase2_PDF解析.md").write_text("prompt v2\n", encoding="utf-8")
+    assert code_fingerprint(root).endswith("-dirty")
+    git("checkout", "--", ".")
+    assert code_fingerprint(root) == clean
+
+    # NEW-1: .claude/skills is part of the Agent-facing surface too.
+    (root / ".claude" / "skills" / "demo" / "SKILL.md").write_text("skill v2\n", encoding="utf-8")
+    assert code_fingerprint(root).endswith("-dirty")
+    git("checkout", "--", ".")
+    assert code_fingerprint(root) == clean
+
+    # Editing a fingerprinted code path counts.
     (root / "scripts" / "engine.py").write_text("print('changed')\n", encoding="utf-8")
     assert code_fingerprint(root).endswith("-dirty")
+
+
+def test_framework_block_dirty_matches_code_fingerprint(tmp_path):
+    """NEW-2: framework_block().dirty must use the same scoped pathspec."""
+
+    root, _git = _git_repo(tmp_path)
+    block = framework_block(root)
+    assert block["dirty"] is False
+    assert not block["code_fingerprint"].endswith("-dirty")
+
+    (root / "NOTES_scratch.md").write_text("scratch\n", encoding="utf-8")
+    assert framework_block(root)["dirty"] is False
+
+    (root / "scripts" / "engine.py").write_text("print('changed')\n", encoding="utf-8")
+    block = framework_block(root)
+    assert block["dirty"] is True
+    assert block["code_fingerprint"].endswith("-dirty")
 
 
 def test_framework_block_degrades_without_root(tmp_path):

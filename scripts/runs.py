@@ -540,6 +540,47 @@ def _line_matches_run(line: str, run_id: str) -> bool:
     return isinstance(payload, dict) and payload.get("run_id") == run_id
 
 
+#: Downstream consumers that a new report/framework run marks stale.
+DOWNSTREAM_COMPONENTS = ("value_computed", "buy_sell_basis")
+
+
+def mark_downstream_fresh(
+    company_dir: str | Path,
+    *,
+    components: Iterable[str] | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Mark downstream components fresh again after they have been refreshed.
+
+    A new report or framework run sets every component's *stale* flag to
+    ``True`` (``record.json:downstream``). After ``/value-analysis`` or
+    ``/buy-sell-plan`` reruns, this clears the corresponding flags, so
+    ``analysis_status`` can return to ``up_to_date``. The aggregate
+    ``downstream.stale`` is ``True`` while any component is still stale.
+    """
+
+    company_path = Path(company_dir).resolve()
+    record = read_record(company_path)
+    if not record:
+        raise ResolutionError(f"no record.json in {company_path}")
+    selected = list(DOWNSTREAM_COMPONENTS if components is None else components)
+    unknown = [name for name in selected if name not in DOWNSTREAM_COMPONENTS]
+    if unknown:
+        raise LedgerError(
+            f"unknown downstream component(s): {', '.join(unknown)} "
+            f"(expected one of {', '.join(DOWNSTREAM_COMPONENTS)})"
+        )
+    downstream = record.get("downstream")
+    downstream = dict(downstream) if isinstance(downstream, dict) else {}
+    for name in selected:
+        downstream[name] = False
+    downstream["stale"] = any(bool(downstream.get(name)) for name in DOWNSTREAM_COMPONENTS)
+    record["downstream"] = downstream
+    record["updated_at"] = iso_timestamp(now)
+    _write_json(company_path / "record.json", record)
+    return record
+
+
 # ---------------------------------------------------------------------------
 # adopt
 # ---------------------------------------------------------------------------
@@ -678,16 +719,17 @@ def _rewrite_manifest_paths(run_path: Path, company_dir: Path) -> str | None:
     return digest if isinstance(digest, str) and digest else None
 
 
-def _propagate_input_digest(run_path: Path, input_digest: str, company_dir: Path) -> None:
+def _propagate_input_digest(run_path: Path, input_digest: str, company_dir: Path) -> set[Path]:
     """Re-stamp the new input digest into the copied evidence index/contexts.
 
     ``prepare`` embeds ``input_digest`` in ``evidence/index.json`` and every
     ``contexts/*.json``; ``resolve_qualitative`` cross-checks the evidence index
     against the manifest, so adopting a run without this step makes it
-    unconsumable.
+    unconsumable. Returns the resolved paths that were actually rewritten.
     """
 
     company_root = company_dir.resolve()
+    rewritten: set[Path] = set()
     evidence_path = run_path / "evidence" / "index.json"
     evidence = _read_json(evidence_path)
     if evidence is not None:
@@ -706,6 +748,7 @@ def _propagate_input_digest(run_path: Path, input_digest: str, company_dir: Path
                 remapped_sources.append(item)
             evidence["sources"] = remapped_sources
         _write_json(evidence_path, evidence)
+        rewritten.add(evidence_path.resolve())
 
     contexts_dir = run_path / "contexts"
     if contexts_dir.is_dir():
@@ -715,10 +758,17 @@ def _propagate_input_digest(run_path: Path, input_digest: str, company_dir: Path
                 continue
             bundle["input_digest"] = input_digest
             _write_json(context_path, bundle)
+            rewritten.add(context_path.resolve())
+    return rewritten
 
 
-def _restamp_manifest_artifacts(run_path: Path) -> None:
-    """Recompute sha256/size_bytes for every manifest artifact after a rewrite."""
+def _restamp_manifest_artifacts(run_path: Path, rewritten: set[Path]) -> None:
+    """Re-stamp only the artifacts this migration actually rewrote.
+
+    Artifacts that were merely copied keep their recorded hashes, so
+    ``validate_manifest_artifacts`` still surfaces pre-existing tampering
+    instead of having it laundered by the adoption.
+    """
 
     manifest_path = run_path / "run_manifest.json"
     manifest = _read_json(manifest_path)
@@ -731,7 +781,7 @@ def _restamp_manifest_artifacts(run_path: Path) -> None:
     for item in artifacts:
         if isinstance(item, dict) and isinstance(item.get("path"), str):
             path = Path(item["path"])
-            if path.is_file():
+            if path.is_file() and path.resolve() in rewritten:
                 item = dict(item)
                 item["size_bytes"] = path.stat().st_size
                 item["sha256"] = sha256_file(path)
@@ -796,8 +846,8 @@ def adopt_legacy(
 
     input_digest = _rewrite_manifest_paths(run_path, company_path)
     if input_digest:
-        _propagate_input_digest(run_path, input_digest, company_path)
-        _restamp_manifest_artifacts(run_path)
+        rewritten = _propagate_input_digest(run_path, input_digest, company_path)
+        _restamp_manifest_artifacts(run_path, rewritten)
 
     periods = infer_report_periods(company_path)
     primary_period = periods[-1] if periods else None
@@ -973,7 +1023,10 @@ def _build_parser() -> argparse.ArgumentParser:
     new_parser.add_argument(
         "--hardlink",
         action="store_true",
-        help="opt in to hardlink snapshots (unsafe if sources are overwritten in place)",
+        help=(
+            "opt in to hardlink snapshots instead of copying; only safe when the sources are "
+            "never rewritten in place (copies cost ~20-25 ms/MB, so the default is cheap)"
+        ),
     )
 
     resolve_parser = subparsers.add_parser("resolve", help="print a run directory path")
@@ -1001,6 +1054,23 @@ def _build_parser() -> argparse.ArgumentParser:
     export_parser = subparsers.add_parser("export", help="print a lightweight ledger summary")
     export_parser.add_argument("--company-dir", required=True)
     export_parser.add_argument("--format", default="md", choices=("md", "json"))
+
+    downstream_parser = subparsers.add_parser(
+        "downstream",
+        help="mark downstream consumers fresh after /value-analysis or /buy-sell-plan reruns",
+        description=(
+            "A new report or framework run marks downstream consumers stale "
+            "(record.json:downstream). After rerunning /value-analysis or "
+            "/buy-sell-plan, use this command to clear the matching flags; once "
+            "every component is fresh, analysis_status returns to up_to_date."
+        ),
+    )
+    downstream_parser.add_argument("--company-dir", required=True)
+    downstream_parser.add_argument(
+        "--fresh",
+        default="all",
+        help="comma separated components to mark fresh: value_computed,buy_sell_basis or all (default: all)",
+    )
     return parser
 
 
@@ -1047,6 +1117,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "export":
             print(export_ledger(args.company_dir, format=args.format), end="")
+            return 0
+        if args.command == "downstream":
+            components = None if args.fresh.strip().lower() == "all" else [
+                name.strip() for name in args.fresh.split(",") if name.strip()
+            ]
+            record = mark_downstream_fresh(args.company_dir, components=components)
+            print(json.dumps(record["downstream"], ensure_ascii=False))
             return 0
     except ResolutionError as exc:
         print(f"error: {exc}", file=sys.stderr)

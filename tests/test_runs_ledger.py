@@ -7,7 +7,14 @@ from pathlib import Path
 import pytest
 
 import runs
-from results.manifest import build_manifest, describe_input, validate_manifest_inputs, write_manifest
+from results.manifest import (
+    build_manifest,
+    describe_artifact,
+    describe_input,
+    validate_manifest_artifacts,
+    validate_manifest_inputs,
+    write_manifest,
+)
 
 
 def _company_dir(tmp_path: Path) -> Path:
@@ -347,6 +354,57 @@ def test_finish_rejects_run_dir_outside_company_runs(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# downstream refresh (NEW-3)
+# ---------------------------------------------------------------------------
+
+
+def test_mark_downstream_fresh_clears_components_and_aggregate(tmp_path):
+    company = _company_dir(tmp_path)
+    created = runs.create_run(
+        company,
+        ticker="600887.SH",
+        company="伊利股份",
+        kind="report-update",
+        primary_period="2026H1",
+        run_id="update-1",
+    )
+    runs.finish_run(company, created["run_dir"], primary_period="2026H1")
+    assert runs.read_record(company)["downstream"] == {
+        "stale": True,
+        "value_computed": True,
+        "buy_sell_basis": True,
+    }
+
+    # Refreshing /value-analysis only leaves the aggregate stale.
+    record = runs.mark_downstream_fresh(company, components=["value_computed"])
+    assert record["downstream"]["value_computed"] is False
+    assert record["downstream"]["buy_sell_basis"] is True
+    assert record["downstream"]["stale"] is True
+
+    # The CLI clears everything (default --fresh all).
+    assert runs.main(["downstream", "--company-dir", str(company)]) == 0
+    downstream = runs.read_record(company)["downstream"]
+    assert downstream == {"stale": False, "value_computed": False, "buy_sell_basis": False}
+
+
+def test_mark_downstream_fresh_rejects_unknown_component(tmp_path):
+    company = _company_dir(tmp_path)
+    runs.finish_run(
+        company,
+        runs.create_run(company, ticker="600887.SH", company="伊利股份", run_id="update-2")["run_dir"],
+    )
+    with pytest.raises(runs.LedgerError):
+        runs.mark_downstream_fresh(company, components=["nope"])
+    assert runs.main(["downstream", "--company-dir", str(company), "--fresh", "nope"]) == 2
+
+
+def test_mark_downstream_fresh_requires_record(tmp_path):
+    company = _company_dir(tmp_path)
+    with pytest.raises(runs.ResolutionError):
+        runs.mark_downstream_fresh(company)
+
+
+# ---------------------------------------------------------------------------
 # adopt
 # ---------------------------------------------------------------------------
 
@@ -372,6 +430,10 @@ def _make_flat_directory(tmp_path: Path) -> Path:
         run_id=LEGACY_RUN_ID,
         subject={"ticker": "600887.SH", "company": "伊利股份", "market": "CN"},
         inputs=[describe_input(company / "data_pack_market.md", source_id="market_data")],
+        artifacts=[
+            describe_artifact(company / "evidence" / "index.json", role="evidence_index"),
+            describe_artifact(company / "contexts" / "business_moat.json", role="context_bundle", module="business_moat"),
+        ],
         status="prepared",
     )
     write_manifest(manifest, company / "run_manifest.json")
@@ -466,12 +528,48 @@ def test_adopt_propagates_input_digest_into_evidence_and_contexts(tmp_path):
     context = json.loads((run_path / "contexts" / "business_moat.json").read_text(encoding="utf-8"))
     assert evidence["input_digest"] == manifest["input_digest"]
     assert context["input_digest"] == manifest["input_digest"]
-    # Artifacts are re-stamped after the rewrite.
+    # The two artifacts this migration rewrote are re-stamped...
+    assert manifest["artifacts"], "fixture manifest must carry artifacts"
     for artifact in manifest["artifacts"]:
         path = Path(artifact["path"])
         assert path.is_file()
         assert artifact["sha256"] == runs.sha256_file(path)
         assert artifact["size_bytes"] == path.stat().st_size
+    # ...and the adopted run is fully valid.
+    assert validate_manifest_artifacts(manifest) == []
+
+
+def test_adopt_does_not_launder_tampered_artifact_hashes(tmp_path):
+    """NEW-4: only rewritten artifacts may be re-stamped."""
+
+    company = _company_dir(tmp_path)
+    _write(company / "600887_2024_年报.pdf", "%PDF-1.4 fake\n")
+    trigger = _write(company / "d6_trigger.json", '{"triggered": false}\n')
+    write_manifest(
+        build_manifest(
+            run_id=LEGACY_RUN_ID,
+            subject={"ticker": "600887.SH", "company": "伊利股份", "market": "CN"},
+            inputs=[],
+            artifacts=[
+                {
+                    "path": str(trigger),
+                    "role": "routing_decision",
+                    "size_bytes": 1,
+                    "sha256": "0" * 64,
+                }
+            ],
+        ),
+        company / "run_manifest.json",
+    )
+    before = json.loads((company / "run_manifest.json").read_text(encoding="utf-8"))
+    assert validate_manifest_artifacts(before), "fixture must start tampered"
+
+    runs.adopt_legacy(company)
+
+    copied = json.loads((company / "runs" / LEGACY_RUN_ID / "run_manifest.json").read_text(encoding="utf-8"))
+    errors = validate_manifest_artifacts(copied)
+    assert errors, "adopt must not launder a pre-existing artifact hash mismatch"
+    assert any("hash changed" in error for error in errors)
 
 
 @pytest.mark.parametrize("prune", [False, True])

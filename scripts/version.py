@@ -39,13 +39,17 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "context_bundle": "1.0",
 }
 
-#: Paths whose working-tree changes count as "dirty" for :func:`code_fingerprint`.
-#: Unrelated untracked files (scratch notes, local output) must not invalidate a run.
+#: Paths whose working-tree changes count as "dirty" for :func:`code_fingerprint`
+#: and :func:`framework_block`. Covers everything an analysis run actually reads
+#: (code, prompts, commands, skills); unrelated untracked files (scratch notes,
+#: local output) must not invalidate a run.
 DIRTY_TRACKED_PATHS: tuple[str, ...] = (
     "scripts",
     "strategies",
     "shared",
+    "prompts",
     ".claude/commands",
+    ".claude/skills",
     ".opencode/commands",
 )
 
@@ -128,23 +132,31 @@ def _git(root: Path, *arguments: str) -> str | None:
     return completed.stdout.strip()
 
 
+def _is_dirty(root: Path) -> bool:
+    """Return ``True`` when any fingerprinted path has uncommitted changes.
+
+    Shared by :func:`code_fingerprint` and :func:`framework_block` so the
+    recorded ``dirty`` flag never contradicts the code fingerprint.
+    """
+
+    return bool(_git(root, "status", "--porcelain", "--", *DIRTY_TRACKED_PATHS))
+
+
 def code_fingerprint(root: str | Path | None = None) -> str:
     """Return a stable identity for the code that produced a run.
 
     Prefers git (``<commit>`` or ``<commit>-dirty``) and degrades to a sha256
     over ``scripts/**/*.py`` when git is unavailable or ``root`` is not a
     repository. ``dirty`` only considers changes to :data:`DIRTY_TRACKED_PATHS`
-    (``scripts``/``strategies``/``shared``/command definitions): unrelated
-    untracked files such as scratch notes must not invalidate every run.
-    Raises ``ValueError`` when ``root`` does not exist.
+    (code, prompts, ``strategies``/``shared`` and command/skill definitions):
+    unrelated untracked files such as scratch notes must not invalidate every
+    run. Raises ``ValueError`` when ``root`` does not exist.
     """
 
     resolved = _require_directory(repo_root() if root is None else root)
     commit = _git(resolved, "rev-parse", "HEAD")
     if commit:
-        porcelain = _git(resolved, "status", "--porcelain", "--", *DIRTY_TRACKED_PATHS)
-        dirty = bool(porcelain)
-        return f"{commit}-dirty" if dirty else commit
+        return f"{commit}-dirty" if _is_dirty(resolved) else commit
     pairs = [
         (path.relative_to(resolved).as_posix(), path)
         for path in _iter_files(resolved / "scripts")
@@ -177,7 +189,7 @@ def framework_block(root: str | Path | None = None) -> dict[str, Any]:
     commit = _git(resolved, "rev-parse", "HEAD")
     if commit:
         block["git_commit"] = commit
-        block["dirty"] = bool(_git(resolved, "status", "--porcelain"))
+        block["dirty"] = _is_dirty(resolved)
     return block
 
 

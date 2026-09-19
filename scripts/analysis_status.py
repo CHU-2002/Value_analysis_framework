@@ -492,7 +492,14 @@ def _render_line(result: dict[str, Any], company_dir: str | None = None) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Classify analysis freshness for one or all companies")
     parser.add_argument("--company-dir")
-    parser.add_argument("--ticker")
+    parser.add_argument(
+        "--ticker",
+        help=(
+            "with --all: pure filter on the ticker recorded in record.json (or the numeric "
+            "directory prefix); single company: identity fallback only when the directory or "
+            "record carries no ticker"
+        ),
+    )
     parser.add_argument("--root")
     parser.add_argument("--all", action="store_true", dest="scan_all")
     parser.add_argument("--json", action="store_true")
