@@ -104,6 +104,16 @@ def evaluate(records: list, subjects: list, threshold: int = THRESHOLD) -> list:
     ]
 
 
+def section_body(text: str, title: str):
+    """返回 `## <title>` 小节的正文；找不到返回 None。"""
+    match = re.search(rf"^##\s*{re.escape(title)}\s*$", text, re.MULTILINE)
+    if not match:
+        return None
+    rest = text[match.end():]
+    nxt = re.search(r"^##\s+", rest, re.MULTILINE)
+    return rest[: nxt.start()] if nxt else rest
+
+
 def validate_record(record: dict) -> list:
     """校验回归记录本身不是空壳。"""
     path = record["path"]
@@ -114,9 +124,17 @@ def validate_record(record: dict) -> list:
             problems.append(f"{path.name} 的 front matter 缺少有效的 `{field}`")
     if "## 全量测试" not in text or not re.search(r"\d+\s+passed", text):
         problems.append(f"{path.name} 没有记录全量测试结果（需含「## 全量测试」与 passed 数字）")
-    if "## 逐条验收" not in text:
+    section = section_body(text, "逐条验收")
+    if section is None:
         problems.append(
             f"{path.name} 缺少「## 逐条验收」小节：至少要给出本批需求的 AC 结论或验收报告链接"
+        )
+    elif not re.search(r"-\s*\[[ xX]\]\s*\*{0,2}(AC-\d+|REQ-\d+)", section) \
+            and "docs/verification" not in section \
+            and "无功能改动" not in section:
+        problems.append(
+            f"{path.name} 的「## 逐条验收」小节是空的：请写出本批的 AC 结论"
+            "（`- [x] **AC-n**`）、或链接 docs/verification/ 报告、或说明「无功能改动」"
         )
     return problems
 

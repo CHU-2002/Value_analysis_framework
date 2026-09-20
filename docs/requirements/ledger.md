@@ -14,6 +14,8 @@
 | [REQ-004](REQ-004-period-delta-analysis.md) | 定期报告增量更新分析与变化报告 | `verified` | P1 | #19 | #17 | `tests/test_period_delta_module.py` `tests/test_change_report.py` `tests/test_prepare_prior_analysis.py` |
 | [REQ-005](REQ-005-periodic-update-docs.md) | 增量更新文档与下游接线 | `verified` | P2 | #20 | #22, #23, #27 | `tests/test_update_docs_contract.py` `tests/test_two_layout_e2e.py` |
 | [REQ-006](REQ-006-requirement-test-dev-flow.md) | 需求-测试-开发流程与三道门 | `verified` | P1 | N/A | #25 | `tests/test_release_gates.py` `tests/test_requirement_traceability.py` |
+| [REQ-007](REQ-007-governance-hardening.md) | 门禁与治理工具加固 | `in-progress` | P2 | N/A | TBD | `tests/test_release_gates.py` `tests/test_test_scope.py` `tests/test_two_layout_e2e.py` `tests/test_update_docs_contract.py` |
+| [REQ-008](REQ-008-coverage-debt.md) | 覆盖率洼地补测 | `proposed` | P2 | TBD | TBD | TBD |
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
 
@@ -49,12 +51,3 @@
 | `--light` 结转模式 | `docs/PERIODIC_UPDATE_PLAN.md` §12.1 | 需先量化「哪些模块可安全结转」 |
 | `runs/` 保留策略与 PDF 引用计数回收 | `docs/PERIODIC_UPDATE_PLAN.md` §12.2 | 依赖 REQ-003 落地后再评估 |
 | 港股 / 美股定期报告 PDF 通路 | `docs/PERIODIC_UPDATE_PLAN.md` §12.3 | 数据源与披露规则未定 |
-| 扁平路径守卫的扫描根是硬编码的 4 个目录，根列表之外新增消费者文档不会被覆盖（当前 `prompts/`、`.claude/skills/` 无扁平写法） | 独立验收（REQ-005） | 改为「扫描全仓 .md、按 BASELINE_PRODUCER_DOCS 豁免」或新增根时同步测试 |
-| AC-5 的双布局端到端是**台账级**（`new`+`finish`），未跑 prepare 与模块，证明的是布局不变量而非完整增量流水线 | 独立验收（REQ-005） | 若需要更强证据，补一条跑通 prepare → 模块 → increment 的端到端 |
-| prose 文档里硬编码了测试数量/耗时（DEVELOPMENT 度量表、TESTING 基线段、CHANGELOG 等），每加一个测试就要回填 6 处并重跑验收 | 独立验收（REQ-006）反复观察到 | 改为只留覆盖率基线%，把文件数/用例数指向自动生成的 `docs/TEST_SCOPE.md`（该表不会过期） |
-| `test_scope --check` 只比对文件集合与预算，不校验归属列的编号是否存在（曾有 `REQ-999` 悬空编号混进登记表） | 独立验收（REQ-006） | 顺带校验归属列：编号未登记时报错 |
-| `pr_body_guard` 现为「需求编号小节非空 **或** 正文任意位置有 REQ-NNN」，与 base 无关 | 独立验收（REQ-006） | 收紧为「任何 PR 都必须真的填了『## 需求编号』小节」（属加强，非收窄；需同步单测与模板说明） |
-| `regression_gate` 的记录内容校验只到「## 逐条验收」小节存在 | 独立验收（REQ-006） | 进一步要求小节内确有 AC 结论或验收报告链接 |
-| `test_scope --check` 的失败路径没有直接单测 | 独立验收（REQ-006） | 补 CLI 级失败路径测试 |
-| `tests/test_release_gates.py` 仍有 `"develop"` 作测试夹具（非阻断） | 独立验收（REQ-006） | 改为 `feat/xxx` 保持术语一致 |
-| 覆盖率洼地补测（`valuation_engine.py` 34%、`portfolio_engine.py` 47%、`split_data_pack.py` 45%、`value_analysis_engine.py` 65%、`report_to_html.py` / `md_to_mobile_html.py` / `generate_available_fields.py` 0%） | `make cov` 基线 2026-09-20，总覆盖率 76.4% | 需先判定这些模块是否属于「一次性脚本」，再决定补测或标注豁免 |

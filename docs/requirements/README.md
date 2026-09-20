@@ -100,7 +100,7 @@ Issue 在**验收通过后**才关闭（`verified`），不在 PR 合并时自�
 | 接口 | 约定 | 校验方式 |
 |------|------|----------|
 | 需求 → 测试 | 测试文件用注释 `# 覆盖需求：REQ-NNN` 声明归属；关键条款在注释里写 `AC-n` | `tests/test_requirement_traceability.py` |
-| 需求 → 开发 | 分支名 `feat/<slug>`，PR 正文写 `REQ-NNN` | PR 模板 + 评审 |
+| 需求 → 开发 | 分支名 `feat/<slug>`，PR 正文的「## 需求编号」小节必须真的填（正文提及不算） | PR 模板 + `scripts/pr_body_guard.py` |
 | 开发 → 需求 | 合并后把状态推到 `implemented`；逐条验收后推到 `verified` 并关闭 Issue | 台账 review |
 
 ## 10. 当前状态
@@ -115,3 +115,5 @@ Issue 在**验收通过后**才关闭（`verified`），不在 PR 合并时自�
 | [REQ-004](REQ-004-period-delta-analysis.md) | 定期报告增量更新分析与变化报告 | `verified` |
 | [REQ-005](REQ-005-periodic-update-docs.md) | 增量更新文档与下游接线 | `verified` |
 | [REQ-006](REQ-006-requirement-test-dev-flow.md) | 需求-测试-开发流程与三道门 | `verified` |
+| [REQ-007](REQ-007-governance-hardening.md) | 门禁与治理工具加固 | `in-progress` |
+| [REQ-008](REQ-008-coverage-debt.md) | 覆盖率洼地补测 | `proposed` |

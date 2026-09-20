@@ -40,7 +40,7 @@ REQ-NNN  →   DoR   →   feat/<特性>  ←── 子 PR（门①：CI 全量 
 
 | 门 | 什么时候 | 谁来做 | 检查什么 | 不过会怎样 |
 |----|----------|--------|----------|------------|
-| ① 子 PR → 特性分支 | 每次提 PR | 自动（CI） | 全量测试 + 覆盖率门禁 + 追溯门禁 + 测试 scope 预算；PR 描述必须有需求编号与**研发自测（手工）** | PR 红，不能合 |
+| ① 子 PR → 特性分支 | 每次提 PR | 自动（CI） | 全量测试 + 覆盖率门禁 + 追溯门禁 + 测试 scope 预算；PR 描述必须填「## 需求编号」小节（正文提及不算）与**研发自测（手工）** | PR 红，不能合 |
 | ② 特性分支 → `main` | 每次提 PR | **独立评审者**（人/独立 agent），产报告 | 门① 全部，外加独立验收报告：覆盖本批全部 `REQ-NNN`、逐条 `AC-n` 打勾、记录全量测试结果、声明独立性 | PR 红，不能合 |
 | ③ `main` 每累积 3 个特性 | 下一个特性分支合 `main` 提 PR 时 | 独立评审者 | `docs/regression/` 里有比上次更新的一条批量全量回归记录（含本批逐条 AC 结论） | PR 红，不能合 |
 
@@ -150,14 +150,14 @@ python scripts/regression_gate.py --new     # 打印可直接填写的记录草�
 
 | 指标 | 现行门禁 / 基线 | 出处 |
 |------|------------------|------|
-| 测试覆盖率 | ≥ 74%（基线 76.4%） | CI、`make cov` |
-| 测试 scope | ≤ 40 文件、≤ 1600 用例（当前 33 / 1461） | `docs/TEST_SCOPE.md`、`make scope-check` |
+| 测试覆盖率 | ≥ 74%（基线 76.8%） | CI、`make cov` |
+| 测试 scope | ≤ 40 文件、≤ 1600 用例（当前值见 [`docs/TEST_SCOPE.md`](TEST_SCOPE.md)，自动生成） | `make scope-check` |
 | 需求追溯 | 台账 ↔ 条目 ↔ 测试引用一致 | `tests/test_requirement_traceability.py` |
 | PR 描述 | 需求编号 + 研发自测（手工）非空 | `scripts/pr_body_guard.py` |
 | 独立验收 | 报告覆盖本批 REQ 且 AC 全打勾 | `scripts/acceptance_gate.py` |
 | 批量回归 | 每 3 个特性合入必须留档 | `scripts/regression_gate.py` |
 | PR 标题 | Conventional Commits，≤ 72 字符 | CI `pr-title` |
-| 全量测试耗时 | 约 1 分钟（1458 passed / 3 skipped；随主机负载浮动） | `make cov` |
+| 全量测试耗时 | 约 1 分钟（随主机负载浮动，不写死秒数） | `make cov` |
 
 ## 15. 反模式
 

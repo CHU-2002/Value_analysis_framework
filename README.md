@@ -245,7 +245,7 @@ Value_analysis_framework/
 make verify   # 本地全部门禁：编译/空白检查 + 全量测试 + 覆盖率 + 追溯 + scope + 回归门禁
 make test     # 全量测试
 make unit     # 只跑快层，日常迭代用
-make cov      # 覆盖率报告与门禁（≥ 74%，基线 76.4%）
+make cov      # 覆盖率报告与门禁（≥ 74%，基线 76.8%）
 
 # 也可以直接用 pytest
 .venv/bin/python -m pytest tests/test_results_pipeline.py -v

@@ -7,6 +7,7 @@ These tests pin the two paths that an independent review found inconsistent.
 
 # 覆盖需求：REQ-005（增量更新文档与下游接线）—— AC-1 命令必须经 runs.py resolve
 # 取 run_dir，不得把公司目录直接交给 resolver；AC-2 双布局下命令仍可用
+import os
 import re
 from pathlib import Path
 
@@ -181,7 +182,18 @@ def test_downstream_docs_resolve_the_run_directory(doc):
 # 用全局扫描而不是维护文件清单：本轮修复之所以漏掉 4 处，正是因为只按清单改。
 # 扫描范围覆盖提示词与规范树；「从零开始的完整分析」生产者按设计写扁平布局，
 # 因此**显式**列在 BASELINE_PRODUCER_DOCS 里豁免，而不是靠扫描根隐式漏掉。
-PROMPT_TREES = ("strategies", "shared/qualitative", ".claude/commands", ".opencode/commands")
+# 全仓扫描 + 显式排除：新增消费者目录无需改本测试即可被覆盖。
+EXCLUDED_GUARD_DIRS = {".git", ".venv", "output", "docs", "tests", "node_modules", "__pycache__"}
+
+
+def _prompt_docs(root=None):
+    """提示词/规范树里的所有 .md 文件。"""
+    base = ROOT if root is None else Path(root)
+    for dirpath, dirnames, filenames in os.walk(base):
+        dirnames[:] = [name for name in dirnames if name not in EXCLUDED_GUARD_DIRS]
+        for name in filenames:
+            if name.endswith(".md"):
+                yield Path(dirpath) / name
 
 BASELINE_PRODUCER_DOCS = {
     ".claude/commands/business-analysis.md",
@@ -218,16 +230,26 @@ def test_flat_qualitative_regex_matches_only_flat_paths():
 
 def test_prompt_docs_never_use_a_flat_qualitative_input_path():
     offenders = []
-    for tree in PROMPT_TREES:
-        for doc in sorted((ROOT / tree).rglob("*.md")):
-            rel = doc.relative_to(ROOT).as_posix()
-            if rel in BASELINE_PRODUCER_DOCS:
-                continue
-            for match in FLAT_QUALITATIVE_RE.finditer(doc.read_text(encoding="utf-8")):
-                offenders.append(f"{rel}: {match.group(0)}")
+    for doc in sorted(_prompt_docs()):
+        rel = doc.relative_to(ROOT).as_posix()
+        if rel in BASELINE_PRODUCER_DOCS:
+            continue
+        for match in FLAT_QUALITATIVE_RE.finditer(doc.read_text(encoding="utf-8")):
+            offenders.append(f"{rel}: {match.group(0)}")
     assert not offenders, (
         "以下提示词/规范仍把定性输入写成扁平公司路径（run-store 布局下不存在）：\n  "
         + "\n  ".join(offenders)
         + "\n应改为 `{run_dir}/qualitative_input.json`（由 runs.py resolve 取得）；"
         "若该文件是基线生产者，请加入 BASELINE_PRODUCER_DOCS 并说明理由"
     )
+
+
+def test_prompt_docs_scan_covers_new_directories_and_skips_excluded_ones(tmp_path):
+    """AC-5：扫描不是硬编码根列表——新目录自动纳入，排除目录不纳入。"""
+    (tmp_path / "brand-new-consumer").mkdir()
+    (tmp_path / "brand-new-consumer" / "spec.md").write_text("x", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "note.md").write_text("x", encoding="utf-8")
+    names = {doc.relative_to(tmp_path).as_posix() for doc in _prompt_docs(tmp_path)}
+    assert "brand-new-consumer/spec.md" in names
+    assert "docs/note.md" not in names

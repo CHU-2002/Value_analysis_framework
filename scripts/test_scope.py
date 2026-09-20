@@ -24,6 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TESTS_DIR = ROOT / "tests"
 SCOPE_PATH = ROOT / "docs" / "TEST_SCOPE.md"
+REQUIREMENTS_DIR = ROOT / "docs" / "requirements"
 CONFTEST_PATH = TESTS_DIR / "conftest.py"
 
 # 预算：控制 CI 总量。上调必须在本文件与 docs/TEST_SCOPE.md 里写明理由，
@@ -134,17 +135,36 @@ def render(entries: list, collected: int) -> str:
     return "\n".join(lines)
 
 
+def registered_requirement_ids() -> set:
+    """docs/requirements/ 下已登记的需求编号（文件名前 7 位，如 REQ-007）。"""
+    return {path.name[:7] for path in REQUIREMENTS_DIR.glob("REQ-*.md")}
+
+
+def ownership_problems(entries: list) -> list:
+    """归属列里出现的 REQ-NNN 必须已登记（曾出现过 REQ-999 悬空编号）。"""
+    registered = registered_requirement_ids()
+    problems = []
+    for entry in entries:
+        for req_id in sorted(set(REQ_RE.findall(entry["reqs"]))):
+            if req_id not in registered:
+                problems.append(
+                    f"{entry['file']} 的归属编号 {req_id} 未在 docs/requirements/ 登记；"
+                    "请先登记需求（或修正编号），再重新生成登记表"
+                )
+    return problems
+
+
 def registered_files(text: str) -> set:
     return {match.group(1) for match in ROW_RE.finditer(text)}
 
 
-def main() -> int:
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="维护整体测试 scope")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--report", action="store_true", help="打印 scope 与预算使用情况")
     group.add_argument("--write", action="store_true", help="重写 docs/TEST_SCOPE.md")
     group.add_argument("--check", action="store_true", help="校验登记表与预算（CI 用）")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     entries = collect_scope()
     actual = {entry["file"] for entry in entries}
@@ -179,6 +199,7 @@ def main() -> int:
             problems.append("登记表里有已不存在的测试文件（删除后请重新生成）：\n  " + "\n  ".join(stale))
     if len(entries) > MAX_TEST_FILES:
         problems.append(f"测试文件数 {len(entries)} 超过预算 {MAX_TEST_FILES}：请先合并/清理冗余测试")
+    problems.extend(ownership_problems(entries))
     collected = collect_cases_via_pytest()
     if collected > MAX_COLLECTED_CASES:
         problems.append(

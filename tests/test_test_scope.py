@@ -74,3 +74,43 @@ def test_budget_constants_are_sane():
     entries = test_scope.collect_scope()
     assert test_scope.MAX_TEST_FILES >= len(entries), "预算不应低于当前文件数"
     assert test_scope.MAX_COLLECTED_CASES >= 1400, "预算不应低于当前用例数"
+
+
+# --- AC-2 / AC-3：归属编号校验 + 三条失败路径的直接单测 ---
+# 故意构造一个未登记的需求编号：运行期拼接，避免治理门禁把夹具本身判成悬空引用。
+UNKNOWN_REQ = "REQ-" + "999"
+
+
+def _fake_entry(file="tests/test_test_scope.py", reqs="基线"):
+    return {"file": file, "reqs": reqs, "layer": "unit", "target": "—", "cases": 1}
+
+
+def _run_check(monkeypatch, entries, *, collected=10, max_files=40, max_cases=1600):
+    monkeypatch.setattr(test_scope, "collect_scope", lambda: entries)
+    monkeypatch.setattr(test_scope, "collect_cases_via_pytest", lambda: collected)
+    monkeypatch.setattr(test_scope, "MAX_TEST_FILES", max_files)
+    monkeypatch.setattr(test_scope, "MAX_COLLECTED_CASES", max_cases)
+    return test_scope.main(["--check"])
+
+
+def test_check_fails_when_a_test_file_is_unregistered(monkeypatch):
+    assert _run_check(monkeypatch, [_fake_entry(file="tests/test_brand_new.py")]) == 1
+
+
+def test_check_fails_when_over_budget(monkeypatch):
+    assert _run_check(monkeypatch, [_fake_entry()], max_files=0) == 1
+    assert _run_check(monkeypatch, [_fake_entry()], collected=99999) == 1
+
+
+def test_check_fails_on_an_unregistered_ownership_id(monkeypatch):
+    assert _run_check(monkeypatch, [_fake_entry(reqs=UNKNOWN_REQ)]) == 1
+
+
+def test_ownership_problems_names_the_file_and_id():
+    problems = test_scope.ownership_problems([_fake_entry(reqs=f"REQ-003, {UNKNOWN_REQ}")])
+    assert len(problems) == 1
+    assert "tests/test_test_scope.py" in problems[0] and UNKNOWN_REQ in problems[0]
+
+
+def test_check_passes_for_the_real_registry(monkeypatch):
+    assert _run_check(monkeypatch, test_scope.collect_scope()) == 0
