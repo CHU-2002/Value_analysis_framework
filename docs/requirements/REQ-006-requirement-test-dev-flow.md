@@ -49,7 +49,7 @@ supersedes: TBD
 |---|--------|------|------|
 | T1 | 建立需求台账、测试策略与三道门（分支模型、CI 作业、PR/验收/回归模板） | 完成 | PR #25；验收 [`2026-09-20-REQ-006.md`](../verification/2026-09-20-REQ-006.md) |
 | T2 | 门禁加固 8 项：需求编号小节必填、scope 归属编号校验、失败路径单测、回归记录内容校验、扁平路径守卫扫全仓、增量 run 跑通 `prepare --prior-analysis`、prose 去脆化、夹具去 `develop` | 完成 | PR #29；验收 [`2026-09-20-REQ-007.md`](../verification/2026-09-20-REQ-007.md)（原 REQ-007，已并入本需求） |
-| T3 | 验收报告容忍举例（扫描前剔除引用块/代码块/行内代码）；`test_scope --check` 比对归属列**内容** | 完成 | 见本需求的「维护与合并记录」（交付 PR 号在合入后回填） |
+| T3 | 验收报告容忍举例（扫描前剔除引用块/代码块/行内代码）；`test_scope --check` 比对归属列**内容** | 完成 | PR #32（已合入 `0d669c0`）；独立验收见 [`2026-09-20-REQ-006.md`](../verification/2026-09-20-REQ-006.md) 的「本次维护验证（T3）」一节 |
 | T4 | 覆盖深度补强：`valuation_engine` 34%→60%、`portfolio_engine` 47%→70%、三个 0% 脚本逐个判定、总覆盖率→80% 并把门禁提到 ≥78% | 未开始 | 任务说明见 [`REQ-008`](REQ-008-coverage-debt.md)（该编号已并入本需求，文件保留作 T4 的规格） |
 
 ## 验收标准
@@ -109,7 +109,7 @@ supersedes: TBD
 | 项 | 内容 |
 |----|------|
 | 设计文档 | `docs/DEVELOPMENT.md`、`docs/TESTING.md` |
-| 实现 PR | #25（建立，`22fe7fe`）、#29（门禁加固，`c65b47e`）、#30（验收戳）、#31；T3 见本 PR |
+| 实现 PR | #25（建立，`22fe7fe`）、#29（门禁加固，`c65b47e`）、#30（验收戳）、#31、#32（T3 两处修正，`0d669c0`） |
 | 测试 | `tests/test_release_gates.py`、`tests/test_requirement_traceability.py`、`tests/test_test_scope.py`、`tests/test_update_docs_contract.py`、`tests/test_two_layout_e2e.py` |
 | 文档更新 | `docs/DEVELOPMENT.md`、`docs/TESTING.md`、`CONTRIBUTING.md`、`README.md`、`CHANGELOG.md` |
 
@@ -130,8 +130,8 @@ supersedes: TBD
 
 | 修正 | 之前的问题 | 交付 |
 |------|------------|------|
-| `acceptance_gate` 扫描 AC 前剔除围栏代码块、引用块与行内代码 | 报告里举例写「未打勾的 AC 长什么样」会被当成结论，评审者只好改措辞绕开 | 见本 PR；新增单测 2 项（举例不算结论 / 真正未打勾仍被抓出） |
-| `test_scope --check` 比对归属列**内容** | 只查编号是否登记，补了标注忘 `make scope-write` 不会被拦（评审者靠人工 diff 才发现） | 见本 PR；新增单测 2 项，并在需求重构时真实触发过一次漂移告警 |
+| `acceptance_gate` 扫描 AC 前剔除围栏代码块、引用块与行内代码 | 报告里举例写「未打勾的 AC 长什么样」会被当成结论，评审者只好改措辞绕开 | PR #32；新增单测 2 项（举例不算结论 / 真正未打勾仍被抓出） |
+| `test_scope --check` 比对归属列**内容** | 只查编号是否登记，补了标注忘 `make scope-write` 不会被拦（评审者靠人工 diff 才发现） | PR #32；新增单测 2 项，并在需求重构时真实触发过一次漂移告警 |
 
 两项均以证伪法自检：关掉任一修复，对应测试失败；恢复后文件 sha256 一致。
 
