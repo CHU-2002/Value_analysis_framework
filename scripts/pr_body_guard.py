@@ -3,7 +3,8 @@
 
 流程要求（见 docs/DEVELOPMENT.md）：
 
-- 所有 PR：写明「需求编号」，并填「研发自测（手工）」。
+- 所有 PR：**必须填「需求编号」小节**（它是「本批需求」的唯一权威来源，正文提及
+  不能替代），并填「研发自测（手工）」。
   自动化测试只能证明既有的断言，新功能的行为是否符合预期必须有人手工验过，
   并把步骤与观察结果写下来。
 - 特性分支合入 `main` 的 PR：额外填「验收报告」，指向 docs/verification/ 下的报告文件。
@@ -58,10 +59,11 @@ def evaluate(body: str, base: str) -> list:
     """返回问题列表；空列表表示通过。"""
     problems = []
     requirements = section(body, REQUIREMENT_HEADING)
-    if not meaningful(requirements, 5) and not REQ_RE.search(strip_comments(body)):
+    if not meaningful(requirements, 5):
         problems.append(
-            f"「## {REQUIREMENT_HEADING}」为空：请填 REQ-NNN；"
-            "尚未登记请先读 docs/requirements/README.md"
+            f"「## {REQUIREMENT_HEADING}」为空或只有占位：必须真的填上本 PR 服务的 REQ-NNN"
+            "（子任务也要写它服务的需求）——该小节是「本批需求」的唯一权威来源，"
+            "正文其它地方提到编号不能替代；尚未登记请先读 docs/requirements/README.md"
         )
 
     selftest = section(body, SELFTEST_HEADING)

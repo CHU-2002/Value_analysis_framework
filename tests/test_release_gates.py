@@ -54,18 +54,18 @@ def _report(tmp_path, body):
 
 
 def test_pr_body_guard_flags_empty_sections():
-    problems = pr_body_guard.evaluate("## 变更概述\n\n做了点事。\n", "develop")
+    problems = pr_body_guard.evaluate("## 变更概述\n\n做了点事。\n", "feat/periodic-update")
     assert any("需求编号" in problem for problem in problems)
     assert any("研发自测" in problem for problem in problems)
 
 
 def test_pr_body_guard_accepts_filled_feature_pr():
-    assert pr_body_guard.evaluate(FEATURE_BODY, "develop") == []
+    assert pr_body_guard.evaluate(FEATURE_BODY, "feat/periodic-update") == []
 
 
 def test_pr_body_guard_ignores_placeholder_html_comments():
     body = "## 需求编号\n\nREQ-003\n\n## 研发自测（手工）\n\n<!-- 待填 -->\n"
-    problems = pr_body_guard.evaluate(body, "develop")
+    problems = pr_body_guard.evaluate(body, "feat/periodic-update")
     assert any("研发自测" in problem for problem in problems)
 
 
@@ -307,3 +307,26 @@ def test_acceptance_gate_rejects_unknown_requirement_ids(tmp_path):
     )
     problems = acceptance_gate.evaluate(f"## 需求编号\n\n{UNKNOWN_REQ}\n", [report])
     assert any(UNKNOWN_REQ in problem and "不存在" in problem for problem in problems), problems
+
+
+def test_pr_body_guard_rejects_prose_only_requirement_ids():
+    """AC-1：正文提到 REQ-NNN 不能替代「## 需求编号」小节。"""
+    body = (
+        "## 变更概述\n\n顺便修了 REQ-003 的一个问题。\n\n"
+        "## 研发自测（手工）\n\n- 手工跑了一遍，命令与输出见下，行为符合预期。\n"
+    )
+    problems = pr_body_guard.evaluate(body, "feat/periodic-update")
+    assert any("需求编号" in problem for problem in problems), problems
+
+
+def test_regression_record_rejects_an_empty_acceptance_section(tmp_path):
+    """AC-4：小节存在但里面没有任何 AC 结论时也要拒。"""
+    empty = tmp_path / "2026-09-22.md"
+    empty.write_text(
+        "---\ndate: 2026-09-22\ncovered-until: abc123\nreviewer: someone\n"
+        "full-suite: 1458 passed\n---\n\n# 回归\n\n## 全量测试\n\n1458 passed\n\n"
+        "## 逐条验收\n\n（待补）\n",
+        encoding="utf-8",
+    )
+    problems = regression_gate.validate_record(regression_gate.load_records(tmp_path)[0])
+    assert any("逐条验收" in problem and "空" in problem for problem in problems), problems

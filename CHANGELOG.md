@@ -10,7 +10,7 @@
 - 需求管理：`docs/requirements/`（编号规则、状态机、优先级、`TEMPLATE.md`、需求台账 `ledger.md`），
   首批登记 REQ-001…REQ-005，并接入 GitHub Issue / 标签 / 里程碑
 - 测试管理：`docs/TESTING.md` 测试策略、`pytest.ini`（严格 marker 与分层）、
-  按文件自动分层的 marker（`unit` / `contract` / `e2e` / `integration`）、覆盖率门禁 ≥ 74%（基线 76.4%）
+  按文件自动分层的 marker（`unit` / `contract` / `e2e` / `integration`）、覆盖率门禁 ≥ 74%（基线 76.8%）
 - 需求↔测试追溯门禁 `tests/test_requirement_traceability.py`：台账与需求条目一致性、
   无悬空 `REQ-NNN` 引用、已交付需求必须有测试引用
 - 开发流程：`docs/DEVELOPMENT.md`（就绪定义 DoR、完成定义 DoD、拆分与验收流程）、
@@ -19,6 +19,11 @@
 
 ### Added
 
+- 门禁与治理工具加固（REQ-007）：`pr_body_guard` 要求「## 需求编号」小节必填（正文提及不算）、
+  `test_scope --check` 校验归属编号已登记并有失败路径单测、`regression_gate` 拒绝空的
+  「## 逐条验收」小节、扁平路径守卫改为扫全仓 .md（新增消费者目录自动覆盖）、
+  增量 run 端到端跑通 `prepare --primary-period --prior-analysis`、
+  prose 文档不再硬编码测试数量与耗时（改指自动生成的 `docs/TEST_SCOPE.md`）
 - 下游接线修复（REQ-005）：`/valuation`、`/portfolio-strategy` 与两个 coordinator 改为先经
   `scripts/runs.py resolve --company-dir ... --latest` 解析 `run_dir`，再把 run 目录交给
   `resolve_qualitative`——此前直接把公司目录传进去，在 run-store 布局下会静默退回
@@ -28,7 +33,7 @@
   `pr-body` 校验研发自测栏），特性分支**直接合入 `main`** 且必须带独立验收报告
   （`scripts/acceptance_gate.py`）；`main` 每累积 3 个特性必须补一份批量全量回归记录
   （`scripts/regression_gate.py`），不维护长期集成分支
-- 测试 scope 登记与预算：`docs/TEST_SCOPE.md`（33 支文件 / 1461 用例）与 `scripts/test_scope.py`，
+- 测试 scope 登记与预算：`docs/TEST_SCOPE.md`（预算与当前值以该表为准）与 `scripts/test_scope.py`，
   CI 的 `test-scope` 作业校验登记表与上限；控制 CI 成本走整体 scope 维护，不裁剪单个 PR 的范围
 - 独立验收报告模板 `docs/verification/TEMPLATE.md`、批量回归记录模板 `docs/regression/TEMPLATE.md`、
   PR 模板新增「需求编号 / 研发自测（手工）/ 验收报告」栏位

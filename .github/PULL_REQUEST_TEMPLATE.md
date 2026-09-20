@@ -11,7 +11,11 @@ feat(results): add artifact hash verification
 
 ## 需求编号
 
-<!-- 必填。填 REQ-NNN；未登记先读 docs/requirements/README.md，不要跳过登记直接写代码。 -->
+<!--
+必填，且**必须填在这一栏**（CI 会拦：scripts/pr_body_guard.py 只认本小节）。
+填 REQ-NNN；子任务也要写它服务的需求；未登记先读 docs/requirements/README.md。
+正文其它地方提到编号不能替代本栏——它是「本批需求」的唯一权威来源。
+-->
 
 REQ-
 

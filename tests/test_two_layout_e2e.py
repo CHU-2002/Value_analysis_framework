@@ -10,11 +10,14 @@ AC-5 mock baseline → 注入新期次 → 增量 run → 旧 run 仍可解析�
 """
 
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
 
 import runs
+from results.context import build_module_context
+from results.prepare import prepare_run
 from results.resolve_qualitative import resolve_qualitative_input
 from tests.test_results_pipeline import _write_complete_structured_run
 
@@ -111,3 +114,58 @@ def test_run_store_layout_is_documented(doc):
     """AC-3 / AC-4：布局与用法必须写在文档里。"""
     content = (Path(__file__).resolve().parents[1] / doc).read_text(encoding="utf-8")
     assert "run-store" in content or "latest.json" in content, doc
+
+
+def test_incremental_run_runs_prepare_with_prior_analysis(tmp_path):
+    """AC-6 加强：增量 run 不止于台账级——跑通 prepare 并让 period_delta 用上上一 run 的结论。"""
+    company = _company(tmp_path)
+    baseline = runs.adopt_legacy(company)
+    baseline_dir = Path(baseline["run_dir"])
+    baseline_synthesis = baseline_dir / "synthesis" / "result.json"
+    assert baseline_synthesis.exists()
+
+    new_pdf = _write(tmp_path / "src" / "600000_2026_半年报.pdf", "%PDF-1.4 fake\n")
+    created = runs.create_run(
+        company,
+        ticker=TICKER,
+        company="Example Co",
+        kind="report-update",
+        primary_period="2026H1",
+        supersedes=baseline["run_id"],
+        inputs=[new_pdf],
+        run_id="update-run",
+    )
+    update_dir = Path(created["run_dir"])
+
+    # 真实流程会把数据包与本期章节放进 run 私有输入快照；这里按同一约定补齐
+    inputs = update_dir / "inputs"
+    (inputs / "data_pack_market.md").write_text("## 1. Basic information\nExample\n", encoding="utf-8")
+    (inputs / "pdf_sections_2026H1.json").write_text(
+        json.dumps({"metadata": {"period": "2026H1"}, "1. 经营讨论": "上半年毛利率稳定。"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    result = prepare_run(
+        update_dir,
+        ticker=TICKER,
+        company="Example Co",
+        run_id="update-run",
+        primary_period="2026H1",
+        prior_analysis=baseline_synthesis,
+    )
+
+    manifest = json.loads(Path(result["run_manifest"]).read_text(encoding="utf-8"))
+    assert manifest["primary_period"] == "2026H1"
+    assert "prior_analysis" in {item["source_id"] for item in manifest["inputs"]}
+
+    index = json.loads(Path(result["evidence_index"]).read_text(encoding="utf-8"))
+    assert "prior_analysis" in {source["source_id"] for source in index["sources"]}
+
+    bundle = build_module_context(
+        "period_delta", evidence_index_path=result["evidence_index"], max_chars=24000
+    )
+    assert [item for item in bundle["evidence"] if item["source_id"] == "prior_analysis"]
+    assert bundle["selection"]["missing_prior_analysis"] == []
+
+    # 布局不变量：baseline 既未被改写，也仍可解析
+    assert resolve_qualitative_input(baseline_dir, ticker=TICKER)["source"] == "structured"

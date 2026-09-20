@@ -148,7 +148,7 @@ Closes #42
 |------|----------|--------------|
 | 需求 | [`docs/requirements/README.md`](docs/requirements/README.md) | `REQ-NNN` 条目 + [台账](docs/requirements/ledger.md) 一行，验收标准必须可判定 |
 | 测试 | [`docs/TESTING.md`](docs/TESTING.md) | 覆盖新行为的测试，文件里标注 `# 覆盖需求：REQ-NNN` |
-| 开发 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | 主题分支 + Conventional Commits + 聚焦的 PR，正文写 `REQ-NNN` |
+| 开发 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | 主题分支 + Conventional Commits + 聚焦的 PR；正文的「## 需求编号」小节必须真的填（正文提及不算，`pr_body_guard` 会拦） |
 
 闭环：**需求登记 → 验收标准定稿 → 实现（PR）→ 测试追溯 → 逐条验收 → 台账状态推进**。
 就绪定义（DoR）与完成定义（DoD）见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
@@ -188,7 +188,7 @@ make verify   # 本地全部门禁：lint + 全量测试 + 覆盖率 + 追溯 + 
 
 额外要求：
 
-- 覆盖率不得低于 74%（基线 76.4%）；门禁与基线见 [docs/TESTING.md](docs/TESTING.md) §6
+- 覆盖率不得低于 74%（基线 76.8%）；门禁与基线见 [docs/TESTING.md](docs/TESTING.md) §6
 - 测试文件用注释标注 `# 覆盖需求：REQ-NNN`，并写明覆盖到的 `AC-n`
 - 「要么全用新结果，要么整体退回旧报告」等既有原则要有合同测试守护
 
