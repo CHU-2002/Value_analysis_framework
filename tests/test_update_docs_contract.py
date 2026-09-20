@@ -7,7 +7,7 @@ These tests pin the two paths that an independent review found inconsistent.
 
 # 覆盖需求：REQ-005（增量更新文档与下游接线）—— AC-1 命令必须经 runs.py resolve
 # 取 run_dir，不得把公司目录直接交给 resolver；AC-2 双布局下命令仍可用
-# REQ-007（门禁与治理工具加固）—— AC-5 扁平路径守卫扫全仓、新增消费者目录自动覆盖
+# REQ-006 任务 T2（门禁与治理工具加固）—— AC-5 扁平路径守卫扫全仓、新增消费者目录自动覆盖
 import os
 import re
 from pathlib import Path

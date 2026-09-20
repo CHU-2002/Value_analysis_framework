@@ -13,9 +13,9 @@
 | [REQ-003](REQ-003-run-history-ledger.md) | 分析迭代台账（run-store） | `verified` | P1 | #18 | #16 | `tests/test_version.py` `tests/test_runs_ledger.py` `tests/test_analysis_status.py` |
 | [REQ-004](REQ-004-period-delta-analysis.md) | 定期报告增量更新分析与变化报告 | `verified` | P1 | #19 | #17 | `tests/test_period_delta_module.py` `tests/test_change_report.py` `tests/test_prepare_prior_analysis.py` |
 | [REQ-005](REQ-005-periodic-update-docs.md) | 增量更新文档与下游接线 | `verified` | P2 | #20 | #22, #23, #27 | `tests/test_update_docs_contract.py` `tests/test_two_layout_e2e.py` |
-| [REQ-006](REQ-006-requirement-test-dev-flow.md) | 需求-测试-开发流程与三道门 | `verified` | P1 | N/A | #25 | `tests/test_release_gates.py` `tests/test_requirement_traceability.py` |
-| [REQ-007](REQ-007-governance-hardening.md) | 门禁与治理工具加固 | `verified` | P2 | N/A | #29 | `tests/test_release_gates.py` `tests/test_test_scope.py` `tests/test_two_layout_e2e.py` `tests/test_update_docs_contract.py` |
-| [REQ-008](REQ-008-coverage-debt.md) | 覆盖率洼地补测 | `proposed` | P2 | TBD | TBD | TBD |
+| [REQ-006](REQ-006-requirement-test-dev-flow.md) | 工程化开发流程（建立与持续维护） | `verified` | P1 | N/A | #25, #29, #30, #31 | `tests/test_release_gates.py` `tests/test_test_scope.py` `tests/test_update_docs_contract.py` `tests/test_two_layout_e2e.py`（追溯门禁自身即扫描器，按设计排除，故不列入声明） |
+| [REQ-007](REQ-007-governance-hardening.md) | 门禁与治理工具加固 | `superseded` | P2 | N/A | #29 | 已并入 REQ-006 任务 T2（文件与报告留作证据） |
+| [REQ-008](REQ-008-coverage-debt.md) | 覆盖率洼地补测 | `superseded` | P2 | TBD | TBD | 已并入 REQ-006 任务 T4（本文件即 T4 的规格） |
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
 
@@ -48,8 +48,6 @@
 
 | 想法 | 来源 | 备注 |
 |------|------|------|
-| `test_scope --check` 只校验归属列的编号是否已登记，**不比对归属列内容**，补了测试的需求标注后忘记 `make scope-write` 时不会报错（REQ-007 收尾时实测漂移） | 独立验收（REQ-007） | 把 committed 表的归属列与 `collect_scope()` 的计算值逐行比对，不一致即失败 |
-| `acceptance_gate` 的 AC 扫描不区分代码块/引用块，报告里字面引用 `- [ ] **AC-n**` 会被误判（REQ-007 评审员实测踩到） | 独立验收（REQ-007） | 扫描前剥离代码块与引用块，或改为只认「逐条验收」小节内的行 |
 | 验收报告与它验收的代码改动可能被并进同一个提交，归属含糊（REQ-007 首轮报告即如此） | 独立验收（REQ-007） | 报告单独成提交（`docs(verification): …`），已在 REQ-007 收尾时纠正；若需强制可加 CI 检查 |
 | `--light` 结转模式 | `docs/PERIODIC_UPDATE_PLAN.md` §12.1 | 需先量化「哪些模块可安全结转」 |
 | `runs/` 保留策略与 PDF 引用计数回收 | `docs/PERIODIC_UPDATE_PLAN.md` §12.2 | 依赖 REQ-003 落地后再评估 |

@@ -1,7 +1,7 @@
 ---
 id: REQ-007
 title: 门禁与治理工具加固
-status: verified
+status: superseded
 priority: P2
 owner: CHU-2002
 created: 2026-09-20
@@ -11,10 +11,14 @@ design: docs/DEVELOPMENT.md
 milestone: 工程化流程
 pr: "#29"
 depends-on: REQ-006
-supersedes: TBD
+superseded-by: REQ-006
 ---
 
-# REQ-007 门禁与治理工具加固
+# REQ-007 门禁与治理工具加固（已并入 REQ-006）
+
+> **状态：`superseded`（2026-09-20）** —— 本需求的内容已作为 **T2** 并入
+> [`REQ-006 工程化开发流程（建立与持续维护）`](REQ-006-requirement-test-dev-flow.md) 的任务清单。
+> 编号保留、不复用；本文件与其验收报告继续作为该项工作的规格与证据。
 
 ## 背景与问题
 
@@ -96,6 +100,15 @@ REQ-006 落地的三道门在第一次实战（#25–#28）中暴露了一批**�
 | 实现 PR | #29（已合入 `c65b47e`） |
 | 测试 | `tests/test_release_gates.py`、`tests/test_test_scope.py`、`tests/test_two_layout_e2e.py`、`tests/test_update_docs_contract.py` |
 | 文档更新 | `docs/DEVELOPMENT.md`、`docs/TESTING.md`、`CHANGELOG.md`、`.github/PULL_REQUEST_TEMPLATE.md` |
+
+## 维护记录
+
+对已交付能力的**零散修正**记在这里，不新开需求编号（见 [`README.md`](README.md) 的粒度规则）。它们仍走正常的 PR 与门禁。
+
+| 日期 | 修正 | 触发来源 |
+|------|------|----------|
+| 2026-09-20 | `acceptance_gate` 在校验 AC 前剔除围栏代码块、引用块与行内代码：报告里字面举例「未打勾的 AC 长什么样」不再被误判成结论 | 本需求独立验收存疑项（评审者实测踩到，只好改措辞绕开） |
+| 2026-09-20 | `test_scope --check` 增加归属列**内容**比对：补了测试标注却忘记 `make scope-write` 不再能蒙混过关 | 本需求独立验收存疑项（评审者用只读 diff 实测漂移） |
 
 ## 验收记录
 

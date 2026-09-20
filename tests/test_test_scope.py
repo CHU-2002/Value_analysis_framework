@@ -1,7 +1,7 @@
 """测试 scope 工具的单测（登记表解析、渲染、预算常量）。
 
 覆盖需求：REQ-006（需求-测试-开发流程与三道门）—— AC-5 整体 scope 登记与预算。
-REQ-007（门禁与治理工具加固）—— AC-2 归属编号必须已登记、AC-3 三条失败路径各自的隔离单测。
+REQ-006 任务 T2（门禁与治理工具加固）—— AC-2 归属编号必须已登记、AC-3 三条失败路径各自的隔离单测。
 
 说明：不测 ``collect_cases_via_pytest`` 与 CLI ``main``——它们会再次启动 pytest，
 在 pytest 里递归调用没有意义；真实校验由 CI 的 `test-scope` 作业执行
@@ -149,3 +149,22 @@ def test_ownership_problems_names_the_file_and_id():
 def test_check_passes_for_the_real_registry(monkeypatch, tmp_path):
     # registry=None：用仓库真实登记表，真实 entries 应与它一致
     assert _run_check(monkeypatch, tmp_path, test_scope.collect_scope()) == 0
+
+
+def test_check_fails_on_ownership_column_drift(monkeypatch, tmp_path, capsys):
+    """AC-2：登记表的归属列内容过期（补了标注忘 make scope-write）必须被抓到。"""
+    entries = [_fake_entry(reqs="REQ-003, REQ-006")]
+    stale_registry = [_fake_entry(reqs="REQ-003")]          # 登记表停留在旧值
+    monkeypatch.setattr(test_scope, "SCOPE_PATH", _write_scope(tmp_path, stale_registry))
+    monkeypatch.setattr(test_scope, "collect_scope", lambda: entries)
+    monkeypatch.setattr(test_scope, "collect_cases_via_pytest", lambda: 10)
+    monkeypatch.setattr(test_scope, "MAX_TEST_FILES", 40)
+    monkeypatch.setattr(test_scope, "MAX_COLLECTED_CASES", 1600)
+    assert test_scope.main(["--check"]) == 1
+    assert "归属列已过期" in capsys.readouterr().out
+
+
+def test_ownership_drift_problems_passes_when_in_sync():
+    entries = [_fake_entry(reqs="REQ-003, REQ-006")]
+    text = "| `tests/test_test_scope.py` | REQ-003, REQ-006 | `unit` | — | 1 |\n"
+    assert test_scope.ownership_drift_problems(entries, text) == []

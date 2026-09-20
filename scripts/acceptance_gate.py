@@ -26,6 +26,11 @@ FRONT_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 PASSED_RE = re.compile(r"\d+\s+passed")
 # 报告按需求分节时的小标题，如 "### REQ-003 run-store 台账"
 REQ_SECTION_RE = re.compile(r"^#{2,4}\s*(REQ-\d{3})\b.*$", re.MULTILINE)
+# 报告里举例说明「未打勾的 AC 长什么样」是正常写作，不该被判成结论：
+# 扫 AC 之前先剔除围栏代码块、引用块与行内代码（REQ-007 的评审者因此被误判过）。
+FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
+BLOCKQUOTE_RE = re.compile(r"^[ \t]*>.*$", re.MULTILINE)
+INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 REQUIRED_FIELDS = ("reviewer", "independence", "requirements", "full-suite")
 # 只动这些路径的 PR 属于「台账/文档回填」，不要求独立验收报告。
 DOCS_ONLY_PREFIXES = ("docs/", "CHANGELOG.md")
@@ -94,13 +99,18 @@ def texts_for_requirement(texts: dict, req: str) -> list:
     return picked
 
 
+def scannable(text: str) -> str:
+    """剔除围栏代码块、引用块与行内代码，只留下真正作为结论书写的正文。"""
+    return INLINE_CODE_RE.sub("", BLOCKQUOTE_RE.sub("", FENCED_CODE_RE.sub("", text)))
+
+
 def checked(body: str, ac: str) -> bool:
     # 允许 `- [x] AC-1` 与 Markdown 粗体 `- [x] **AC-1**` 两种写法
-    return re.search(rf"-\s*\[[xX]\]\s*\*{{0,2}}AC-{ac}\b", body) is not None
+    return re.search(rf"-\s*\[[xX]\]\s*\*{{0,2}}AC-{ac}\b", scannable(body)) is not None
 
 
 def unchecked(body: str, ac: str) -> bool:
-    return re.search(rf"-\s*\[\s\]\s*\*{{0,2}}AC-{ac}\b", body) is not None
+    return re.search(rf"-\s*\[\s\]\s*\*{{0,2}}AC-{ac}\b", scannable(body)) is not None
 
 
 def changed_files(base: str, head: str) -> list:
