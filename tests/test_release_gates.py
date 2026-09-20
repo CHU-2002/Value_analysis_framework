@@ -315,7 +315,7 @@ def test_pr_body_guard_rejects_prose_only_requirement_ids():
         "## 变更概述\n\n顺便修了 REQ-003 的一个问题。\n\n"
         "## 研发自测（手工）\n\n- 手工跑了一遍，命令与输出见下，行为符合预期。\n"
     )
-    problems = pr_body_guard.evaluate(body, "develop")
+    problems = pr_body_guard.evaluate(body, "feat/periodic-update")
     assert any("需求编号" in problem for problem in problems), problems
 
 

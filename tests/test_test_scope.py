@@ -85,7 +85,32 @@ def _fake_entry(file="tests/test_test_scope.py", reqs="基线"):
     return {"file": file, "reqs": reqs, "layer": "unit", "target": "—", "cases": 1}
 
 
-def _run_check(monkeypatch, entries, *, collected=10, max_files=40, max_cases=1600):
+def _write_scope(tmp_path, entries):
+    """把 entries 写成一份最小登记表，供 --check 读取。"""
+    scope = tmp_path / "TEST_SCOPE.md"
+    rows = "\n".join(
+        f"| `{e['file']}` | {e['reqs']} | `{e['layer']}` | {e['target']} | {e['cases']} |"
+        for e in entries
+    )
+    scope.write_text(
+        "# 测试 Scope 登记表\n\n"
+        "| 测试文件 | 归属需求 | 层 | 被测对象 | 测试函数数 |\n"
+        "|----------|----------|----|----------|------------|\n" + rows + "\n",
+        encoding="utf-8",
+    )
+    return scope
+
+
+def _run_check(monkeypatch, tmp_path, entries, *, registry=None, collected=10,
+               max_files=40, max_cases=1600):
+    """跑 --check。
+
+    registry 给定时把 SCOPE_PATH 指向与 entries 对齐的最小登记表——
+    否则单文件夹具会额外触发「登记表漂移」，让预算/归属的失败路径无法隔离
+    （删掉对应检查测试也照样通过）。
+    """
+    if registry is not None:
+        monkeypatch.setattr(test_scope, "SCOPE_PATH", _write_scope(tmp_path, registry))
     monkeypatch.setattr(test_scope, "collect_scope", lambda: entries)
     monkeypatch.setattr(test_scope, "collect_cases_via_pytest", lambda: collected)
     monkeypatch.setattr(test_scope, "MAX_TEST_FILES", max_files)
@@ -93,17 +118,25 @@ def _run_check(monkeypatch, entries, *, collected=10, max_files=40, max_cases=16
     return test_scope.main(["--check"])
 
 
-def test_check_fails_when_a_test_file_is_unregistered(monkeypatch):
-    assert _run_check(monkeypatch, [_fake_entry(file="tests/test_brand_new.py")]) == 1
+def test_check_fails_when_a_test_file_is_unregistered(monkeypatch, tmp_path, capsys):
+    entries = [_fake_entry(file="tests/test_brand_new.py")]
+    assert _run_check(monkeypatch, tmp_path, entries,
+                      registry=[_fake_entry(file="tests/test_test_scope.py")]) == 1
+    assert "未登记" in capsys.readouterr().out
 
 
-def test_check_fails_when_over_budget(monkeypatch):
-    assert _run_check(monkeypatch, [_fake_entry()], max_files=0) == 1
-    assert _run_check(monkeypatch, [_fake_entry()], collected=99999) == 1
+def test_check_fails_when_over_budget(monkeypatch, tmp_path, capsys):
+    entries = [_fake_entry()]
+    assert _run_check(monkeypatch, tmp_path, entries, registry=entries, max_files=0) == 1
+    assert "超过预算" in capsys.readouterr().out
+    assert _run_check(monkeypatch, tmp_path, entries, registry=entries, collected=99999) == 1
+    assert "超过预算" in capsys.readouterr().out
 
 
-def test_check_fails_on_an_unregistered_ownership_id(monkeypatch):
-    assert _run_check(monkeypatch, [_fake_entry(reqs=UNKNOWN_REQ)]) == 1
+def test_check_fails_on_an_unregistered_ownership_id(monkeypatch, tmp_path, capsys):
+    entries = [_fake_entry(reqs=UNKNOWN_REQ)]
+    assert _run_check(monkeypatch, tmp_path, entries, registry=entries) == 1
+    assert UNKNOWN_REQ in capsys.readouterr().out
 
 
 def test_ownership_problems_names_the_file_and_id():
@@ -112,5 +145,6 @@ def test_ownership_problems_names_the_file_and_id():
     assert "tests/test_test_scope.py" in problems[0] and UNKNOWN_REQ in problems[0]
 
 
-def test_check_passes_for_the_real_registry(monkeypatch):
-    assert _run_check(monkeypatch, test_scope.collect_scope()) == 0
+def test_check_passes_for_the_real_registry(monkeypatch, tmp_path):
+    # registry=None：用仓库真实登记表，真实 entries 应与它一致
+    assert _run_check(monkeypatch, tmp_path, test_scope.collect_scope()) == 0
