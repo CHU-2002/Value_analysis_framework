@@ -46,15 +46,15 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_prepare_prior_analysis.py` | REQ-004 | `unit` | — | 6 |
 | `tests/test_qualitative_consumers.py` | 基线 | `contract` | — | 10 |
 | `tests/test_refresh_market.py` | 基线 | `unit` | — | 23 |
-| `tests/test_release_gates.py` | REQ-003, REQ-005, REQ-006 | `unit` | — | 28 |
+| `tests/test_release_gates.py` | REQ-003, REQ-005, REQ-006, REQ-007 | `unit` | — | 28 |
 | `tests/test_requirement_traceability.py` | 基线 | `unit` | — | 8 |
 | `tests/test_results_pipeline.py` | 基线 | `e2e` | — | 53 |
 | `tests/test_runs_ledger.py` | REQ-003 | `unit` | — | 35 |
 | `tests/test_screener.py` | 基线 | `unit` | — | 96 |
-| `tests/test_test_scope.py` | REQ-003, REQ-006 | `unit` | `scripts/test_scope.py` | 13 |
+| `tests/test_test_scope.py` | REQ-003, REQ-006, REQ-007 | `unit` | `scripts/test_scope.py` | 13 |
 | `tests/test_tushare_client.py` | 基线 | `unit` | — | 207 |
-| `tests/test_two_layout_e2e.py` | REQ-005 | `unit` | — | 5 |
-| `tests/test_update_docs_contract.py` | REQ-005 | `unit` | — | 18 |
+| `tests/test_two_layout_e2e.py` | REQ-005, REQ-007 | `unit` | — | 5 |
+| `tests/test_update_docs_contract.py` | REQ-005, REQ-007 | `unit` | — | 18 |
 | `tests/test_version.py` | REQ-003 | `unit` | `scripts/version.py` | 14 |
 
 归属为「基线」的测试覆盖需求体系建立前就已交付的能力，见
