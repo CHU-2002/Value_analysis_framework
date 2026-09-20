@@ -7,14 +7,14 @@ COV_MIN ?= 74
 help:  ## 显示可用目标
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-test:  ## 全量测试（无覆盖率门禁）
-	$(PYTHON) -m pytest -q
+test:  ## 全量测试（并行，无覆盖率门禁）
+	$(PYTHON) -m pytest -q -n auto
 
 unit:  ## 只跑快层（跳过 contract / e2e / integration）
-	$(PYTHON) -m pytest -q -m "not contract and not e2e and not integration"
+	$(PYTHON) -m pytest -q -n auto -m "not contract and not e2e and not integration"
 
-cov:  ## 全量测试 + 覆盖率门禁（与 CI 一致）
-	$(PYTHON) -m pytest -q --cov=scripts --cov-report=term-missing:skip-covered --cov-fail-under=$(COV_MIN)
+cov:  ## 全量测试 + 覆盖率门禁（并行，与 CI 一致）
+	$(PYTHON) -m pytest -q -n auto --cov=scripts --cov-report=term-missing:skip-covered --cov-fail-under=$(COV_MIN)
 
 lint:  ## 编译检查 + 空白/冲突标记检查（工作区 + 相对基线的整段提交）
 	$(PYTHON) -m compileall -q scripts tests

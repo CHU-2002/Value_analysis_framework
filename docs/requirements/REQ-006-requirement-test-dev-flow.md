@@ -50,6 +50,7 @@ supersedes: TBD
 | T1 | 建立需求台账、测试策略与三道门（分支模型、CI 作业、PR/验收/回归模板） | 完成 | PR #25；验收 [`2026-09-20-REQ-006.md`](../verification/2026-09-20-REQ-006.md) |
 | T2 | 门禁加固 8 项：需求编号小节必填、scope 归属编号校验、失败路径单测、回归记录内容校验、扁平路径守卫扫全仓、增量 run 跑通 `prepare --prior-analysis`、prose 去脆化、夹具去 `develop` | 完成 | PR #29；验收 [`2026-09-20-REQ-007.md`](../verification/2026-09-20-REQ-007.md)（原 REQ-007，已并入本需求） |
 | T3 | 验收报告容忍举例（扫描前剔除引用块/代码块/行内代码）；`test_scope --check` 比对归属列**内容** | 完成 | PR #32（已合入 `0d669c0`）；独立验收见 [`2026-09-20-REQ-006.md`](../verification/2026-09-20-REQ-006.md) 的「本次维护验证（T3）」一节 |
+| T5 | CI 提速与简化：8 个 job 收敛为 `ci` + `ci-success`；测试只装 `requirements-test.txt`；`pytest -n auto` 并行；默认只跑 3.12，3.10 改手动核验 | 完成 | PR #34；独立验收见 [`2026-09-20-REQ-006.md`](../verification/2026-09-20-REQ-006.md) 的「本次维护验证（T5）」一节 |
 | T4 | 覆盖深度补强：`valuation_engine` 34%→60%、`portfolio_engine` 47%→70%、三个 0% 脚本逐个判定、总覆盖率→80% 并把门禁提到 ≥78% | 未开始 | 任务说明见 [`REQ-008`](REQ-008-coverage-debt.md)（该编号已并入本需求，文件保留作 T4 的规格） |
 
 ## 验收标准
@@ -125,6 +126,10 @@ supersedes: TBD
   本需求的任务清单 T2 / T4，两个编号置 `superseded`（保留不复用）。原因：使用者指出
   「维护开发流程」应当是**一条**需求，零散修正不该各占编号。
 - 2026-09-20：原本为 T3 新开的 REQ-009 在合入前撤回，直接作为 T3 并入本需求。
+
+**T5 交付内容**（PR #34）：`.github/workflows/ci.yml` 重写为两个 job；新增 `requirements-test.txt`；
+`Makefile` 的 `test/cov/unit` 改为 `-n auto`；`CONTRIBUTING.md` 与 `docs/TESTING.md` 同步 CI 形态。
+实测：site-packages 618MB → 357MB，全量测试串行约 55s → 并行约 30s。
 
 **T3 交付内容**（两处修正，独立验收见 [`2026-09-20-REQ-006.md`](../verification/2026-09-20-REQ-006.md) 的「本次维护验证（T3）」一节）：
 

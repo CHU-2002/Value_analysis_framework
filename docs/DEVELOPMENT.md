@@ -156,7 +156,7 @@ python scripts/regression_gate.py --new     # 打印可直接填写的记录草�
 | PR 描述 | 需求编号 + 研发自测（手工）非空 | `scripts/pr_body_guard.py` |
 | 独立验收 | 报告覆盖本批 REQ 且 AC 全打勾 | `scripts/acceptance_gate.py` |
 | 批量回归 | 每 3 个特性合入必须留档 | `scripts/regression_gate.py` |
-| PR 标题 | Conventional Commits，≤ 72 字符 | CI `pr-title` |
+| PR 标题 | Conventional Commits，≤ 72 字符 | CI 的 PR 标题检查步骤 |
 | 全量测试耗时 | 以 `make cov` 实测为准（墙钟时间会被机器休眠/挂起显著拉长，不作为判据） | `make cov` |
 
 ## 15. 反模式
