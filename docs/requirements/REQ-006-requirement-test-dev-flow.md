@@ -1,7 +1,7 @@
 ---
 id: REQ-006
 title: 工程化开发流程（建立与持续维护）
-status: verified
+status: in-progress
 priority: P1
 owner: CHU-2002
 created: 2026-09-20
@@ -54,6 +54,36 @@ supersedes: TBD
 | T6 | 大特性拆子需求：`REQ-NNN.S` 编号与 `AC-S.n`、「父需求状态不得先于子需求」不变量、台账「子需求台账」表，并把子需求编号接进验收/追溯/scope 三个门禁；评审改为按子需求收口（AC-3 变更） | 完成 | PR #35；独立验收见 [`2026-09-20-REQ-006.md`](../verification/2026-09-20-REQ-006.md) 的「本次维护验证（T6）」一节。**诚实说明**：该报告在 `d3d769e` 上给出「有条件通过」，提出 3 项条件；实现者随后在 `fix(governance)` 里逐条修复（新增 4 个单测），但**按新的评审粒度没有为这次修复再拉一轮独立复核**——复核安排在下一个子需求/大特性收口时进行 |
 | T4 | 覆盖深度补强：`valuation_engine` 34%→60%、`portfolio_engine` 47%→70%、三个 0% 脚本逐个判定、总覆盖率→80% 并把门禁提到 ≥78% | 不做（2026-09-20 使用者决定：工程化流程到此为止，不补测） | 任务说明见 [`REQ-008`](REQ-008-coverage-debt.md)（该编号已并入本需求，文件保留作规格；覆盖率维持 76.8%、门禁维持 ≥74%） |
 
+## 子需求
+
+### REQ-006.1 财报分析端到端实跑加固与实跑验收规则
+
+- 状态：`in-progress`
+- 目标：把「用真实数据完整跑一次财报分析迭代」暴露的问题一次性收干净，并让这类**只有实跑才能发现**的问题在流程里有固定去处（登记 → 修复 → 复跑），不再靠对话里的临时结论或运行时补丁。
+- 背景：2026-09-20 用真实数据（Tushare + CNINFO + 本地 PDF）完整跑了一次迭代，**未改任何代码**、只用运行时补丁绕过，暴露 6 个问题 + 1 个流程观察。全部是 mock 测试发现不了的：
+
+  | # | 现象（实测） | 证据 |
+  |---|--------------|------|
+  | 1 | CNINFO 只认 `http`：https 查询 → 403，http → 200；脚本硬编码 https | `scripts/discover_report.py:33-34,59` |
+  | 2 | `ts.set_token()` 要写 `~/tk.csv`，HOME 只读的沙箱里 `PermissionError` | `scripts/tushare_collector.py:74`、`scripts/screener_core.py:176` |
+  | 3 | 文档 Step 4 漏传 `--run-id`，`prepare` 自己另生成一个 → 台账 id 与 run 内部 id 分叉 | `scripts/results/prepare.py:112,170,267` |
+  | 4 | `resolve_qualitative` 不认 `period_delta`，但文档 Step 6 要求把它喂给 reconcile/synthesis：一加就 `result_digest does not match`、exit 3 | `scripts/results/resolve_qualitative.py:33-34,273` |
+  | 5 | 默认预算装不下真实载荷：synthesis 30,000（4 核心实测 30,124，含 D7 38,070）；change_report 24,000 而 D7 单卡 26,141；中间区间**静默丢卡** | `scripts/results/synthesis.py:131`、`scripts/results/change_report.py:276` |
+  | 6 | `runs.py finish --artifact name=path` 不校验存在性、不区分绝对/相对路径：相对路径被静默记成双写路径 | `scripts/runs.py:379-395` |
+  | 7 | 流程观察：模块 agent 大量使用**超出自己有界 bundle** 的证据（environment 16 条里 9 条、business_moat 26 条里 21 条来自直接读 `evidence/index.json`），quote 可验证但绕过了契约与预算设计 | — |
+
+- 验收标准：
+  - **AC-1.1**：CNINFO 查询协议不再硬编码：可配置，且 https 返回 403 时回退 http 并保持请求头正确；mock 单测覆盖「https 403 → 回退 http 200」与「显式指定协议」两条路径。
+  - **AC-1.2**：Tushare token 以不写 HOME 的方式注入，在 HOME 只读的沙箱里采集不再 `PermissionError`。
+  - **AC-1.3**：文档 Step 4 的命令与 `prepare` 的参数表一致（带 `--run-id`）；run 目录 id 与传入/生成的 `run_id` 不一致时 `prepare` **报错**，不再静默分叉；有契约测试钉住。
+  - **AC-1.4**：`period_delta` 被 `resolve_qualitative` 接受为**可选模块**并参与 digest：提供时不再报 `result_digest does not match`；不提供时 digest 与当前基线**逐字节一致**。
+  - **AC-1.5**：`synthesis` 与 `change_report` 的默认预算按本次实跑的真实载荷设定，使其「4 核心 + D7 全卡片」不丢卡；任何卡片被丢弃时 payload 与 CLI 输出都必须列出被丢模块与原因，不得静默。
+  - **AC-1.6**：`runs.py finish --artifact name=path` 对不存在的文件报错且不写台账；相对路径按调用者 cwd 解析并在台账里存绝对路径；重复 name 报错；三条路径都有单测。
+  - **AC-1.7**：模块结果引用的每条 evidence id 都属于该模块 bundle 的 id 集合，越界可由检查手段检出（校验器或 bundle 生成侧裁剪）。
+  - **AC-1.8**：**流程闭环**：验收标准里写了「实跑」的编号，其收口报告必须带「## 实跑记录」（含可复制命令、环境与观察），由 `scripts/acceptance_gate.py` 强制；实跑发现的问题当次登记（子需求或任务），不允许只用运行时补丁绕过。
+  - **AC-1.9**：在只读 HOME + 真实 token 下**复跑**一次迭代，不使用任何运行时补丁，产出完整 run（台账、manifest、结构化结果、两篇报告），命令与观察写进实跑记录。
+- 追溯：`tests/test_discover_report.py`、`tests/test_runs_ledger.py`、`tests/test_results_pipeline.py`、`tests/test_update_docs_contract.py`、`tests/test_qualitative_consumers.py`、`tests/test_release_gates.py`；PR #36（登记与规则）、后续修复 PR 待回填
+
 ## 验收标准
 
 - **AC-1**：分支模型为「一个特性一条特性分支」：子 PR 合入特性分支，特性分支**直接合入 `main`**；
@@ -76,9 +106,18 @@ supersedes: TBD
   整段 diff）、全量测试、覆盖率门禁、追溯门禁、测试 scope 检查、批量回归门禁；依赖 PR 元数据的
   `pr-title` / `pr-body` / `acceptance-gate` 由 CI 执行，`make gates` 给出本地预演方式。
   文档中的门禁描述、基线数字与实际一致，且不得出现已废弃分支（如 `develop`）的说法。
-- **AC-7**：本需求下的工作以「## 任务清单」记录，每项有状态与证据；对既有门禁的修正**只允许更准或更严**，
+- **AC-7**：本需求下的工作以「## 任务清单」或**子需求**记录，每项有状态与证据；对既有门禁的修正**只允许更准或更严**，
   不得放宽任何既有判定（这项确认在该子需求/大特性**收口时由独立评审者一次完成**，
   不再为每次零散修正单独拉一轮评审）。
+
+  <!-- 需求变更记录（2026-09-20，AC-7 承载形式）
+       原条款：「本需求下的工作以『## 任务清单』记录」。
+       变更原因：一次真实财报分析实跑暴露的修复与查验工作是一个**可独立验收的切片**，
+         需要自己的验收标准与实跑记录；这正是子需求（§6.1）的用途，而不是任务清单。
+       新条款：工作以「任务清单」**或子需求**记录。
+       批准人：需求 owner CHU-2002（2026-09-20 会话内要求「整个修复和查验工作作为一个小需求
+         并入之前的大需求」）。
+       独立评审：按评审粒度，在该子需求收口时一次完成。 -->
 
   <!-- 需求变更记录（2026-09-20，AC-3 评审粒度）
        原条款（2026-09-20 登记）：「特性分支 → main」的 PR 必须附带独立验收报告。
@@ -147,6 +186,12 @@ supersedes: TBD
 - 2026-09-20：使用者要求「以后 REQ 以大特性的形式存在」并问怎么拆子需求 → 新增任务 **T6**，
   建立 `REQ-NNN.S` 子需求机制（规则见 [`README.md`](README.md) §6.1）。
   同一次对话里决定 **T4 覆盖补强不做**（不补测）。
+- 2026-09-20：一次真实财报分析实跑（另一会话）暴露 6 个问题 + 1 个流程观察。首个版本把它们
+  开成了新的顶层编号（REQ-009），被使用者指出**逻辑错误**：这些是对**已交付能力**的修正与
+  流程补强，按 [`README.md`](README.md) §6 不该新开编号，应当是既有大需求下的一个**子需求**。
+  已撤回该编号，改为本需求的 **REQ-006.1**（一个子需求承载全部修复与验收规则）；
+  本需求状态随之从 `verified` 回落到 `in-progress`（§4 的不变量：父需求不得比最慢的子需求更靠前），
+  待 REQ-006.1 收口后再回到 `verified`。
 - 2026-09-20：使用者要求「把评审改掉，起码要以子特性为标准评审，不要每一次 PR 都拉评审了」
   → 修改 **AC-3**（变更记录见验收标准下方的注释），评审触发点从「合 `main` 的 PR」
   改为「编号推进到 `verified` 的收口」，一个子需求/大特性只做一次；
