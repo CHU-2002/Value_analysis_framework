@@ -41,7 +41,7 @@ REQ-NNN  →   DoR   →   feat/<特性>  ←── 子 PR（门①：CI 全量 
 | 门 | 什么时候 | 谁来做 | 检查什么 | 不过会怎样 |
 |----|----------|--------|----------|------------|
 | ① 子 PR → 特性分支 | 每次提 PR | 自动（CI） | 全量测试 + 覆盖率门禁 + 追溯门禁 + 测试 scope 预算；PR 描述必须填「## 需求编号」小节（正文提及不算）与**研发自测（手工）** | PR 红，不能合 |
-| ② 特性分支 → `main` | 每次提 PR | **独立评审者**（人/独立 agent），产报告 | 门① 全部，外加独立验收报告：覆盖本批全部 `REQ-NNN`、逐条 `AC-n` 打勾、记录全量测试结果、声明独立性 | PR 红，不能合 |
+| ② 特性分支 → `main` | 每次提 PR | **独立评审者**（人/独立 agent），产报告 | 门① 全部，外加独立验收报告：覆盖本批全部 `REQ-NNN`（子需求 `REQ-NNN.S`）、逐条 `AC-n`（子需求 `AC-S.n`）打勾、记录全量测试结果、声明独立性 | PR 红，不能合 |
 | ③ `main` 每累积 3 个特性 | 下一个特性分支合 `main` 提 PR 时 | 独立评审者 | `docs/regression/` 里有比上次更新的一条批量全量回归记录（含本批逐条 AC 结论） | PR 红，不能合 |
 
 对应脚本：`scripts/pr_body_guard.py`、`scripts/acceptance_gate.py`、`scripts/regression_gate.py`。
@@ -64,7 +64,8 @@ REQ-NNN  →   DoR   →   feat/<特性>  ←── 子 PR（门①：CI 全量 
 需求进入实现前必须全部满足，否则停在 `proposed`：
 
 - [ ] Issue 已开，背景写的是**事实与证据**（文件、行为、报错），不是主观判断
-- [ ] 台账已有该 `REQ-NNN`，状态为 `accepted`
+- [ ] 台账已有该 `REQ-NNN`（若它拆成子需求，则父需求与 `REQ-NNN.S` 都已在台账「子需求台账」登记），
+      状态为 `accepted`
 - [ ] 验收标准每条都**可判定**：给定输入 → 可观察结果
 - [ ] 明确写出「本期不做」的范围，以及依赖的其他需求
 - [ ] 依赖的上下游需求已 `verified`（或明确标注可并行）
@@ -88,13 +89,14 @@ REQ-NNN  →   DoR   →   feat/<特性>  ←── 子 PR（门①：CI 全量 
 - 一个 PR 只做一件事：能独立评审、能独立回滚、不放无关文件。
 - 改动规模以「评审者能在一次专注阅读内看完」为准；超过约 800 行有效改动时考虑拆分。
 - 有依赖关系的子 PR 使用**栈式分支**，在 PR 正文写明合并顺序，合并前 rebase 到特性分支。
-- 期间发现的新需求不要塞进当前 PR：新开 `REQ-NNN` 并登记台账。
+- 期间发现的新需求不要塞进当前 PR：新开 `REQ-NNN` 并登记台账；
+  若只是这条大特性内的一个切片，登记为它的子需求 `REQ-NNN.S`（[`docs/requirements/README.md`](requirements/README.md) §6.1）。
 
 ## 8. 分支、提交与 PR
 
 细则见 [`CONTRIBUTING.md`](../CONTRIBUTING.md)。本流程额外要求：
 
-- PR 正文写明 `REQ-NNN` 与覆盖到的 `AC-n`；
+- PR 正文写明 `REQ-NNN`（子需求写 `REQ-NNN.S`）与覆盖到的 `AC-n`（子需求 `AC-S.n`）；
 - 使用 `Refs #18` 而不是 `Closes #18`，避免合并即关闭 Issue 而跳过验收；
 - 增删测试文件后重新生成 `docs/TEST_SCOPE.md`（`make scope-write`）。
 
@@ -111,7 +113,8 @@ make help        # 全部目标
 
 1. **换人**：由没有参与实现的人或独立 agent 执行；实现者不得自评。
 2. **取全量**：`make verify`，记录 passed / skipped / 覆盖率 / 对比的基线 sha。
-3. **逐条核对**：打开 `docs/requirements/REQ-NNN-*.md`，对每条 `AC-n` 给出结论；
+3. **逐条核对**：打开 `docs/requirements/REQ-NNN-*.md`，对每条 `AC-n` 给出结论
+   （批次里写的是子需求 `REQ-NNN.S`，就核对它那个小节里的 `AC-S.n`）；
    不通过就写 `- [ ]` 并附现象、复现命令与影响。
 4. **写报告**：用 [`docs/verification/TEMPLATE.md`](verification/TEMPLATE.md)，
    放到 `docs/verification/<日期>-<批次>.md`。

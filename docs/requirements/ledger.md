@@ -19,6 +19,20 @@
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
 
+## 子需求台账
+
+> 子需求是**大特性**（父需求）里可独立交付、独立验收的切片，编号 `REQ-NNN.S`，
+> 写在父需求文件的「## 子需求」小节里（`### REQ-NNN.S <标题>`），不单独成文件；
+> 规则见 [`README.md`](README.md) §6.1。
+> 本表与那些小节必须严格一致，且**父需求的状态不得比它最慢的子需求更靠前**
+> （有子需求没验收完，父需求就不能算 `verified`），由
+> [`tests/test_requirement_traceability.py`](../../tests/test_requirement_traceability.py) 校验。
+
+| ID | 父需求 | 标题 | 状态 | 实现 PR | 关联测试 |
+|----|--------|------|------|---------|----------|
+
+（暂无：现有 REQ-001…REQ-006 都在子需求机制之前登记，按 §6.1 不回填重构。）
+
 ## 里程碑
 
 | 里程碑 | 目标 | 包含需求 | 状态 |

@@ -4,11 +4,14 @@
 AC-3 独立验收报告、AC-4 批量回归阈值。
 REQ-006 任务 T2（门禁与治理工具加固）—— AC-1 需求编号小节必填、AC-4 空的逐条验收小节被拒、
 AC-8 夹具不用已废弃分支名。
+REQ-006 任务 T6（大特性拆子需求）—— 子需求的 AC 按小节核对、父需求的同号 AC 不被
+子需求的 `AC-S.n` 顶替、未登记的子需求编号被拒。
 """
 
 import acceptance_gate
 import pr_body_guard
 import regression_gate
+import req_registry
 
 FEATURE_BODY = """## 变更概述
 
@@ -367,3 +370,95 @@ def test_acceptance_gate_still_detects_a_real_unchecked_ac(tmp_path):
     )
     problems = acceptance_gate.evaluate("REQ-005\n", [report])
     assert any(f"AC-{acs[0]}" in problem and "未打勾" in problem for problem in problems), problems
+
+
+# --- T6：大特性拆子需求（REQ-NNN.S） ---
+# 故意用运行期拼接的假编号，避免治理门禁把夹具本身判成悬空引用。
+DEMO_PARENT = "REQ-" + "903"
+
+DEMO_REQ_DOC = """---
+id: {parent}
+title: 演示大特性
+status: in-progress
+priority: P2
+owner: TBD
+created: 2026-09-20
+updated: 2026-09-20
+---
+
+# {parent} 演示大特性
+
+## 验收标准
+
+- **AC-1**：整个大特性端到端可用。
+
+## 子需求
+
+{sub_heading}
+"""
+
+DEMO_SUB_BODY = """### {sub} 第一片
+
+- 状态：`in-progress`
+- 目标：把第一片做完。
+- 验收标准：
+  - **AC-1.1**：切片可用。
+  - **AC-1.2**：切片可回退。
+"""
+
+
+def _demo_registry(tmp_path, monkeypatch, sub_heading=".1"):
+    """在临时目录里放一个「父需求 + 子需求」条目，并把注册表指向它。"""
+    reqs = tmp_path / "requirements"
+    reqs.mkdir()
+    heading = ""
+    if sub_heading:
+        heading = DEMO_SUB_BODY.format(sub=DEMO_PARENT + sub_heading)
+    (reqs / f"{DEMO_PARENT}-demo.md").write_text(
+        DEMO_REQ_DOC.format(parent=DEMO_PARENT, sub_heading=heading), encoding="utf-8"
+    )
+    monkeypatch.setattr(req_registry, "REQUIREMENTS_DIR", reqs)
+    return DEMO_PARENT + sub_heading if sub_heading else DEMO_PARENT
+
+
+def _demo_report(tmp_path, body):
+    report = tmp_path / "demo-batch.md"
+    report.write_text(
+        "---\nreviewer: r\nindependence: independent\n"
+        f"requirements: {DEMO_PARENT}\nfull-suite: 见正文\n---\n\n1500 passed\n\n" + body,
+        encoding="utf-8",
+    )
+    return report
+
+
+def test_acceptance_gate_reads_child_acs_from_its_own_section(tmp_path, monkeypatch):
+    """批次写子需求编号时，只核对那个子需求小节的 AC。"""
+    sub = _demo_registry(tmp_path, monkeypatch)
+    report = _demo_report(
+        tmp_path, f"### {sub} 第一片\n\n- [x] **AC-1.1**：切片可用\n"
+    )
+    problems = acceptance_gate.evaluate(f"## 需求编号\n\n{sub}\n", [report])
+    assert acceptance_gate.requirement_ac_ids(sub) == ["1.1", "1.2"]
+    assert any("AC-1.2" in problem for problem in problems), problems
+    assert not any("AC-1 " in problem or "AC-1**" in problem for problem in problems), problems
+
+
+def test_acceptance_gate_child_ac_does_not_satisfy_the_parent_ac(tmp_path, monkeypatch):
+    """`**AC-1.1**` 不能被当成父需求的 `**AC-1**`：否则父需求的大特性判据会被悄悄跳过。"""
+    sub = _demo_registry(tmp_path, monkeypatch)
+    report = _demo_report(
+        tmp_path,
+        f"### {DEMO_PARENT} 大特性\n\n- [x] **AC-1.1**：切片可用\n",
+    )
+    problems = acceptance_gate.evaluate(f"## 需求编号\n\n{DEMO_PARENT}\n", [report])
+    assert any("AC-1" in problem and "缺少结论" in problem for problem in problems), problems
+
+
+def test_acceptance_gate_rejects_an_unregistered_sub_id(tmp_path, monkeypatch):
+    """写了父文件里不存在的子需求小节：必须报「未登记」，而不是当成已登记放过去。"""
+    sub = _demo_registry(tmp_path, monkeypatch)
+    unknown_sub = DEMO_PARENT + ".7"
+    report = _demo_report(tmp_path, f"### {unknown_sub} 不存在的一片\n\n- [x] **AC-7.1**：ok\n")
+    problems = acceptance_gate.evaluate(f"## 需求编号\n\n{unknown_sub}\n", [report])
+    assert any(unknown_sub in problem and "子需求" in problem for problem in problems), problems
+    assert sub != unknown_sub

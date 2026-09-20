@@ -8,6 +8,7 @@ REQ-006 任务 T2（门禁与治理工具加固）—— AC-2 归属编号必须
 （`python scripts/test_scope.py --check`）。
 """
 
+import req_registry
 import test_scope
 
 
@@ -168,3 +169,23 @@ def test_ownership_drift_problems_passes_when_in_sync():
     entries = [_fake_entry(reqs="REQ-003, REQ-006")]
     text = "| `tests/test_test_scope.py` | REQ-003, REQ-006 | `unit` | — | 1 |\n"
     assert test_scope.ownership_drift_problems(entries, text) == []
+
+
+def test_ownership_accepts_a_registered_sub_requirement(tmp_path, monkeypatch):
+    """归属列可以写子需求 `REQ-NNN.S`；父文件里没那个小节则仍算悬空（README.md §6.1）。"""
+    reqs = tmp_path / "requirements"
+    reqs.mkdir()
+    parent = "REQ-" + "902"
+    sub = parent + ".1"
+    (reqs / f"{parent}-demo.md").write_text(
+        f"---\nid: {parent}\n---\n\n# 演示\n\n## 子需求\n\n"
+        f"### {sub} 第一片\n\n- 状态：`proposed`\n- 目标：做完第一片。\n"
+        f"- 验收标准：\n  - **AC-1.1**：可用。\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(req_registry, "REQUIREMENTS_DIR", reqs)
+    assert test_scope.registered_requirement_ids() == {parent, sub}
+    assert test_scope.ownership_problems([_fake_entry(reqs=f"{parent}, {sub}")]) == []
+    missing = parent + ".9"
+    problems = test_scope.ownership_problems([_fake_entry(reqs=missing)])
+    assert problems and missing in problems[0]

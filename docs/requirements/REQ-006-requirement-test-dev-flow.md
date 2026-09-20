@@ -51,7 +51,8 @@ supersedes: TBD
 | T2 | 门禁加固 8 项：需求编号小节必填、scope 归属编号校验、失败路径单测、回归记录内容校验、扁平路径守卫扫全仓、增量 run 跑通 `prepare --prior-analysis`、prose 去脆化、夹具去 `develop` | 完成 | PR #29；验收 [`2026-09-20-REQ-007.md`](../verification/2026-09-20-REQ-007.md)（原 REQ-007，已并入本需求） |
 | T3 | 验收报告容忍举例（扫描前剔除引用块/代码块/行内代码）；`test_scope --check` 比对归属列**内容** | 完成 | PR #32（已合入 `0d669c0`）；独立验收见 [`2026-09-20-REQ-006.md`](../verification/2026-09-20-REQ-006.md) 的「本次维护验证（T3）」一节 |
 | T5 | CI 提速与简化：8 个 job 收敛为 `ci` + `ci-success`；测试只装 `requirements-test.txt`；`pytest -n auto` 并行；默认只跑 3.12，3.10 改手动核验 | 完成 | PR #34；独立验收见 [`2026-09-20-REQ-006.md`](../verification/2026-09-20-REQ-006.md) 的「本次维护验证（T5）」一节 |
-| T4 | 覆盖深度补强：`valuation_engine` 34%→60%、`portfolio_engine` 47%→70%、三个 0% 脚本逐个判定、总覆盖率→80% 并把门禁提到 ≥78% | 未开始 | 任务说明见 [`REQ-008`](REQ-008-coverage-debt.md)（该编号已并入本需求，文件保留作 T4 的规格） |
+| T6 | 大特性拆子需求：`REQ-NNN.S` 编号与 `AC-S.n`、「父需求状态不得先于子需求」不变量、台账「子需求台账」表，并把子需求编号接进验收/追溯/scope 三个门禁 | 完成 | PR 号合入后回填；独立验收见 [`2026-09-20-REQ-006.md`](../verification/2026-09-20-REQ-006.md) 的「本次维护验证（T6）」一节 |
+| T4 | 覆盖深度补强：`valuation_engine` 34%→60%、`portfolio_engine` 47%→70%、三个 0% 脚本逐个判定、总覆盖率→80% 并把门禁提到 ≥78% | 不做（2026-09-20 使用者决定：工程化流程到此为止，不补测） | 任务说明见 [`REQ-008`](REQ-008-coverage-debt.md)（该编号已并入本需求，文件保留作规格；覆盖率维持 76.8%、门禁维持 ≥74%） |
 
 ## 验收标准
 
@@ -110,7 +111,7 @@ supersedes: TBD
 | 项 | 内容 |
 |----|------|
 | 设计文档 | `docs/DEVELOPMENT.md`、`docs/TESTING.md` |
-| 实现 PR | #25（建立，`22fe7fe`）、#29（门禁加固，`c65b47e`）、#30（验收戳）、#31、#32（T3 两处修正，`0d669c0`） |
+| 实现 PR | #25（建立，`22fe7fe`）、#29（门禁加固，`c65b47e`）、#30（验收戳）、#31、#32（T3 两处修正，`0d669c0`）、#34（T5 CI 提速，`2ed0662`）、T6 子需求机制（PR 号合入后回填） |
 | 测试 | `tests/test_release_gates.py`、`tests/test_requirement_traceability.py`、`tests/test_test_scope.py`、`tests/test_update_docs_contract.py`、`tests/test_two_layout_e2e.py` |
 | 文档更新 | `docs/DEVELOPMENT.md`、`docs/TESTING.md`、`CONTRIBUTING.md`、`README.md`、`CHANGELOG.md` |
 
@@ -126,10 +127,26 @@ supersedes: TBD
   本需求的任务清单 T2 / T4，两个编号置 `superseded`（保留不复用）。原因：使用者指出
   「维护开发流程」应当是**一条**需求，零散修正不该各占编号。
 - 2026-09-20：原本为 T3 新开的 REQ-009 在合入前撤回，直接作为 T3 并入本需求。
+- 2026-09-20：使用者要求「以后 REQ 以大特性的形式存在」并问怎么拆子需求 → 新增任务 **T6**，
+  建立 `REQ-NNN.S` 子需求机制（规则见 [`README.md`](README.md) §6.1）。
+  同一次对话里决定 **T4 覆盖补强不做**（不补测）。
 
 **T5 交付内容**（PR #34）：`.github/workflows/ci.yml` 重写为两个 job；新增 `requirements-test.txt`；
 `Makefile` 的 `test/cov/unit` 改为 `-n auto`；`CONTRIBUTING.md` 与 `docs/TESTING.md` 同步 CI 形态。
 实测：site-packages 618MB → 357MB，全量测试串行约 55s → 并行约 30s。
+
+**T6 交付内容**（需求模型：大特性拆子需求）：
+
+| 改动 | 内容 |
+|------|------|
+| 规则 | `docs/requirements/README.md` 新增 §6.1（需求 / 子需求 / 任务 三层判据、`REQ-NNN.S` 与 `AC-S.n` 写法、8 条硬性约定）；§3、§4、§6、§8、§10 同步；`TEMPLATE.md` 增加「## 子需求」小节模板 |
+| 唯一解析来源 | 新增 `scripts/req_registry.py`：父/子编号、子需求小节、状态、AC 提取集中一处，三个门禁不再各写一份编号正则 |
+| 验收门禁 | `scripts/acceptance_gate.py` 按编号核对：写父需求核对 `AC-n`，写 `REQ-NNN.S` 只核对那个小节的 `AC-S.n`；子需求 `AC-1.1` 不再能满足父需求 `AC-1`（`(?![.\d])` 边界）；未登记的子需求编号报错而非放过 |
+| 追溯门禁 | `tests/test_requirement_traceability.py` 新增子需求与台账「子需求台账」的一致性、状态一致、`AC-S.n` 编号写法、以及**父需求状态不得先于最慢子需求**的不变量 |
+| scope 与回归 | `scripts/test_scope.py` 归属列接受 `REQ-NNN.S`；`scripts/regression_gate.py` 的逐条验收小节接受子需求编号；`pr_body_guard` / PR 模板 / 开发与测试文档同步 |
+
+**T4 决定不做**（2026-09-20）：使用者明确「不用补测了」。覆盖率维持 76.80%、门禁维持 ≥74%；
+`REQ-008` 文件保留为规格，编号仍为 `superseded`。
 
 **T3 交付内容**（两处修正，独立验收见 [`2026-09-20-REQ-006.md`](../verification/2026-09-20-REQ-006.md) 的「本次维护验证（T3）」一节）：
 

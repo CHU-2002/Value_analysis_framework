@@ -144,8 +144,8 @@ CI 只有两个 job：一个干全部活，一个汇总（分支保护只认汇�
 
 | 部分 | 权威文档 | 你要交的产物 |
 |------|----------|--------------|
-| 需求 | [`docs/requirements/README.md`](docs/requirements/README.md) | `REQ-NNN` 条目 + [台账](docs/requirements/ledger.md) 一行，验收标准必须可判定 |
-| 测试 | [`docs/TESTING.md`](docs/TESTING.md) | 覆盖新行为的测试，文件里标注 `# 覆盖需求：REQ-NNN` |
+| 需求 | [`docs/requirements/README.md`](docs/requirements/README.md) | `REQ-NNN`（一个大特性）条目 + [台账](docs/requirements/ledger.md) 一行，验收标准必须可判定；大特性的切片登记为子需求 `REQ-NNN.S`（§6.1，AC 编号 `AC-S.n`） |
+| 测试 | [`docs/TESTING.md`](docs/TESTING.md) | 覆盖新行为的测试，文件里标注 `# 覆盖需求：REQ-NNN`（子需求写 `REQ-NNN.S`） |
 | 开发 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | 主题分支 + Conventional Commits + 聚焦的 PR；正文的「## 需求编号」小节必须真的填（正文提及不算，`pr_body_guard` 会拦） |
 
 闭环：**需求登记 → 验收标准定稿 → 实现（PR）→ 测试追溯 → 逐条验收 → 台账状态推进**。
@@ -187,7 +187,7 @@ make verify   # 本地全部门禁：lint + 全量测试 + 覆盖率 + 追溯 + 
 额外要求：
 
 - 覆盖率不得低于 74%（基线 76.8%）；门禁与基线见 [docs/TESTING.md](docs/TESTING.md) §6
-- 测试文件用注释标注 `# 覆盖需求：REQ-NNN`，并写明覆盖到的 `AC-n`
+- 测试文件用注释标注 `# 覆盖需求：REQ-NNN`（子需求写完整编号 `REQ-NNN.S`），并写明覆盖到的条款编号
 - 「要么全用新结果，要么整体退回旧报告」等既有原则要有合同测试守护
 
 ## 文档
@@ -203,7 +203,7 @@ make verify   # 本地全部门禁：lint + 全量测试 + 覆盖率 + 追溯 + 
 
 - [ ] 改动目标清晰，范围聚焦，无无关文件
 - [ ] 与现有架构和约定一致
-- [ ] 需求台账与状态已同步推进，测试里标注了 `REQ-NNN`
+- [ ] 需求台账与状态已同步推进，测试里标注了 `REQ-NNN`（子需求用 `REQ-NNN.S`）
 - [ ] 测试覆盖新行为与失败路径，且全部通过
 - [ ] 无硬编码密钥、调试输出或临时代码
 - [ ] 错误信息可操作，不会静默失败

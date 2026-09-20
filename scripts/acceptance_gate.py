@@ -7,6 +7,9 @@
 本脚本校验「报告确实存在、确实覆盖了本批需求、每条 AC 都打勾、全量测试结果有记录」。
 独立性靠流程保证（报告里必须声明 reviewer 与「未参与实现」），CI 只能校验留痕。
 模板见 docs/verification/TEMPLATE.md。
+
+批次里可以写子需求编号（`REQ-NNN.S`，见 docs/requirements/README.md §6.1）：
+写父需求就逐条核对父需求自己的 AC，写子需求就只核对那个子需求小节的 AC。
 """
 
 import argparse
@@ -15,17 +18,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+import req_registry
 from pr_body_guard import section, strip_comments
 
 ROOT = Path(__file__).resolve().parents[1]
-REQUIREMENTS_DIR = ROOT / "docs" / "requirements"
 VERIFICATION_DIR = ROOT / "docs" / "verification"
-REQ_RE = re.compile(r"REQ-\d{3}")
-AC_RE = re.compile(r"\*\*AC-(\d+)\*\*")
+REQ_RE = req_registry.REQ_ID_RE
 FRONT_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 PASSED_RE = re.compile(r"\d+\s+passed")
-# 报告按需求分节时的小标题，如 "### REQ-003 run-store 台账"
-REQ_SECTION_RE = re.compile(r"^#{2,4}\s*(REQ-\d{3})\b.*$", re.MULTILINE)
+# 报告按需求分节时的小标题，如 "### REQ-003 run-store 台账" / "### REQ-009.2 摘要缓存"
+REQ_SECTION_RE = re.compile(rf"^#{{2,4}}\s*({req_registry.REQ_ID_RE.pattern})\b.*$", re.MULTILINE)
 # 报告里举例说明「未打勾的 AC 长什么样」是正常写作，不该被判成结论：
 # 扫 AC 之前先剔除围栏代码块、引用块与行内代码（REQ-007 的评审者因此被误判过）。
 FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
@@ -51,17 +53,13 @@ def parse_front_matter(text: str) -> dict:
 
 
 def requirement_entry(req_id: str):
-    """返回该需求条目的路径；不存在返回 None。"""
-    matches = sorted(REQUIREMENTS_DIR.glob(f"{req_id}-*.md"))
-    return matches[0] if matches else None
+    """返回该编号所属的需求条目路径；不存在返回 None（子需求随父需求的文件）。"""
+    return req_registry.entry_path(req_id)
 
 
 def requirement_ac_ids(req_id: str) -> list:
-    """从需求条目里取出 AC 编号，如 ['1', '2']。"""
-    entry = requirement_entry(req_id)
-    if entry is None:
-        return []
-    return AC_RE.findall(entry.read_text(encoding="utf-8"))
+    """从需求条目里取出该编号**自己**的 AC 编号，如父需求 ['1', '2']、子需求 ['2.1']。"""
+    return req_registry.ac_ids(req_id)
 
 
 def req_sections(text: str) -> dict:
@@ -105,12 +103,13 @@ def scannable(text: str) -> str:
 
 
 def checked(body: str, ac: str) -> bool:
-    # 允许 `- [x] AC-1` 与 Markdown 粗体 `- [x] **AC-1**` 两种写法
-    return re.search(rf"-\s*\[[xX]\]\s*\*{{0,2}}AC-{ac}\b", scannable(body)) is not None
+    # 允许 `- [x] AC-1` 与 Markdown 粗体 `- [x] **AC-1**` 两种写法。
+    # `AC-1` 后必须不是小数点或数字：否则子需求的 `**AC-1.2**` 会把父需求的 AC-1 判成已打勾。
+    return re.search(rf"-\s*\[[xX]\]\s*\*{{0,2}}AC-{re.escape(ac)}(?![.\d])", scannable(body)) is not None
 
 
 def unchecked(body: str, ac: str) -> bool:
-    return re.search(rf"-\s*\[\s\]\s*\*{{0,2}}AC-{ac}\b", scannable(body)) is not None
+    return re.search(rf"-\s*\[\s\]\s*\*{{0,2}}AC-{re.escape(ac)}(?![.\d])", scannable(body)) is not None
 
 
 def changed_files(base: str, head: str) -> list:
@@ -167,13 +166,22 @@ def evaluate(body: str, reports: list, paths=None) -> list:
     if not batch:
         problems.append("验收 PR 必须写明本批包含的 REQ-NNN（写在「## 需求编号」里）")
         return problems
-    # 批次编号必须真实登记，否则「写一个不存在的 REQ」就能让 AC 校验无从下手
-    unknown = [req for req in batch if requirement_entry(req) is None]
+    # 批次编号必须真实登记，否则「写一个不存在的 REQ」就能让 AC 校验无从下手。
+    # 子需求与父需求分别报错：前者的父文件在、只是缺 `### REQ-NNN.S` 小节。
+    unknown = [req for req in batch if req not in req_registry.registered_ids()]
     if unknown:
-        problems.append(
-            f"批次中的需求编号在 docs/requirements/ 下不存在：{', '.join(unknown)}；"
-            "请先登记需求，或把编号改对"
-        )
+        missing_parents = [req for req in unknown if requirement_entry(req) is None]
+        missing_subs = [req for req in unknown if requirement_entry(req) is not None]
+        if missing_parents:
+            problems.append(
+                f"批次中的需求编号在 docs/requirements/ 下不存在：{', '.join(missing_parents)}；"
+                "请先登记需求，或把编号改对"
+            )
+        if missing_subs:
+            problems.append(
+                f"批次中的子需求编号未登记：{', '.join(missing_subs)}；"
+                "父需求文件里缺少对应的 `### REQ-NNN.S` 小节（见 docs/requirements/README.md §6.1）"
+            )
         return problems
     if not reports:
         problems.append(

@@ -21,6 +21,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import req_registry
+
 ROOT = Path(__file__).resolve().parents[1]
 TESTS_DIR = ROOT / "tests"
 SCOPE_PATH = ROOT / "docs" / "TEST_SCOPE.md"
@@ -32,7 +34,8 @@ CONFTEST_PATH = TESTS_DIR / "conftest.py"
 MAX_TEST_FILES = 40
 MAX_COLLECTED_CASES = 1600
 LAYERS = ("unit", "contract", "e2e", "integration")
-REQ_RE = re.compile(r"REQ-\d{3}")
+# 归属列可以写父需求 REQ-NNN，也可以写子需求 REQ-NNN.S（README.md §6.1）
+REQ_RE = req_registry.REQ_ID_RE
 ROW_RE = re.compile(r"^\|\s*`(tests/[^`]+)`\s*\|(.*)\|\s*$", re.MULTILINE)
 
 
@@ -130,18 +133,20 @@ def render(entries: list, collected: int) -> str:
         "归属为「基线」的测试覆盖需求体系建立前就已交付的能力，见",
         "[`docs/requirements/ledger.md`](requirements/ledger.md) 的「已交付基线」小节。",
         "把它们补齐到具体需求属于 Inbox 事项。",
+        "归属列可以写父需求 `REQ-NNN`，也可以写子需求 `REQ-NNN.S`，"
+        "见 [`docs/requirements/README.md`](requirements/README.md) §6.1。",
         "",
     ]
     return "\n".join(lines)
 
 
 def registered_requirement_ids() -> set:
-    """docs/requirements/ 下已登记的需求编号（文件名前 7 位，如 REQ-007）。"""
-    return {path.name[:7] for path in REQUIREMENTS_DIR.glob("REQ-*.md")}
+    """已登记的需求编号：父需求 REQ-NNN 与其子需求 REQ-NNN.S（见 req_registry）。"""
+    return req_registry.registered_ids()
 
 
 def ownership_problems(entries: list) -> list:
-    """归属列里出现的 REQ-NNN 必须已登记（曾出现过 REQ-999 悬空编号）。"""
+    """归属列里出现的 REQ-NNN / REQ-NNN.S 必须已登记（曾出现过 REQ-999 悬空编号）。"""
     registered = registered_requirement_ids()
     problems = []
     for entry in entries:

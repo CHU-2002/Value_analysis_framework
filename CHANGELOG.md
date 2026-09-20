@@ -19,6 +19,11 @@
 
 ### Changed
 
+- 需求模型改为「大特性 + 子需求」：`REQ-NNN` 表示一整块用户可见的能力，其内部可独立交付、
+  独立验收的切片写成子需求 `REQ-NNN.S`（AC 编号 `AC-S.n`，写在父需求文件的「## 子需求」小节）。
+  规则见 `docs/requirements/README.md` §6.1；`scripts/req_registry.py` 是编号解析的唯一来源，
+  验收 / 追溯 / 测试 scope 三个门禁据此支持子需求编号；追溯门禁新增不变量
+  「父需求的状态不得比它最慢的子需求更靠前」，防止拆子需求变成偷偷少验收
 - CI 提速与简化：8 个 job 收敛为 1 个 `ci` + 1 个 `ci-success` 汇总；测试只装新的
   `requirements-test.txt`（最小依赖集，site-packages 618MB→357MB）；`pytest -n auto`
   并行（本机串行约 55s→约 30s）；默认只跑 Python 3.12，最低支持版本 3.10 改为手动触发核验

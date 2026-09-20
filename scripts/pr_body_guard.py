@@ -6,7 +6,8 @@
 - 所有 PR：**必须填「需求编号」小节**（它是「本批需求」的唯一权威来源，正文提及
   不能替代），并填「研发自测（手工）」。
   自动化测试只能证明既有的断言，新功能的行为是否符合预期必须有人手工验过，
-  并把步骤与观察结果写下来。
+  并把步骤与观察结果写下来。子需求写完整编号 `REQ-NNN.S`（见
+  docs/requirements/README.md §6.1）。
 - 特性分支合入 `main` 的 PR：额外填「验收报告」，指向 docs/verification/ 下的报告文件。
 
 CI 用本脚本拦住空栏；判断的是「有没有认真填」，不是「填得好不好」。
@@ -19,7 +20,7 @@ from pathlib import Path
 
 SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
-REQ_RE = re.compile(r"REQ-\d{3}")
+REQ_RE = re.compile(r"REQ-\d{3}(?:\.\d+)?")
 PLACEHOLDERS = {"", "-", "tbd", "无", "n/a", "na", "待填", "略", "不适用", "待补"}
 
 SELFTEST_HEADING = "研发自测（手工）"
@@ -62,7 +63,8 @@ def evaluate(body: str, base: str) -> list:
     if not meaningful(requirements, 5):
         problems.append(
             f"「## {REQUIREMENT_HEADING}」为空或只有占位：必须真的填上本 PR 服务的 REQ-NNN"
-            "（子任务也要写它服务的需求）——该小节是「本批需求」的唯一权威来源，"
+            "（子任务也要写它服务的需求；子需求写完整编号 REQ-NNN.S）"
+            "——该小节是「本批需求」的唯一权威来源，"
             "正文其它地方提到编号不能替代；尚未登记请先读 docs/requirements/README.md"
         )
 

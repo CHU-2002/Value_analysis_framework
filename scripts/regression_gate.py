@@ -25,7 +25,9 @@ REGRESSION_DIR = ROOT / "docs" / "regression"
 FRONT_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 FEATURE_RE = re.compile(r"^feat(\(|:|!)")
 MERGE_RE = re.compile(r"^Merge pull request")
-REQ_RE = re.compile(r"REQ-\d{3}")
+REQ_RE = re.compile(r"REQ-\d{3}(?:\.\d+)?")
+# 「逐条验收」小节里至少要有这些东西之一，否则视为空壳
+CONCLUSION_RE = re.compile(r"-\s*\[[ xX]\]\s*\*{0,2}(AC-\d+(?:\.\d+)?|REQ-\d{3}(?:\.\d+)?)")
 RECORD_REQUIRED_FIELDS = ("date", "covered-until", "reviewer", "full-suite")
 THRESHOLD = 3
 
@@ -129,7 +131,7 @@ def validate_record(record: dict) -> list:
         problems.append(
             f"{path.name} 缺少「## 逐条验收」小节：至少要给出本批需求的 AC 结论或验收报告链接"
         )
-    elif not re.search(r"-\s*\[[ xX]\]\s*\*{0,2}(AC-\d+|REQ-\d+)", section) \
+    elif not CONCLUSION_RE.search(section) \
             and "docs/verification" not in section \
             and "无功能改动" not in section:
         problems.append(
@@ -161,7 +163,7 @@ def draft(main_ref: str) -> str:
         f"covered-until: {sha}\n"
         "reviewer: TBD（必须是没有参与本批实现的独立评审者）\n"
         "independence: independent\n"
-        "requirements: TBD（本批涉及的 REQ-NNN，逗号分隔）\n"
+        "requirements: TBD（本批涉及的 REQ-NNN，含子需求则写 REQ-NNN.S，逗号分隔）\n"
         f"full-suite: TBD（形如 \"N passed / N skipped，覆盖率 X%\"）\n"
         "coverage: TBD\n"
         "---\n"
@@ -185,6 +187,8 @@ def draft(main_ref: str) -> str:
         "### REQ-00X <标题>\n"
         "\n"
         "- [x] **AC-1**：\n"
+        "\n"
+        "<!-- 子需求单独一行：`### REQ-00X.S <标题>` 配 `- [x] **AC-S.1**` -->\n"
         "\n"
         "## 结论\n"
         "\n"
