@@ -8,6 +8,7 @@ These tests pin the two paths that an independent review found inconsistent.
 # 覆盖需求：REQ-005（增量更新文档与下游接线）—— AC-1 命令必须经 runs.py resolve
 # 取 run_dir，不得把公司目录直接交给 resolver；AC-2 双布局下命令仍可用
 # REQ-006 任务 T2（门禁与治理工具加固）—— AC-5 扁平路径守卫扫全仓、新增消费者目录自动覆盖
+# 覆盖需求：REQ-006.1 —— AC-1.3 文档 Step 4 必须传 runs.py 签发的 --run-id
 import os
 import re
 from pathlib import Path
@@ -187,11 +188,17 @@ def test_downstream_docs_resolve_the_run_directory(doc):
 EXCLUDED_GUARD_DIRS = {".git", ".venv", "output", "docs", "tests", "node_modules", "__pycache__"}
 
 
+def _is_excluded_dir(name: str) -> bool:
+    """并行开发的 git worktree（`.wt-*`）不是仓库内容：它们是同一份代码的另一份检出，
+    扫进来会让本文件误报（2026-09-20 并行修 REQ-006.1 时实测）。"""
+    return name in EXCLUDED_GUARD_DIRS or name.startswith(".wt-")
+
+
 def _prompt_docs(root=None):
     """提示词/规范树里的所有 .md 文件。"""
     base = ROOT if root is None else Path(root)
     for dirpath, dirnames, filenames in os.walk(base):
-        dirnames[:] = [name for name in dirnames if name not in EXCLUDED_GUARD_DIRS]
+        dirnames[:] = [name for name in dirnames if not _is_excluded_dir(name)]
         for name in filenames:
             if name.endswith(".md"):
                 yield Path(dirpath) / name
@@ -254,3 +261,22 @@ def test_prompt_docs_scan_covers_new_directories_and_skips_excluded_ones(tmp_pat
     names = {doc.relative_to(tmp_path).as_posix() for doc in _prompt_docs(tmp_path)}
     assert "brand-new-consumer/spec.md" in names
     assert "docs/note.md" not in names
+
+
+def test_incremental_prepare_step_passes_the_ledger_run_id():
+    """AC-1.3：增量 run 的 Step 4 必须把 `runs.py new` 签发的 run_id 传给 prepare。
+
+    回归（2026-09-20 实跑）：文档漏传 --run-id，prepare 自己另生成一个，
+    台账 id 与 run 内部 id 静默分叉。
+    """
+    content = (ROOT / "docs/PERIODIC_UPDATE_PLAN.md").read_text(encoding="utf-8")
+    assert "prepare --run-id {run_id} --primary-period" in content
+    assert "否则台账 id 与 run.json 分叉" in content, "文档要写清为什么必须传 --run-id"
+
+
+def test_guard_scan_ignores_parallel_worktrees(tmp_path):
+    """AC-5 的补丁：`.wt-*`（并行 worktree）不参与提示词扫描。"""
+    (tmp_path / ".wt-ac11" / "shared").mkdir(parents=True)
+    (tmp_path / ".wt-ac11" / "shared" / "note.md").write_text("x", encoding="utf-8")
+    names = {doc.relative_to(tmp_path).as_posix() for doc in _prompt_docs(tmp_path)}
+    assert names == set()

@@ -206,7 +206,9 @@ python3 scripts/download_report.py --stock-code 600887 --report-type auto --sinc
        1. runs.py new：归档指针、签发 run_id、创建 runs/{run_id}/inputs/
        2. 拉最新期次（PR1）+ 章节解析 + 脚注抽取
        3. 刷新 data_pack_market.md 并快照进 inputs/
-       4. prepare --primary-period：生成 evidence / contexts（inputs 全部来自快照）
+       4. prepare --run-id {run_id} --primary-period：生成 evidence / contexts
+          （inputs 全部来自快照；`--run-id` 必须用第 1 步 `runs.py new` 签发的 id，
+           否则台账 id 与 run.json 分叉——`prepare` 现在会直接报错）
        5. 四个核心模块重跑
        6. period_delta 模块：本期 vs 上次结论
        7. reconcile + synthesis：更新 qualitative_report.md（含「本次更新说明」）
