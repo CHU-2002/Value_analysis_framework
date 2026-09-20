@@ -28,7 +28,7 @@
 
 ### 环境要求
 
-- Python 3.10 或更高
+- Python 3.10 或更高（CI 默认只核验 3.12；3.10 用 Actions 的 `workflow_dispatch` 按需核）
 - [Tushare Pro](https://tushare.pro/) 账号和 Token（取 A 股数据时需要）
 - [Claude Code](https://claude.com/claude-code) 或 [OpenCode](https://opencode.ai)（用 slash command 时需要）
 

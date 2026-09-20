@@ -24,7 +24,7 @@ cd Value_analysis_framework
 bash init.sh
 ```
 
-- Python >= 3.10
+- Python >= 3.10（CI 默认只核验 3.12；3.10 用 Actions 的 `workflow_dispatch` 按需核）
 - 运行测试无需 Tushare Token（全部使用 mock 数据）
 - 仅在需要实时采集数据时配置 `TUSHARE_TOKEN`
 
@@ -133,7 +133,7 @@ CI 只有两个 job：一个干全部活，一个汇总（分支保护只认汇�
 
 合并条件（由分支保护强制）：
 
-- `ci-success` 通过（含 `pr-body`；「特性分支 → `main`」还含 `acceptance-gate` 与 `regression-gate`）；
+- `ci-success` 通过（其汇总的 `ci` job 里含 PR 描述检查；「特性分支 → `main`」还含独立验收与批量回归两步）；
 - 至少 1 个 review 批准，且 CODEOWNERS 指定的审阅人已批准；
 - 所有 review 对话已解决；
 - 分支与 `main` 同步（`strict` 模式）。

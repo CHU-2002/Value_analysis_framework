@@ -104,7 +104,9 @@ jobs:
           python scripts/regression_gate.py --check --main-ref origin/main
 
       # ---------- 最后跑全量：只有全量才能发现「新功能踩坏别处」 ----------
+      # if: always() —— 前面的门禁失败时也跑一次，好让一次 run 就拿到测试结果
       - name: Full suite with coverage gate
+        if: always()
         run: |
           python -m pytest -q -n auto \
             --cov=scripts \

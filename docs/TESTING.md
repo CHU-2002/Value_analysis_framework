@@ -69,7 +69,12 @@ make scope       # 看整体测试 scope 与预算使用率
   实测 site-packages 体积 618MB → 357MB。**新增测试若要 import 新包，必须同时加进它。**
 - **并行**：`pytest -n auto`（pytest-xdist）。本机串行约 55s → 并行约 30s；`make test/cov/unit` 同样并行。
 - **版本**：默认只跑 Python 3.12（与开发环境一致）。最低支持版本 3.10 用 Actions 手动触发
-  `workflow_dispatch` 并填 `python-version: "3.10"` 核验。
+  `workflow_dispatch` 并填 `python-version: "3.10"` 核验——**「支持 3.10」这条声明因此不再由每个 PR 自动保证**，
+  README/CONTRIBUTING 已据此写明。要恢复自动核验，加回一个只跑测试的 3.10 job 即可（成本很小，
+  但它会多占一份 CI 资源）。
+- **取舍**：所有检查串在同一个 job 里，因此**早期检查失败会跳过后面的批量回归与全量测试**。
+  合并条件没有放宽（`ci-success` 仍要求整个 job 成功），但一次 run 可能只暴露第一个问题；
+  为此全量测试步骤带 `if: always()`，失败时也能拿到测试结果。
 
 ## 5. 测试 scope 与预算
 
