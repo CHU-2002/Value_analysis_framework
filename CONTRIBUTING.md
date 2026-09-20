@@ -122,16 +122,14 @@ Closes #42
 
 每个 PR 会自动运行 [CI](.github/workflows/ci.yml)，包含：
 
-| 检查 | 内容 |
-|------|------|
-| `pytest (3.10)` / `pytest (3.12)` | **全量**测试 + 覆盖率门禁（≥ 74%） |
-| `lint` | 编译检查与空白/冲突标记检查 |
-| `test-scope` | 测试 scope 登记表是否最新、是否超预算 |
-| `pr-title` | PR 标题符合 Conventional Commits，且不超过 72 字符 |
-| `pr-body` | PR 描述必须有需求编号与**研发自测（手工）**栏 |
-| `acceptance-gate` | 仅「特性分支 → `main`」：必须有独立验收报告且每条 AC 打勾 |
-| `regression-gate` | 仅「特性分支 → `main`」：main 每累积 3 个特性必须有批量回归记录 |
-| `ci-success` | 汇总以上检查，作为分支保护唯一必需的状态检查 |
+CI 只有两个 job：一个干全部活，一个汇总（分支保护只认汇总）。
+
+| job | 内容（按顺序） |
+|-----|----------------|
+| `ci` | ① 编译/空白检查（含相对基线的整段 diff）② 测试 scope 登记表与预算 ③ PR 标题（Conventional Commits，≤ 72 字符）④ PR 描述（需求编号 + 研发自测栏） ⑤ 独立验收报告（仅特性分支 → `main`）⑥ 批量回归记录（仅特性分支 → `main`） ⑦ **全量测试 + 覆盖率门禁（≥ 74%）** |
+| `ci-success` | 汇总 `ci` 结果，作为分支保护唯一必需的状态检查 |
+
+便宜的检查在前、全量测试在后：门禁不过就不用等测试。CI 默认只跑 Python 3.12（与开发环境一致），最低支持版本 3.10 在 Actions 里手动触发 `workflow_dispatch` 填 `python-version: "3.10"` 核验；只装 `requirements-test.txt`（测试真正 import 的最小集），并用 `pytest -n auto` 并行。
 
 合并条件（由分支保护强制）：
 

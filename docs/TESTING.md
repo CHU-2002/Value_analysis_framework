@@ -58,6 +58,19 @@ make scope       # 看整体测试 scope 与预算使用率
 > 没在算——最常见的原因是**机器休眠/挂起**（笔记本合盖），而不是测试变慢或进程抢占。
 > 这种情况重跑即可，不要据此修改测试、门禁或覆盖率基线。
 
+### CI 的形态（刻意保持简单）
+
+`.github/workflows/ci.yml` 只有两个 job：`ci`（干全部活）+ `ci-success`（汇总，分支保护只认它）。
+
+- **顺序**：便宜的门禁先跑（编译/空白检查 → scope → PR 标题 → PR 描述 → 独立验收 → 批量回归），
+  全量测试放最后；便宜检查失败就不用等测试。
+- **依赖**：CI 只装 [`requirements-test.txt`](../requirements-test.txt)——测试真正 import 的最小集。
+  它比 `requirements.txt` 少了 notebook 与绘图那层（`matplotlib` / `jupyter` / `ipykernel`），
+  实测 site-packages 体积 618MB → 357MB。**新增测试若要 import 新包，必须同时加进它。**
+- **并行**：`pytest -n auto`（pytest-xdist）。本机串行约 55s → 并行约 30s；`make test/cov/unit` 同样并行。
+- **版本**：默认只跑 Python 3.12（与开发环境一致）。最低支持版本 3.10 用 Actions 手动触发
+  `workflow_dispatch` 并填 `python-version: "3.10"` 核验。
+
 ## 5. 测试 scope 与预算
 
 CI 每个 PR 都跑全量，所以「测试总量」直接决定 CI 成本。我们不裁剪单次运行范围，

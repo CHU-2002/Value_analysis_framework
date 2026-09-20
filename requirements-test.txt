@@ -1,0 +1,24 @@
+# 跑测试所需的**最小**依赖集（CI 与本地 pre-push 校验用）。
+#
+# 为什么单独一份：requirements.txt 里还包含 notebook 与绘图那层
+# （notebooks/ 会用到，但测试完全不 import），装上它们只是白白拖慢 CI。
+# 实测 site-packages 体积 618MB → 357MB，CI 的 install 步骤快一截。
+#
+# 新增测试若要 import 新的第三方包，**必须同时加到这里**，否则 CI 会红。
+# 注意 pyarrow 不能省：`scripts/tushare_collector.py` 用 pandas 的 parquet
+# 缓存（`us_daily_all.parquet`），少了它相关测试会失败。
+pandas>=1.5.0
+numpy>=1.23.0
+requests>=2.28.0
+tushare>=1.2.89
+yfinance>=0.2.0
+pdfplumber>=0.9.0
+markdown>=3.4.0
+jinja2>=3.0.0
+tqdm>=4.60.0
+pyarrow>=10.0.0
+
+# Testing
+pytest>=7.0.0
+pytest-cov>=5.0.0
+pytest-xdist>=3.5.0

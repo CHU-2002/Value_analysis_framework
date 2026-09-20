@@ -17,6 +17,12 @@
   `Makefile` 本地校验入口（`make help` / `verify` / `cov` / `unit` / `trace`）
 ## [Unreleased]
 
+### Changed
+
+- CI 提速与简化：8 个 job 收敛为 1 个 `ci` + 1 个 `ci-success` 汇总；测试只装新的
+  `requirements-test.txt`（最小依赖集，site-packages 618MB→357MB）；`pytest -n auto`
+  并行（本机串行约 55s→约 30s）；默认只跑 Python 3.12，最低支持版本 3.10 改为手动触发核验
+
 ### Added
 
 - 门禁与治理工具加固（REQ-007）：`pr_body_guard` 要求「## 需求编号」小节必填（正文提及不算）、
