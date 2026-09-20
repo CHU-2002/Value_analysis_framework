@@ -70,6 +70,16 @@ supersedes: TBD
 | 测试 | `tests/test_discover_report.py`、`tests/test_download_report.py`、`tests/test_periods.py` |
 | 文档更新 | `README.md`、`CHANGELOG.md` |
 
+## 验收记录
+
+| 日期 | 依据 | 评审者 | 结论 |
+|------|------|--------|------|
+| 2026-09-19 / 2026-09-20 | 实现 PR ##13, #14（合入 main 后逐条核对验收标准） | 实现者自查 | **全部 AC 成立**。覆盖 AC-1…AC-7（四类发现与 secCode 过滤、auto/latest 不静默退化、期次互转、`--since` 拓宽窗口、`sources_index.json` 跳过与 `--force`、单条失败不中断整批、全 mock） |
+
+> 说明：本需求在「独立验收报告」机制（REQ-006）建立**之前**就已交付并核对，
+> 因此没有 `docs/verification/` 报告；REQ-003 起才要求独立评审者的报告 + 验收戳。
+> 保留这段记录是为了让台账的口径一致，不把「无报告」误读成「未验收」。
+
 ## 备注
 
 `--latest` 与周期模式 / `--url` 互斥的参数冲突已显式报错，避免参数被静默忽略。

@@ -63,6 +63,16 @@ supersedes: TBD
 | 测试 | `tests/test_comparable_periods.py`、`tests/test_prepare_primary_period.py` |
 | 文档更新 | `CHANGELOG.md` |
 
+## 验收记录
+
+| 日期 | 依据 | 评审者 | 结论 |
+|------|------|--------|------|
+| 2026-09-19 / 2026-09-20 | 实现 PR ##15（合入 main 后逐条核对验收标准） | 实现者自查 | **全部 AC 成立**。覆盖 AC-1…AC-4（补上年同期可比列、per-period `pdf_sections_{period}.json` 与主期次兼容副本、`prepare --primary-period`、兼容 `inputs/` 快照） |
+
+> 说明：本需求在「独立验收报告」机制（REQ-006）建立**之前**就已交付并核对，
+> 因此没有 `docs/verification/` 报告；REQ-003 起才要求独立评审者的报告 + 验收戳。
+> 保留这段记录是为了让台账的口径一致，不把「无报告」误读成「未验收」。
+
 ## 备注
 
 无。
