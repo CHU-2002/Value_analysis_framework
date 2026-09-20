@@ -376,7 +376,20 @@ def resolve_run(
 # ---------------------------------------------------------------------------
 
 
-def _parse_artifacts(run_path: Path, artifacts: Iterable[str] | dict[str, str] | None) -> dict[str, str]:
+def _parse_artifacts(artifacts: Iterable[str] | dict[str, str] | None) -> dict[str, str]:
+    """Validate ``--artifact name=path`` values into an absolute path map.
+
+    A relative path is resolved against the *caller's* cwd (``Path.cwd()``),
+    never against the run directory: the operator invokes ``runs.py`` from
+    wherever they are, and rebasing onto ``runs/<id>/`` used to silently record
+    double-prefixed paths such as ``runs/<id>/runs/<id>/x.json``.
+
+    Every value must name an existing file; a missing file raises
+    :class:`LedgerError`, so ``finish`` aborts before it writes any ledger file.
+    A name may appear at most once -- duplicates used to be silently overwritten
+    by the last value.
+    """
+
     resolved: dict[str, str] = {}
     if artifacts is None:
         return resolved
@@ -393,10 +406,16 @@ def _parse_artifacts(run_path: Path, artifacts: Iterable[str] | dict[str, str] |
     for name, path in items:
         if not name or not path:
             raise LedgerError("--artifact expects a non-empty name and path")
+        if name in resolved:
+            raise LedgerError(f"--artifact name given more than once: {name!r}")
         candidate = Path(path)
         if not candidate.is_absolute():
-            candidate = run_path / candidate
-        resolved[name] = str(candidate.resolve())
+            # Relative paths are cwd-relative, never run-dir-relative.
+            candidate = Path.cwd() / candidate
+        candidate = candidate.resolve()
+        if not candidate.is_file():
+            raise LedgerError(f"--artifact {name!r} does not exist: {path} (resolved to {candidate})")
+        resolved[name] = str(candidate)
     return resolved
 
 
@@ -444,7 +463,7 @@ def finish_run(
     if not periods and period:
         periods = [period]
 
-    artifact_map = _parse_artifacts(run_path, artifacts)
+    artifact_map = _parse_artifacts(artifacts)
     framework_meta = framework if framework is not None else framework_block()
     subject = run_meta.get("subject") if isinstance(run_meta.get("subject"), dict) else {}
     moment = utc_now(now)
@@ -1103,7 +1122,15 @@ def _build_parser() -> argparse.ArgumentParser:
     finish_parser.add_argument("--run-dir", required=True)
     finish_parser.add_argument("--status", default="complete", choices=RUN_STATUSES)
     finish_parser.add_argument("--primary-period")
-    finish_parser.add_argument("--artifact", action="append", default=[], help="name=path")
+    finish_parser.add_argument(
+        "--artifact",
+        action="append",
+        default=[],
+        help=(
+            "name=path of a produced artifact; the file must exist. Relative paths "
+            "resolve against the caller's cwd and are stored as absolute paths"
+        ),
+    )
     finish_parser.add_argument("--conclusion-changed", action="append", default=[])
     finish_parser.add_argument("--report-periods", help="comma separated periods")
     finish_parser.add_argument("--trigger-type", default="manual")
