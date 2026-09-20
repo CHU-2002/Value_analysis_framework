@@ -1,4 +1,5 @@
 """Tests for Stock Screener (选股器).
+# 覆盖需求：REQ-006.1 —— AC-1.2 token 不写 HOME、AC-1.10 重试必须用重建后的客户端
 
 Tests cover:
 - ScreenerConfig defaults, overrides, validation
@@ -267,12 +268,11 @@ class TestScreenerTokenInjection:
         finally:
             home.chmod(0o700)
 
-    def test_retry_reinjects_token_without_writing_home(self, tmp_path):
-        """The retry path rebuilds the client with the token, not via HOME.
+    def test_retry_actually_uses_the_rebuilt_client(self, tmp_path):
+        """AC-1.10: the retry must run on the rebuilt client, not the stale one.
 
-        Note: the retry loop keeps using the client captured before the except
-        block (pre-existing behaviour, out of scope here), so the call still
-        fails; this test only pins how the replacement client is built.
+        回归（开发中发现）：`pro` 原先取在循环外，except 里重建了 `self._pro` 却继续用旧对象，
+        三次尝试都打在坏客户端上，重试等于没做。
         """
         screener = _make_screener(tmp_path)
         old_pro = MagicMock()
@@ -285,10 +285,12 @@ class TestScreenerTokenInjection:
                 patch("tushare.set_token",
                       side_effect=PermissionError("read-only HOME")) as mock_set_token, \
                 patch("screener_core.time.sleep"):
-            with pytest.raises(RuntimeError, match="failed after 3 retries"):
-                screener._safe_call("income", ts_code="600887.SH")
+            frame = screener._safe_call("income", ts_code="600887.SH")
 
-        assert mock_pro_api.call_count == 2
+        assert list(frame["x"]) == [1], "重试必须真的换成重建后的客户端"
+        assert old_pro.income.call_count == 1
+        assert new_pro.income.call_count == 1
+        assert mock_pro_api.call_count == 1
         for args in mock_pro_api.call_args_list:
             assert args == (("test_token",), {"timeout": 30})
         mock_set_token.assert_not_called()

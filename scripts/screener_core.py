@@ -197,12 +197,16 @@ class TushareScreener:
         return self._pro
 
     def _safe_call(self, api_name: str, **kwargs) -> pd.DataFrame:
-        """Call Tushare API with retry (mirrors TushareClient._safe_call)."""
-        pro = self._get_pro()
+        """Call Tushare API with retry (mirrors TushareClient._safe_call).
+
+        客户端必须在**每次尝试时**重新取：重试分支会重建 `self._pro`，若在循环外取一次，
+        重建就白做了，三次尝试都打在同一个坏客户端上（REQ-006.1 AC-1.10，开发中发现）。
+        """
         last_err = None
         for attempt in range(1, 4):
             try:
                 time.sleep(0.5)
+                pro = self._get_pro()
                 api_func = getattr(pro, api_name)
                 return api_func(**kwargs)
             except Exception as e:
