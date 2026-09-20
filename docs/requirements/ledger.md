@@ -13,7 +13,7 @@
 | [REQ-003](REQ-003-run-history-ledger.md) | 分析迭代台账（run-store） | `verified` | P1 | #18 | #16 | `tests/test_version.py` `tests/test_runs_ledger.py` `tests/test_analysis_status.py` |
 | [REQ-004](REQ-004-period-delta-analysis.md) | 定期报告增量更新分析与变化报告 | `verified` | P1 | #19 | #17 | `tests/test_period_delta_module.py` `tests/test_change_report.py` `tests/test_prepare_prior_analysis.py` |
 | [REQ-005](REQ-005-periodic-update-docs.md) | 增量更新文档与下游接线 | `verified` | P2 | #20 | #22, #23, #27 | `tests/test_update_docs_contract.py` `tests/test_two_layout_e2e.py` |
-| [REQ-006](REQ-006-requirement-test-dev-flow.md) | 工程化开发流程（建立与持续维护） | `verified` | P1 | N/A | #25, #29, #30, #31 | `tests/test_release_gates.py` `tests/test_test_scope.py` `tests/test_update_docs_contract.py` `tests/test_two_layout_e2e.py`（追溯门禁自身即扫描器，按设计排除，故不列入声明） |
+| [REQ-006](REQ-006-requirement-test-dev-flow.md) | 工程化开发流程（建立与持续维护） | `in-progress` | P1 | N/A | #25, #29, #30, #31, #34, #35 | `tests/test_release_gates.py` `tests/test_test_scope.py` `tests/test_update_docs_contract.py` `tests/test_two_layout_e2e.py`（追溯门禁自身即扫描器，按设计排除，故不列入声明） |
 | [REQ-007](REQ-007-governance-hardening.md) | 门禁与治理工具加固 | `superseded` | P2 | N/A | #29 | 已并入 REQ-006 任务 T2（文件与报告留作证据） |
 | [REQ-008](REQ-008-coverage-debt.md) | 覆盖率洼地补测 | `superseded` | P2 | TBD | TBD | 已并入 REQ-006 任务 T4（本文件即 T4 的规格） |
 
@@ -30,8 +30,8 @@
 
 | ID | 父需求 | 标题 | 状态 | 实现 PR | 关联测试 |
 |----|--------|------|------|---------|----------|
+| [REQ-006.1](REQ-006-requirement-test-dev-flow.md) | REQ-006 | 财报分析端到端实跑加固与实跑验收规则 | `in-progress` | #36 | `tests/test_release_gates.py` `tests/test_update_docs_contract.py` |
 
-（暂无：现有 REQ-001…REQ-006 都在子需求机制之前登记，按 §6.1 不回填重构。）
 
 ## 里程碑
 
