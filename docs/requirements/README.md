@@ -83,6 +83,11 @@ REQ-NNN                 ARCHITECTURE / *_PLAN          issue → feat/* → PR
   | 已交付需求里**没做完**的验收标准 | 该需求状态回退 `in-progress`，不开新需求 |
 
 - 一条需求内部的阶段可以分批交付（用 `depends-on` 与 `pr` 记录），不要为每一批开新号。
+- **常设需求**：某些领域是持续维护的（如「工程化开发流程」），做法是**一条需求 + 一张任务清单**：
+  需求本身保留该领域的能力判据（AC），具体工作包写成任务（带状态与证据），不各占一个编号。
+  参见 [`REQ-006`](REQ-006-requirement-test-dev-flow.md) 的「## 任务清单」。
+  （反面教材：2026-09-20 我先后为这块开了 REQ-007、REQ-008、REQ-009，被使用者纠正后
+  全部并入 REQ-006 的任务，编号置 `superseded`。）
 
 ## 7. 新增一条需求
 
@@ -135,6 +140,6 @@ Issue 在**验收通过后**才关闭（`verified`），不在 PR 合并时自�
 | [REQ-003](REQ-003-run-history-ledger.md) | 分析迭代台账（run-store） | `verified` |
 | [REQ-004](REQ-004-period-delta-analysis.md) | 定期报告增量更新分析与变化报告 | `verified` |
 | [REQ-005](REQ-005-periodic-update-docs.md) | 增量更新文档与下游接线 | `verified` |
-| [REQ-006](REQ-006-requirement-test-dev-flow.md) | 需求-测试-开发流程与三道门 | `verified` |
-| [REQ-007](REQ-007-governance-hardening.md) | 门禁与治理工具加固 | `verified` |
-| [REQ-008](REQ-008-coverage-debt.md) | 覆盖率洼地补测 | `proposed` |
+| [REQ-006](REQ-006-requirement-test-dev-flow.md) | 工程化开发流程（建立与持续维护） | `verified` |
+| ~~REQ-007~~ | 门禁与治理工具加固 → 并入 REQ-006 的 T2 | `superseded` |
+| ~~REQ-008~~ | 覆盖率洼地补测 → 并入 REQ-006 的 T4 | `superseded` |

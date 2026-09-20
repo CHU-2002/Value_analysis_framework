@@ -1,6 +1,6 @@
 ---
 id: REQ-006
-title: 需求-测试-开发流程与三道门
+title: 工程化开发流程（建立与持续维护）
 status: verified
 priority: P1
 owner: CHU-2002
@@ -14,7 +14,7 @@ depends-on: REQ-001, REQ-002, REQ-003, REQ-004, REQ-005
 supersedes: TBD
 ---
 
-# REQ-006 需求-测试-开发流程与三道门
+# REQ-006 工程化开发流程（建立与持续维护）
 
 ## 背景与问题
 
@@ -30,6 +30,20 @@ supersedes: TBD
 - 让「特性分支 → `main`」必须经过**独立验收**（独立 agent 跑全量测试 + 逐条核对验收标准）。
 - 让 `main` 在**累积若干需求后**必须补一次全量回归，而不是永远不跑。
 - 控制 CI 总量的方向是**维护整体测试 scope**，不是裁剪单个 PR 的测试范围。
+- **本需求是常设的**：这套流程自身的持续维护（门禁加固、测试覆盖补强、模板与文档校正）
+  都算它的工作，以「## 任务清单」记录，**不新开需求编号**。
+
+## 任务清单
+
+本需求下的工作包。子项是**任务**，不是需求：编号只给新能力（见
+[`README.md`](README.md) §6 粒度规则）。
+
+| # | 工作包 | 状态 | 证据 |
+|---|--------|------|------|
+| T1 | 建立需求台账、测试策略与三道门（分支模型、CI 作业、PR/验收/回归模板） | 完成 | PR #25；验收 [`2026-09-20-REQ-006.md`](../verification/2026-09-20-REQ-006.md) |
+| T2 | 门禁加固 8 项：需求编号小节必填、scope 归属编号校验、失败路径单测、回归记录内容校验、扁平路径守卫扫全仓、增量 run 跑通 `prepare --prior-analysis`、prose 去脆化、夹具去 `develop` | 完成 | PR #29；验收 [`2026-09-20-REQ-007.md`](../verification/2026-09-20-REQ-007.md)（原 REQ-007，已并入本需求） |
+| T3 | 验收报告容忍举例（扫描前剔除引用块/代码块/行内代码）；`test_scope --check` 比对归属列**内容** | 完成 | 见本需求的「维护与合并记录」（交付 PR 号在合入后回填） |
+| T4 | 覆盖深度补强：`valuation_engine` 34%→60%、`portfolio_engine` 47%→70%、三个 0% 脚本逐个判定、总覆盖率→80% 并把门禁提到 ≥78% | 未开始 | 任务说明见 [`REQ-008`](REQ-008-coverage-debt.md)（该编号已并入本需求，文件保留作 T4 的规格） |
 
 ## 验收标准
 
@@ -46,6 +60,8 @@ supersedes: TBD
   （`scripts/regression_gate.py`）。
 - **AC-5**：整体测试 scope 有登记表（`docs/TEST_SCOPE.md`）与预算（文件数 / 用例数上限），
   由 `scripts/test_scope.py --check` 强制：新增或删除测试文件必须同步登记表，超预算必须先清理。
+- **AC-7**：本需求下的工作以「## 任务清单」记录，每项有状态与证据；对既有门禁的修正**只允许更准或更严**，
+  不得放宽任何既有判定（每次修正都要有独立验收确认这一点）。
 - **AC-6**：本地 `make verify` 覆盖 CI 中**对仓库内容**的全部检查——编译/空白检查（含相对基线的
   整段 diff）、全量测试、覆盖率门禁、追溯门禁、测试 scope 检查、批量回归门禁；依赖 PR 元数据的
   `pr-title` / `pr-body` / `acceptance-gate` 由 CI 执行，`make gates` 给出本地预演方式。
@@ -86,8 +102,8 @@ supersedes: TBD
 | 项 | 内容 |
 |----|------|
 | 设计文档 | `docs/DEVELOPMENT.md`、`docs/TESTING.md` |
-| 实现 PR | #25（已合入 `22fe7fe`） |
-| 测试 | `tests/test_release_gates.py`、`tests/test_requirement_traceability.py` |
+| 实现 PR | #25（建立，`22fe7fe`）、#29（门禁加固，`c65b47e`）、#30（验收戳）、#31；T3 见本 PR |
+| 测试 | `tests/test_release_gates.py`、`tests/test_requirement_traceability.py`、`tests/test_test_scope.py`、`tests/test_update_docs_contract.py`、`tests/test_two_layout_e2e.py` |
 | 文档更新 | `docs/DEVELOPMENT.md`、`docs/TESTING.md`、`CONTRIBUTING.md`、`README.md`、`CHANGELOG.md` |
 
 ## 验收记录
@@ -95,6 +111,13 @@ supersedes: TBD
 | 日期 | 复验 sha | 合并 | 评审者 | 报告 | 结论 |
 |------|----------|------|--------|------|------|
 | 2026-09-20 | `a0d5ef6` | `22fe7fe`（#25） | 独立 agent（无上下文，未参与实现） | [`docs/verification/2026-09-20-REQ-006.md`](../verification/2026-09-20-REQ-006.md) | **AC-1…AC-6 全部成立**（共五轮复验：首轮与二轮 AC-6 不成立 → 两轮修复 → 三轮通过；CI 首次真实运行又暴露门禁自身缺陷 → 修复批次语义与两处加固 → 收尾轮与第 5 轮复核通过；其中 AC-6 条款变更经需求 owner 批准并留痕） |
+
+## 维护与合并记录
+
+- 2026-09-20：原 **REQ-007（门禁与治理工具加固）** 与 **REQ-008（覆盖率洼地补测）** 的内容并入
+  本需求的任务清单 T2 / T4，两个编号置 `superseded`（保留不复用）。原因：使用者指出
+  「维护开发流程」应当是**一条**需求，零散修正不该各占编号。
+- 2026-09-20：原本为 T3 新开的 REQ-009 在合入前撤回，直接作为 T3 并入本需求。
 
 ## 备注
 

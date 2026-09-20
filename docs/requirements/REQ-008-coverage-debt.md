@@ -1,7 +1,7 @@
 ---
 id: REQ-008
 title: 覆盖率洼地补测
-status: proposed
+status: superseded
 priority: P2
 owner: CHU-2002
 created: 2026-09-20
@@ -11,10 +11,14 @@ design: docs/TESTING.md
 milestone: 工程化流程
 pr: TBD
 depends-on: REQ-006
-supersedes: TBD
+superseded-by: REQ-006
 ---
 
-# REQ-008 覆盖率洼地补测
+# REQ-008 覆盖率洼地补测（已并入 REQ-006，作为任务 T4 的规格）
+
+> **状态：`superseded`（2026-09-20）** —— 本需求作为 **T4** 并入
+> [`REQ-006 工程化开发流程（建立与持续维护）`](REQ-006-requirement-test-dev-flow.md) 的任务清单。
+> 编号保留、不复用；下面的验收标准继续作为 T4 的完成判据。
 
 ## 背景与问题
 

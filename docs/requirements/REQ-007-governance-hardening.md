@@ -1,7 +1,7 @@
 ---
 id: REQ-007
 title: 门禁与治理工具加固
-status: verified
+status: superseded
 priority: P2
 owner: CHU-2002
 created: 2026-09-20
@@ -11,10 +11,14 @@ design: docs/DEVELOPMENT.md
 milestone: 工程化流程
 pr: "#29"
 depends-on: REQ-006
-supersedes: TBD
+superseded-by: REQ-006
 ---
 
-# REQ-007 门禁与治理工具加固
+# REQ-007 门禁与治理工具加固（已并入 REQ-006）
+
+> **状态：`superseded`（2026-09-20）** —— 本需求的内容已作为 **T2** 并入
+> [`REQ-006 工程化开发流程（建立与持续维护）`](REQ-006-requirement-test-dev-flow.md) 的任务清单。
+> 编号保留、不复用；本文件与其验收报告继续作为该项工作的规格与证据。
 
 ## 背景与问题
 

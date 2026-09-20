@@ -2,7 +2,7 @@
 
 覆盖需求：REQ-006（需求-测试-开发流程与三道门）—— AC-2 研发自测必填、
 AC-3 独立验收报告、AC-4 批量回归阈值。
-REQ-007（门禁与治理工具加固）—— AC-1 需求编号小节必填、AC-4 空的逐条验收小节被拒、
+REQ-006 任务 T2（门禁与治理工具加固）—— AC-1 需求编号小节必填、AC-4 空的逐条验收小节被拒、
 AC-8 夹具不用已废弃分支名。
 """
 
@@ -335,7 +335,7 @@ def test_regression_record_rejects_an_empty_acceptance_section(tmp_path):
 
 
 def test_acceptance_gate_ignores_ac_examples_in_quotes_and_code(tmp_path):
-    """报告里字面举例「未打勾的 AC 长什么样」不该被判成结论（REQ-007 评审者踩过）。"""
+    """报告里字面举例「未打勾的 AC 长什么样」不该被判成结论（REQ-006 评审者踩过）。"""
     acs = acceptance_gate.requirement_ac_ids("REQ-005")
     checked = "\n".join(f"- [x] **AC-{ac}**：符合预期" for ac in acs)
     report = tmp_path / "batch.md"
