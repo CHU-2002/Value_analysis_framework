@@ -54,8 +54,8 @@ full-suite: 见正文
 """
 
 
-def _report(tmp_path, body):
-    path = tmp_path / "2026-09-20-REQ-005.md"
+def _report(tmp_path, body, name="2026-09-20-REQ-005.md"):
+    path = tmp_path / name
     path.write_text(body, encoding="utf-8")
     return path
 
@@ -545,3 +545,34 @@ def test_verified_promotions_reads_real_git_history(tmp_path):
     _demo_git(repo, "add", "-A")
     _demo_git(repo, "commit", "-qm", "five")
     assert acceptance_gate.verified_promotions("HEAD~1", "HEAD", repo) == {DEMO_PARENT, DEMO_SUB}
+
+
+def test_acceptance_gate_requires_a_live_run_record_when_the_ac_demands_one(tmp_path):
+    """REQ-006.1 的验收标准要求实跑：收口报告必须有「## 实跑记录」且含可复制命令。
+
+    回归（2026-09-20 真实财报分析实跑暴露 6 个问题）：只有 mock 测试的报告不算验收证据。
+    """
+    checked = "\n".join(
+        f"- [x] **AC-{ac}**：符合预期" for ac in acceptance_gate.requirement_ac_ids("REQ-006.1")
+    )
+    front = VERIFICATION_FRONT.replace("requirements: REQ-005", "requirements: REQ-006.1")
+    without = _report(tmp_path, front + "\n## 逐条验收\n\n" + checked + "\n", name="no-live.md")
+    problems = acceptance_gate.evaluate(review_body("REQ-006.1"), [without], {"REQ-006.1"})
+    assert any("实跑记录" in problem for problem in problems), problems
+
+    with_live = _report(
+        tmp_path,
+        front
+        + "\n## 逐条验收\n\n"
+        + checked
+        + "\n## 实跑记录\n\n环境：只读 HOME，真实 token。\n\n"
+        "```bash\npython scripts/tushare_collector.py --stock 000651\n```\n",
+        name="live.md",
+    )
+    assert acceptance_gate.evaluate(review_body("REQ-006.1"), [with_live], {"REQ-006.1"}) == []
+
+
+def test_acceptance_gate_does_not_demand_a_live_run_for_mock_only_requirements():
+    """没写「实跑」的编号不受影响（REQ-005 全是 mock 可覆盖的判据）。"""
+    assert acceptance_gate.requires_live_run("REQ-006.1") is True
+    assert acceptance_gate.requires_live_run("REQ-005") is False

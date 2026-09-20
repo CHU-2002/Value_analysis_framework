@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REQUIREMENTS_DIR = ROOT / "docs" / "requirements"
 
-# 完整编号：父需求 REQ-009、子需求 REQ-009.2
+# 完整编号：父需求 REQ-006、子需求 REQ-006.1
 REQ_ID_RE = re.compile(r"REQ-\d{3}(?:\.\d+)?")
 # 子需求小节标题，如 "### REQ-009.2 摘要缓存"
 SUB_HEADING_RE = re.compile(r"^###[ \t]*(REQ-\d{3}\.\d+)\b[^\n]*$", re.MULTILINE)
@@ -126,3 +126,18 @@ def sub_status(req_id: str):
         return None
     match = SUB_STATUS_RE.search(body)
     return match.group(1) if match else None
+
+
+def scoped_text(req_id: str) -> str:
+    """该编号自己的正文范围：父需求取整篇，子需求只取它自己的小节。
+
+    验收门禁用它判断「这条要求的验收标准是否要求实跑」——外部数据源、运行环境、
+    真实载荷这三类问题 mock 测试发现不了，必须在收口报告里留下真实运行记录。
+    """
+    path = entry_path(req_id)
+    if path is None:
+        return ""
+    text = path.read_text(encoding="utf-8")
+    if not is_sub(req_id):
+        return text
+    return sub_sections(text).get(req_id, "")

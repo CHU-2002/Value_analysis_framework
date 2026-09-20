@@ -17,6 +17,15 @@
   `Makefile` 本地校验入口（`make help` / `verify` / `cov` / `unit` / `trace`）
 ## [Unreleased]
 
+### Added
+
+- 流程补上「实跑」这一环：验收标准里写了「实跑」的编号，收口报告必须带「## 实跑记录」
+  （含可复制命令），`scripts/acceptance_gate.py` 强制；实跑发现的问题当次登记为子需求或任务，
+  不允许只用运行时补丁绕过（见 `docs/requirements/README.md` §7.1、`docs/DEVELOPMENT.md` §4.1）
+- 新需求 `REQ-006.1`「财报分析端到端实跑加固」：一次真实运行暴露的 6 个问题 + 1 个流程观察，
+  拆成 5 个子需求（数据源与运行环境 / 文档接线与 resolver 口径 / 上下文预算与丢卡可见性 /
+  台账 artifact 校验 / 证据边界可执行化）
+
 ### Changed
 
 - 评审改为**按子需求/大特性收口**触发，不再每个 PR 都拉评审：只有把某个编号

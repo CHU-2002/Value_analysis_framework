@@ -36,7 +36,7 @@ FRONT_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 PASSED_RE = re.compile(r"\d+\s+passed")
 # 独立验收的触发状态：只有推进到 verified 才要求报告（implemented 只是「已合入待验收」）
 REVIEW_STATUS = "verified"
-# 报告按需求分节时的小标题，如 "### REQ-003 run-store 台账" / "### REQ-009.2 摘要缓存"
+# 报告按需求分节时的小标题，如 "### REQ-003 run-store 台账" / "### REQ-006.1 实跑加固"
 REQ_SECTION_RE = re.compile(rf"^#{{2,4}}\s*({req_registry.REQ_ID_RE.pattern})\b.*$", re.MULTILINE)
 # 报告里举例说明「未打勾的 AC 长什么样」是正常写作，不该被判成结论：
 # 扫 AC 之前先剔除围栏代码块、引用块与行内代码（REQ-007 的评审者因此被误判过）。
@@ -45,6 +45,11 @@ BLOCKQUOTE_RE = re.compile(r"^[ \t]*>.*$", re.MULTILINE)
 INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 REQUIRED_FIELDS = ("reviewer", "independence", "requirements", "full-suite")
 VERIFICATION_HEADING = "验收报告"
+# 验收标准里提到「实跑」的编号，必须在报告里留下真实运行记录：外部数据源、运行环境、
+# 真实载荷这三类问题 mock 测试发现不了（REQ-006.1 的实跑暴露了 6 个）。
+LIVE_RUN_HEADING = "实跑记录"
+LIVE_RUN_HINT = "实跑"
+COMMAND_BLOCK_RE = re.compile(r"```[a-zA-Z]*\n(.+?)```", re.DOTALL)
 
 
 def parse_front_matter(text: str) -> dict:
@@ -181,6 +186,21 @@ def verified_promotions(base: str, head: str, repo: Path = ROOT) -> set:
     return promoted
 
 
+def section_body(text: str, title: str) -> str:
+    """返回 `## <title>` 小节的正文；找不到返回空串。"""
+    match = re.search(rf"^##\s*{re.escape(title)}\s*$", text, re.MULTILINE)
+    if not match:
+        return ""
+    rest = text[match.end() :]
+    nxt = re.search(r"^##\s+", rest, re.MULTILINE)
+    return rest[: nxt.start()] if nxt else rest
+
+
+def requires_live_run(req_id: str) -> bool:
+    """该编号的验收标准是否要求实跑（提到「实跑」即视为要求）。"""
+    return LIVE_RUN_HINT in req_registry.scoped_text(req_id)
+
+
 def added_reports(base: str, head: str) -> list:
     """本 PR 新增/修改的验收报告（排除模板）。"""
     return [
@@ -282,6 +302,7 @@ def evaluate(body: str, reports: list, promoted=None) -> list:
     if not PASSED_RE.search(merged):
         problems.append("验收报告没有记录全量测试结果（需写明形如「1436 passed」的结果）")
 
+    live_run_missing = []
     for req in sorted(promoted):
         scoped = texts_for_requirement(texts, req)
         if not scoped:
@@ -292,6 +313,16 @@ def evaluate(body: str, reports: list, promoted=None) -> list:
                 problems.append(f"{req} 的 AC-{ac} 在验收报告中未打勾（仍是 `- [ ]`）")
             elif not any(checked(text, ac) for text in scoped):
                 problems.append(f"{req} 的 AC-{ac} 缺少结论（需写 `- [x] AC-{ac} …`）")
+        if requires_live_run(req) and not COMMAND_BLOCK_RE.search(
+            section_body(merged, LIVE_RUN_HEADING)
+        ):
+            live_run_missing.append(req)
+    if live_run_missing:
+        problems.append(
+            f"{', '.join(live_run_missing)} 的验收标准要求实跑，但报告里没有「## {LIVE_RUN_HEADING}」"
+            "小节（或其中没有可复制的命令）：外部数据源 / 运行环境 / 真实载荷这类判据不能只靠 "
+            "mock 测试验收，必须留下真实运行的命令、环境与观察"
+        )
     return problems
 
 
