@@ -8,14 +8,16 @@
   自动化测试只能证明既有的断言，新功能的行为是否符合预期必须有人手工验过，
   并把步骤与观察结果写下来。子需求写完整编号 `REQ-NNN.S`（见
   docs/requirements/README.md §6.1）。
-- 特性分支合入 `main` 的 PR：额外填「验收报告」，指向 docs/verification/ 下的报告文件。
+
+独立验收报告**不在这里要求**：评审按子需求/大特性收口，只在 PR 把编号状态推进到
+`verified` 时才需要报告，那条判定在 `scripts/acceptance_gate.py`（它需要看 diff，
+本脚本只有 PR 描述）。`--base` 参数保留以便 CI 不变。
 
 CI 用本脚本拦住空栏；判断的是「有没有认真填」，不是「填得好不好」。
 """
 
 import argparse
 import re
-import sys
 from pathlib import Path
 
 SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
@@ -24,7 +26,6 @@ REQ_RE = re.compile(r"REQ-\d{3}(?:\.\d+)?")
 PLACEHOLDERS = {"", "-", "tbd", "无", "n/a", "na", "待填", "略", "不适用", "待补"}
 
 SELFTEST_HEADING = "研发自测（手工）"
-VERIFICATION_HEADING = "验收报告"
 REQUIREMENT_HEADING = "需求编号"
 
 
@@ -56,8 +57,11 @@ def meaningful(text, min_chars: int = 15) -> bool:
     return len(re.sub(r"\s", "", "".join(kept))) >= min_chars
 
 
-def evaluate(body: str, base: str) -> list:
-    """返回问题列表；空列表表示通过。"""
+def evaluate(body: str, base: str = None) -> list:
+    """返回问题列表；空列表表示通过。
+
+    base 只作兼容保留（CI 仍传目标分支名）；独立验收报告的判定在 acceptance_gate。
+    """
     problems = []
     requirements = section(body, REQUIREMENT_HEADING)
     if not meaningful(requirements, 5):
@@ -74,21 +78,13 @@ def evaluate(body: str, base: str) -> list:
             f"「## {SELFTEST_HEADING}」为空或只有占位：请写明手工验了什么、怎么验、"
             "看到什么结果（命令 + 观察到的输出）。只跑自动化测试不算研发自测。"
         )
-
-    if base == "main":
-        verification = section(body, VERIFICATION_HEADING)
-        if not meaningful(verification, 10) or "docs/verification/" not in (verification or ""):
-            problems.append(
-                f"特性分支合入 main 的 PR 必须填「## {VERIFICATION_HEADING}」并链接 "
-                "docs/verification/ 下的独立验收报告（模板见 docs/verification/TEMPLATE.md）"
-            )
     return problems
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="校验 PR 描述必填栏")
     parser.add_argument("--body-file", required=True)
-    parser.add_argument("--base", required=True, help="PR 目标分支名，如 feat/xxx（子 PR）或 main（特性分支）")
+    parser.add_argument("--base", default=None, help="PR 目标分支名（保留参数，报告判定已移到 acceptance_gate）")
     args = parser.parse_args()
 
     body = Path(args.body_file).read_text(encoding="utf-8")

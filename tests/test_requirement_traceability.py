@@ -22,6 +22,7 @@
 import importlib.util
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -173,6 +174,37 @@ def _rel(path: Path) -> str:
         return str(path)
 
 
+def sub_placement_problems() -> list:
+    """子需求必须写在父需求文件的「## 子需求」小节里，且编号不得重复。
+
+    只按 `^### REQ-NNN.S` 全文搜索是不够的：写在「## 范围」下面的小节同样会被识别，
+    文档 §6.1 的「写在 ## 子需求 小节里」就成了空话；重复编号会被 dict 悄悄合并，
+    台账与 AC 只取到最后一段。
+    """
+    problems = []
+    for path in sorted(REQUIREMENTS_DIR.glob("REQ-*.md")):
+        text = path.read_text(encoding="utf-8")
+        headings = req_registry.SUB_HEADING_RE.findall(text)
+        if not headings:
+            continue
+        inside = set(
+            req_registry.SUB_HEADING_RE.findall(req_registry.named_section(text, "子需求"))
+        )
+        for sub_id in headings:
+            if sub_id not in inside:
+                problems.append(
+                    f"{_rel(path)} 的 {sub_id} 不在「## 子需求」小节里；"
+                    "子需求必须写在该小节下（README.md §6.1）"
+                )
+        for sub_id, count in sorted(Counter(headings).items()):
+            if count > 1:
+                problems.append(
+                    f"{_rel(path)} 里 {sub_id} 出现了 {count} 次；编号必须唯一，"
+                    "重复会让台账与 AC 只取到最后一段"
+                )
+    return problems
+
+
 def sub_requirement_problems() -> list:
     """子需求与其台账的一致性、编号写法问题；返回问题列表（空 = 通过）。"""
     problems = []
@@ -186,6 +218,7 @@ def sub_requirement_problems() -> list:
         )
     for sub_id in sorted(set(rows) - set(subs)):
         problems.append(f"台账里的子需求 {sub_id} 在需求文件里找不到 `### {sub_id}` 小节")
+    problems.extend(sub_placement_problems())
     for sub_id, sub in sorted(subs.items()):
         rel = _rel(sub["path"])
         index = sub_id.split(".", 1)[1]
@@ -370,7 +403,7 @@ updated: 2026-09-20
 
 - **AC-1**：整体可用。
 
-## 子需求
+{sub_section}
 
 ### {sub} 第一片
 
@@ -380,7 +413,7 @@ updated: 2026-09-20
   - {sub_ac}
 
 - 追溯：`tests/test_demo.py`
-"""
+{extra_sub}"""
 
 DEMO_LEDGER_DOC = """# 需求台账
 
@@ -399,7 +432,8 @@ DEMO_LEDGER_DOC = """# 需求台账
 
 
 def _demo_tree(tmp_path, monkeypatch, parent_status="verified", sub_status="in-progress",
-               sub_ac="**AC-2.1**：切片可用。", ledger_status=None, with_row=True):
+               sub_ac="**AC-2.1**：切片可用。", ledger_status=None, with_row=True,
+               sub_section="## 子需求", extra_sub=""):
     """在临时目录里搭一份「父需求 + 一个子需求 + 台账」的演示数据。"""
     reqs = tmp_path / "requirements"
     reqs.mkdir()
@@ -407,7 +441,8 @@ def _demo_tree(tmp_path, monkeypatch, parent_status="verified", sub_status="in-p
     (reqs / parent_file).write_text(
         DEMO_REQ_DOC.format(
             parent=DEMO_PARENT, parent_status=parent_status, sub=DEMO_SUB,
-            sub_status=sub_status, sub_ac=sub_ac,
+            sub_status=sub_status, sub_ac=sub_ac, sub_section=sub_section,
+            extra_sub=extra_sub,
         ),
         encoding="utf-8",
     )
@@ -459,6 +494,24 @@ def test_sub_requirement_ac_numbering_must_match_its_index(tmp_path, monkeypatch
     _demo_tree(tmp_path, monkeypatch, sub_ac="**AC-3.1**：切片可用。")
     problems = sub_requirement_problems()
     assert any(DEMO_SUB in problem and "AC-2.n" in problem for problem in problems), problems
+
+
+def test_sub_requirement_outside_the_reserved_section_is_rejected(tmp_path, monkeypatch):
+    """回归：`### REQ-NNN.S` 写在别的小节下也要拒——否则 §6.1 的「写在 ## 子需求 里」是空话。"""
+    _demo_tree(tmp_path, monkeypatch, sub_section="## 范围")
+    problems = sub_requirement_problems()
+    assert any(DEMO_SUB in problem and "不在" in problem for problem in problems), problems
+
+
+def test_duplicate_sub_requirement_headings_are_rejected(tmp_path, monkeypatch):
+    """回归：同一个子需求编号写两遍会被 dict 悄悄合并，台账与 AC 只取最后一段。"""
+    duplicate = (
+        f"\n### {DEMO_SUB} 第一片的副本\n\n- 状态：`in-progress`\n- 目标：重复的一段。\n"
+        f"- 验收标准：\n  - **AC-2.9**：重复。\n"
+    )
+    _demo_tree(tmp_path, monkeypatch, extra_sub=duplicate)
+    problems = sub_requirement_problems()
+    assert any(DEMO_SUB in problem and "出现了 2 次" in problem for problem in problems), problems
 
 
 def test_test_layer_registry_is_valid():

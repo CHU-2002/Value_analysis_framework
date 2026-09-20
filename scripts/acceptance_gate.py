@@ -1,21 +1,29 @@
 #!/usr/bin/env python
-"""特性分支 → main 的独立验收门禁。
+"""独立验收门禁：**按子需求/大特性收口**触发，不按 PR 触发。
 
-合入 `main` 之前必须有一次**独立**验收：由没有参与实现的人（或独立 agent）
-跑全量测试，并逐条核对需求的验收标准，产出一份报告放到 docs/verification/。
+评审粒度（2026-09-20 使用者明确要求：「以子特性为标准评审，不要每一次 PR 都拉评审」）：
+一个子需求（`REQ-NNN.S`）或一个大特性（`REQ-NNN`）的全部实现 PR 合入后**只做一次**
+独立验收；中间的 PR 不拉评审，工程性修正也不单独拉。所以本门禁的触发条件是
+**状态推进到 `verified`**，而不是「合 `main` 的 PR」：
 
-本脚本校验「报告确实存在、确实覆盖了本批需求、每条 AC 都打勾、全量测试结果有记录」。
+- 本 PR 没有任何编号推进到 `verified` → 直接通过，不看报告（这是绝大多数 PR）；
+- 本 PR 把某个编号推进到 `verified` → 必须满足：
+  1. 该编号写进 PR 正文的「## 需求编号」批次（**署名**，防止「只申报一个更窄的子需求编号」
+     就让父需求的 `AC-n` 永远不必被核对）；
+  2. PR 正文「## 验收报告」链接 `docs/verification/` 下的报告；
+  3. 报告逐条核对**该编号自己的**验收标准（父需求 `AC-n`、子需求 `AC-S.n`），
+     且由独立评审者撰写、记录全量测试结果。
+
+只改台账/文档的补录 PR 同样按这条规则：不推进状态就免报告，推进到 `verified` 就要报告——
+「验收戳」本身就是验收结论，它也要有报告兜底。
+
 独立性靠流程保证（报告里必须声明 reviewer 与「未参与实现」），CI 只能校验留痕。
 模板见 docs/verification/TEMPLATE.md。
-
-批次里可以写子需求编号（`REQ-NNN.S`，见 docs/requirements/README.md §6.1）：
-写父需求就逐条核对父需求自己的 AC，写子需求就只核对那个子需求小节的 AC。
 """
 
 import argparse
 import re
 import subprocess
-import sys
 from pathlib import Path
 
 import req_registry
@@ -26,6 +34,8 @@ VERIFICATION_DIR = ROOT / "docs" / "verification"
 REQ_RE = req_registry.REQ_ID_RE
 FRONT_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 PASSED_RE = re.compile(r"\d+\s+passed")
+# 独立验收的触发状态：只有推进到 verified 才要求报告（implemented 只是「已合入待验收」）
+REVIEW_STATUS = "verified"
 # 报告按需求分节时的小标题，如 "### REQ-003 run-store 台账" / "### REQ-009.2 摘要缓存"
 REQ_SECTION_RE = re.compile(rf"^#{{2,4}}\s*({req_registry.REQ_ID_RE.pattern})\b.*$", re.MULTILINE)
 # 报告里举例说明「未打勾的 AC 长什么样」是正常写作，不该被判成结论：
@@ -34,8 +44,7 @@ FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
 BLOCKQUOTE_RE = re.compile(r"^[ \t]*>.*$", re.MULTILINE)
 INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 REQUIRED_FIELDS = ("reviewer", "independence", "requirements", "full-suite")
-# 只动这些路径的 PR 属于「台账/文档回填」，不要求独立验收报告。
-DOCS_ONLY_PREFIXES = ("docs/", "CHANGELOG.md")
+VERIFICATION_HEADING = "验收报告"
 
 
 def parse_front_matter(text: str) -> dict:
@@ -73,7 +82,7 @@ def req_sections(text: str) -> dict:
     sections = {}
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        sections[match.group(1)] = sections.get(match.group(1), "") + text[match.end():end]
+        sections[match.group(1)] = sections.get(match.group(1), "") + text[match.end() : end]
     return sections
 
 
@@ -125,9 +134,51 @@ def changed_files(base: str, head: str) -> list:
     return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
 
 
-def is_docs_only(paths: list) -> bool:
-    """是否只改了台账/文档（这类 PR 不需要功能验收报告）。"""
-    return bool(paths) and all(path.startswith(DOCS_ONLY_PREFIXES) for path in paths)
+def declared_statuses(text: str) -> dict:
+    """条目里声明的状态：{编号: 状态}（父需求取 front matter，子需求取小节的「- 状态：」）。"""
+    found = {}
+    fields = parse_front_matter(text)
+    if fields.get("id") and fields.get("status"):
+        found[fields["id"]] = fields["status"]
+    for sub_id, body in req_registry.sub_sections(text).items():
+        match = req_registry.SUB_STATUS_RE.search(body)
+        if match:
+            found[sub_id] = match.group(1)
+    return found
+
+
+def _git_show(ref: str, path: str, repo: Path) -> str:
+    """`git show <ref>:<path>`；文件在该 ref 下不存在时返回空串。"""
+    proc = subprocess.run(
+        ["git", "show", f"{ref}:{path}"], cwd=repo, capture_output=True, text=True
+    )
+    return proc.stdout if proc.returncode == 0 else ""
+
+
+def verified_promotions(base: str, head: str, repo: Path = ROOT) -> set:
+    """本 PR 把哪些需求（含子需求）的状态推到了 `verified` —— 独立验收的触发条件。
+
+    只认「推到 verified」这一种转变：`proposed → accepted`、状态回退、只改标题都不触发，
+    避免把日常台账维护变成一次评审。
+    """
+    proc = subprocess.run(
+        ["git", "diff", "--name-only", f"{base}...{head}", "--", "docs/requirements"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise SystemExit(f"git diff 失败：{proc.stderr.strip()}")
+    promoted = set()
+    for name in (line.strip() for line in proc.stdout.splitlines()):
+        if not name.startswith("docs/requirements/REQ-") or not name.endswith(".md"):
+            continue
+        before = declared_statuses(_git_show(base, name, repo))
+        after = declared_statuses(_git_show(head, name, repo))
+        for req_id, status in after.items():
+            if status == REVIEW_STATUS and before.get(req_id) != REVIEW_STATUS:
+                promoted.add(req_id)
+    return promoted
 
 
 def added_reports(base: str, head: str) -> list:
@@ -152,19 +203,26 @@ def batch_requirements(body: str) -> list:
     return sorted(set(REQ_RE.findall(scope)))
 
 
-def evaluate(body: str, reports: list, paths=None) -> list:
+def evaluate(body: str, reports: list, promoted=None) -> list:
     """返回问题列表；空列表表示通过。
 
-    paths 为本 PR 改动的文件列表；只改台账/文档时跳过验收报告要求。
-    多份报告按**并集**覆盖本批需求与验收标准（一个批次可以由多份报告组成）。
+    promoted 为本 PR 推进到 `verified` 的编号集合（见 verified_promotions）。
+    **没有状态推进就没有验收主张**，因此不看报告——评审按子需求/大特性收口，不按 PR。
+    一个批次可以由多份报告组成，按**并集**覆盖被验收的编号。
     """
-    if paths and is_docs_only(paths):
+    promoted = set(promoted or ())
+    if not promoted:
         return []
 
     problems = []
     batch = batch_requirements(body)
-    if not batch:
-        problems.append("验收 PR 必须写明本批包含的 REQ-NNN（写在「## 需求编号」里）")
+    undeclared = sorted(promoted - set(batch))
+    if undeclared:
+        problems.append(
+            f"本 PR 把以下编号的状态推到了 verified，但没有写进「## 需求编号」批次："
+            f"{', '.join(undeclared)}；状态推进就是「我验收完了」的主张，必须署名并由独立评审者"
+            "逐条核对它自己的 AC-n / AC-S.n"
+        )
         return problems
     # 批次编号必须真实登记，否则「写一个不存在的 REQ」就能让 AC 校验无从下手。
     # 子需求与父需求分别报错：前者的父文件在、只是缺 `### REQ-NNN.S` 小节。
@@ -183,6 +241,12 @@ def evaluate(body: str, reports: list, paths=None) -> list:
                 "父需求文件里缺少对应的 `### REQ-NNN.S` 小节（见 docs/requirements/README.md §6.1）"
             )
         return problems
+    verification = section(body, VERIFICATION_HEADING) or ""
+    if "docs/verification/" not in verification:
+        problems.append(
+            f"推进状态到 verified 的 PR 必须在「## {VERIFICATION_HEADING}」里链接 "
+            "docs/verification/ 下的独立验收报告（模板见 docs/verification/TEMPLATE.md）"
+        )
     if not reports:
         problems.append(
             "本 PR 没有新增或修改 docs/verification/ 下的验收报告；"
@@ -211,14 +275,14 @@ def evaluate(body: str, reports: list, paths=None) -> list:
 
     merged = "\n".join(texts.values())
     declared = set(REQ_RE.findall(merged))
-    missing = [req for req in batch if req not in declared]
+    missing = sorted(req for req in promoted if req not in declared)
     if missing:
         problems.append(f"验收报告未覆盖本批需求：{', '.join(missing)}（需由独立评审者补验）")
 
     if not PASSED_RE.search(merged):
         problems.append("验收报告没有记录全量测试结果（需写明形如「1436 passed」的结果）")
 
-    for req in batch:
+    for req in sorted(promoted):
         scoped = texts_for_requirement(texts, req)
         if not scoped:
             problems.append(f"验收报告没有 {req} 的逐条验收内容（需为它单独分节或单独成篇）")
@@ -232,24 +296,24 @@ def evaluate(body: str, reports: list, paths=None) -> list:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="特性分支 → main 的独立验收门禁")
+    parser = argparse.ArgumentParser(description="独立验收门禁（按状态推进触发，不按 PR）")
     parser.add_argument("--body-file", required=True)
-    parser.add_argument("--base", default="origin/main", help="基线 git ref")
+    parser.add_argument("--base", default="origin/main", help="PR 的目标分支 ref")
     parser.add_argument("--head", default="HEAD", help="当前 git ref")
     args = parser.parse_args()
 
     body = Path(args.body_file).read_text(encoding="utf-8")
-    paths = changed_files(args.base, args.head)
-    problems = evaluate(body, added_reports(args.base, args.head), paths)
-    if not problems and is_docs_only(paths):
-        print("独立验收门禁通过（本 PR 只改台账/文档，不需要功能验收报告）。")
-        return 0
+    promoted = verified_promotions(args.base, args.head)
+    problems = evaluate(body, added_reports(args.base, args.head), promoted)
     if problems:
         print("独立验收门禁未通过：\n")
         for problem in problems:
             print(f"- {problem}")
         return 1
-    print("独立验收门禁通过。")
+    if not promoted:
+        print("独立验收门禁通过（本 PR 没有把任何需求推进到 verified，不需要独立验收报告）。")
+        return 0
+    print(f"独立验收门禁通过（本 PR 验收：{', '.join(sorted(promoted))}）。")
     return 0
 
 

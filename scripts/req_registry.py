@@ -62,6 +62,20 @@ def sub_sections(text: str) -> dict:
     return sections
 
 
+def named_section(text: str, title: str) -> str:
+    """返回 `## <title>` 小节的正文（到下一个一/二级标题为止）；找不到返回空串。
+
+    `### ` 三级标题不算边界，所以「## 子需求」小节把它的子需求小节都包在里面。
+    `SECTION_BOUNDARY_RE` 的 `#{1,2}` 不会误吃 `### `（后面紧跟的不是空格）。
+    """
+    match = re.search(rf"^##[ \t]*{re.escape(title)}[ \t]*$", text, re.MULTILINE)
+    if not match:
+        return ""
+    rest = text[match.end() :]
+    boundary = re.search(r"^#{1,2}[ \t]+\S", rest, re.MULTILINE)
+    return rest[: boundary.start()] if boundary else rest
+
+
 def sub_ids() -> dict:
     """{子需求编号: 父需求文件路径}，供追溯门禁比对台账。"""
     found = {}

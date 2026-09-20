@@ -87,15 +87,16 @@ jobs:
           printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr_body.md"
           python scripts/pr_body_guard.py --body-file "$RUNNER_TEMP/pr_body.md" --base "$BASE_REF"
 
-      - name: Independent acceptance report (feature branch → main)
-        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+      - name: Independent acceptance report (only when a status reaches verified)
+        if: github.event_name == 'pull_request'
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
           printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr_body.md"
-          git fetch -q origin main
+          git fetch -q origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
           python scripts/acceptance_gate.py \
-            --body-file "$RUNNER_TEMP/pr_body.md" --base origin/main --head HEAD
+            --body-file "$RUNNER_TEMP/pr_body.md" --base "origin/$BASE_REF" --head HEAD
 
       - name: Batched regression record (feature branch → main)
         if: github.event_name == 'pull_request' && github.base_ref == 'main'

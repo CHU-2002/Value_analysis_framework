@@ -62,7 +62,7 @@ make verify                      # 提交前自检：本地可复现的全部门
 git push -u origin feat/periodic-update-download
 gh pr create --base feat/periodic-update --fill
 
-# 3) 特性做完：特性分支 → main，附独立验收报告（门②）
+# 3) 编号收口：把状态推进到 verified，并在该 PR 附独立验收报告（门②，一个子需求/大特性一次）
 gh pr create --base main --head feat/periodic-update --fill
 ```
 
@@ -104,7 +104,8 @@ Closes #42
 ## Pull Request 流程
 
 1. 子任务从**特性分支**切出，PR 的目标分支写**特性分支**；只有「特性分支 → `main`」的 PR
-   才把目标写成 `main`，并必须附独立验收报告。
+   才把目标写成 `main`。独立验收报告**不是每个 PR 都要**：只有把某个编号推进到 `verified`
+   的收口 PR 才要（一个子需求/大特性一次），`scripts/acceptance_gate.py` 按 diff 判定。
 2. 保持 PR 聚焦：一个 PR 解决一个问题。较大的改动请拆分为可独立审阅的 PR。
 3. 填写 PR 模板（仓库会自动加载）。
 4. 确保本地验证通过。`make verify` 覆盖 CI 里**可在本地复现**的检查项
@@ -126,14 +127,14 @@ CI 只有两个 job：一个干全部活，一个汇总（分支保护只认汇�
 
 | job | 内容（按顺序） |
 |-----|----------------|
-| `ci` | ① 编译/空白检查（含相对基线的整段 diff）② 测试 scope 登记表与预算 ③ PR 标题（Conventional Commits，≤ 72 字符）④ PR 描述（需求编号 + 研发自测栏） ⑤ 独立验收报告（仅特性分支 → `main`）⑥ 批量回归记录（仅特性分支 → `main`） ⑦ **全量测试 + 覆盖率门禁（≥ 74%）** |
+| `ci` | ① 编译/空白检查（含相对基线的整段 diff）② 测试 scope 登记表与预算 ③ PR 标题（Conventional Commits，≤ 72 字符）④ PR 描述（需求编号 + 研发自测栏） ⑤ 独立验收报告（仅当该 PR 把编号推进到 `verified`）⑥ 批量回归记录（仅特性分支 → `main`） ⑦ **全量测试 + 覆盖率门禁（≥ 74%）** |
 | `ci-success` | 汇总 `ci` 结果，作为分支保护唯一必需的状态检查 |
 
 便宜的检查在前、全量测试在后：门禁不过就不用等测试。CI 默认只跑 Python 3.12（与开发环境一致），最低支持版本 3.10 在 Actions 里手动触发 `workflow_dispatch` 填 `python-version: "3.10"` 核验；只装 `requirements-test.txt`（测试真正 import 的最小集），并用 `pytest -n auto` 并行。
 
 合并条件（由分支保护强制）：
 
-- `ci-success` 通过（其汇总的 `ci` job 里含 PR 描述检查；「特性分支 → `main`」还含独立验收与批量回归两步）；
+- `ci-success` 通过（其汇总的 `ci` job 里含 PR 描述检查；合 `main` 的 PR 还含批量回归一步，把编号推进到 `verified` 的 PR 才额外要独立验收报告）；
 - 至少 1 个 review 批准，且 CODEOWNERS 指定的审阅人已批准；
 - 所有 review 对话已解决；
 - 分支与 `main` 同步（`strict` 模式）。
