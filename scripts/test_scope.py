@@ -154,6 +154,28 @@ def ownership_problems(entries: list) -> list:
     return problems
 
 
+def ownership_drift_problems(entries: list, text: str) -> list:
+    """登记表的归属列内容是否与 collect_scope() 的计算值一致。
+
+    只比对**已登记**的文件：缺登记与多登记由其它检查负责。此前只校验归属列的编号
+    是否已登记、不比对内容，于是「补了测试标注却忘记 make scope-write」不会被拦
+    （REQ-007 收尾时实测漂移）。
+    """
+    declared = {}
+    for match in ROW_RE.finditer(text):
+        cells = [cell.strip() for cell in match.group(2).split("|")]
+        declared[match.group(1)] = cells[0] if cells else ""
+    problems = []
+    for entry in entries:
+        got = declared.get(entry["file"])
+        if got is not None and got != entry["reqs"]:
+            problems.append(
+                f"{entry['file']} 的归属列已过期：登记表写 `{got}`，实际应为 `{entry['reqs']}`；"
+                "请运行 make scope-write 重新生成"
+            )
+    return problems
+
+
 def registered_files(text: str) -> set:
     return {match.group(1) for match in ROW_RE.finditer(text)}
 
@@ -190,7 +212,8 @@ def main(argv=None) -> int:
     if not SCOPE_PATH.exists():
         problems.append(f"缺少 {SCOPE_PATH.relative_to(ROOT)}，请运行 python scripts/test_scope.py --write")
     else:
-        registered = registered_files(SCOPE_PATH.read_text(encoding="utf-8"))
+        scope_text = SCOPE_PATH.read_text(encoding="utf-8")
+        registered = registered_files(scope_text)
         missing = sorted(actual - registered)
         stale = sorted(registered - actual)
         if missing:
@@ -200,6 +223,8 @@ def main(argv=None) -> int:
     if len(entries) > MAX_TEST_FILES:
         problems.append(f"测试文件数 {len(entries)} 超过预算 {MAX_TEST_FILES}：请先合并/清理冗余测试")
     problems.extend(ownership_problems(entries))
+    if SCOPE_PATH.exists():
+        problems.extend(ownership_drift_problems(entries, SCOPE_PATH.read_text(encoding="utf-8")))
     collected = collect_cases_via_pytest()
     if collected > MAX_COLLECTED_CASES:
         problems.append(

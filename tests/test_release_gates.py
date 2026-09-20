@@ -332,3 +332,38 @@ def test_regression_record_rejects_an_empty_acceptance_section(tmp_path):
     )
     problems = regression_gate.validate_record(regression_gate.load_records(tmp_path)[0])
     assert any("逐条验收" in problem and "空" in problem for problem in problems), problems
+
+
+def test_acceptance_gate_ignores_ac_examples_in_quotes_and_code(tmp_path):
+    """报告里字面举例「未打勾的 AC 长什么样」不该被判成结论（REQ-007 评审者踩过）。"""
+    acs = acceptance_gate.requirement_ac_ids("REQ-005")
+    checked = "\n".join(f"- [x] **AC-{ac}**：符合预期" for ac in acs)
+    report = tmp_path / "batch.md"
+    report.write_text(
+        "---\nreviewer: r\nindependence: independent\n"
+        "requirements: REQ-005\nfull-suite: 见正文\n---\n\n1440 passed\n\n"
+        "## 逐条验收\n\n" + checked + "\n\n"
+        "## 未通过 / 存疑项\n\n"
+        "> 举例：未通过时写成这种形式（下面是引用里的例子，不是结论）\n"
+        "> - [ ] **AC-1**：不成立\n\n"
+        "```markdown\n- [ ] **AC-2**：不成立\n```\n\n"
+        "行内示例：`- [ ] **AC-3**：不成立`\n",
+        encoding="utf-8",
+    )
+    assert acceptance_gate.evaluate("REQ-005\n", [report]) == []
+
+
+def test_acceptance_gate_still_detects_a_real_unchecked_ac(tmp_path):
+    """容忍举例之后，真正的未打勾行仍必须被抓出。"""
+    acs = acceptance_gate.requirement_ac_ids("REQ-005")
+    lines = [f"- [x] **AC-{ac}**：符合预期" for ac in acs]
+    lines[0] = f"- [ ] **AC-{acs[0]}**：不成立"
+    report = tmp_path / "batch.md"
+    report.write_text(
+        "---\nreviewer: r\nindependence: independent\n"
+        "requirements: REQ-005\nfull-suite: 见正文\n---\n\n1440 passed\n\n"
+        "## 逐条验收\n\n" + "\n".join(lines) + "\n",
+        encoding="utf-8",
+    )
+    problems = acceptance_gate.evaluate("REQ-005\n", [report])
+    assert any(f"AC-{acs[0]}" in problem and "未打勾" in problem for problem in problems), problems
