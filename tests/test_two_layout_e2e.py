@@ -4,6 +4,7 @@
 AC-1 命令必须经 `runs.py resolve` 取 run_dir（resolver 不跟随 `latest.json`）、
 AC-2 两种布局下既有读取路径均可用、
 AC-5 mock baseline → 注入新期次 → 增量 run → 旧 run 仍可解析。
+REQ-007（门禁与治理工具加固）—— AC-6 增量 run 跑通 `prepare --prior-analysis`。
 
 本文件是 REQ-005 的验收证据：契约测试（tests/test_update_docs_contract.py）钉住文档写法，
 这里钉住底层可执行行为。
