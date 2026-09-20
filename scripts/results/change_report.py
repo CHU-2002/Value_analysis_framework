@@ -82,9 +82,14 @@ def build_change_report_context(
     synthesis_result_path: str | Path | None = None,
     prior_synthesis_path: str | Path | None = None,
     reconciliation_path: str | Path | None = None,
-    max_chars: int = 24000,
+    max_chars: int = 160000,
 ) -> dict[str, Any]:
-    """Create a compact, valid JSON handoff for the change-report Agent."""
+    """Create a compact, valid JSON handoff for the change-report Agent.
+
+    默认 160000 字符来自一次真实实跑（REQ-006.1）：period_delta 单卡就要 26,141 字符，
+    原来 24,000 的默认值直接失败；40k–80k 区间会在不吭声的情况下丢掉本期 synthesis 卡片，
+    实测要 ~150k 才能「本期 + 上次」两卡俱全。
+    """
 
     if max_chars <= 0:
         raise ValueError("max_chars must be positive")
@@ -207,6 +212,9 @@ def build_change_report_context(
             "degraded": {
                 "prior_synthesis_dropped": prior is not None and prior_card is None,
                 "synthesis_dropped": synthesis is not None and synthesis_card is None,
+                # 卡片被留下但结论被截断时，也要看得出来（实跑实测：40k–80k 区间会悄悄少卡）
+                "prior_synthesis_claims": prior_claims if prior_card is not None else 0,
+                "synthesis_claims": synthesis_claims if synthesis_card is not None else 0,
                 "prior_evidence_unavailable": (
                     0 if prior_card is None else prior_evidence_unavailable
                 ),
@@ -240,7 +248,7 @@ def build_change_report_context(
     # Degrade in a fixed, disclosed order so the bundle always fits: shrink the
     # previous analysis first, then the current synthesis, then drop each.
     attempts = [
-        (True, True, 6, 6),
+        (True, True, 6, 6),   # 第一个组合 = 全卡片；选到它之后的组合都算降级，会记进 budget["dropped"]
         (True, True, 3, 4),
         (True, True, 1, 2),
         (True, False, 1, 0),
@@ -273,7 +281,7 @@ def main(argv=None) -> None:
     parser.add_argument("--synthesis", help="current run synthesis/result.json")
     parser.add_argument("--prior-synthesis", help="previous run synthesis/result.json")
     parser.add_argument("--reconciliation", help="current run synthesis/reconciliation.json")
-    parser.add_argument("--max-chars", type=int, default=24000)
+    parser.add_argument("--max-chars", type=int, default=160000)
     parser.add_argument("--output", required=True)
     args = parser.parse_args(argv)
 
@@ -292,6 +300,18 @@ def main(argv=None) -> None:
         f"Change-report context written: {args.output} "
         f"({payload['budget']['actual_chars']}/{args.max_chars} chars)"
     )
+    degraded = payload.get("degraded") or {}
+    losses: list[str] = []
+    if degraded.get("prior_synthesis_dropped"):
+        losses.append("prior_synthesis 整卡丢弃")
+    elif degraded.get("prior_synthesis_claims", 6) < 6:
+        losses.append(f"prior_synthesis 结论条数 -> {degraded['prior_synthesis_claims']}")
+    if degraded.get("synthesis_dropped"):
+        losses.append("synthesis 整卡丢弃")
+    elif degraded.get("synthesis_claims", 6) < 6:
+        losses.append(f"synthesis 结论条数 -> {degraded['synthesis_claims']}")
+    if losses:
+        print("预算不足，已降级：" + "；".join(losses) + "；需要完整卡片请上调 --max-chars")
 
 
 if __name__ == "__main__":

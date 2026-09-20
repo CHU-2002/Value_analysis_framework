@@ -128,9 +128,13 @@ def build_synthesis_context(
     optional_result_paths: Iterable[str | Path] = (),
     reconciliation_path: str | Path,
     evidence_index_path: str | Path,
-    max_chars: int = 30000,
+    max_chars: int = 40000,
 ) -> dict[str, Any]:
-    """Create a compact, valid JSON handoff for Final Synthesis Agent."""
+    """Create a compact, valid JSON handoff for Final Synthesis Agent.
+
+    默认 40000 字符来自一次真实实跑（REQ-006.1）：四个核心模块就要 30,124 字符，
+    加上 D7 是 38,070 —— 原来的 30,000 默认值在真实载荷下必然丢卡。
+    """
 
     if max_chars <= 0:
         raise ValueError("max_chars must be positive")
@@ -166,6 +170,9 @@ def build_synthesis_context(
     if evidence_errors:
         raise ValueError("Invalid module evidence:\n- " + "\n- ".join(evidence_errors))
 
+    # 装不下的卡片内容不能静默消失：逐条记账，写进 budget["dropped"]（REQ-006.1 AC-1.5）。
+    # 声明必须在 build_payload 第一次调用之前：它是闭包变量。
+    dropped: dict[str, list[str]] = {}
     selections = [_initial_card(result) for result in results]
     for card, path in zip(selections, present_paths):
         card["result_path"] = str(path)
@@ -200,6 +207,13 @@ def build_synthesis_context(
             "actual_chars": 0,
             "module_count": len(results),
             "evidence_count": len(payload["evidence"]),
+            # 丢弃记录写进 payload 本身，因此也受预算约束：装不下时不会反过来把 payload 顶爆。
+            # 只留模块 + 最多 3 个字段名做样本，完整条数看 dropped_count。
+            "dropped": {
+                module: sorted(set(fields))[:3]
+                for module, fields in sorted(dropped.items())
+            },
+            "dropped_count": sum(len(set(fields)) for fields in dropped.values()),
         }
         while True:
             actual_chars = _size(payload)
@@ -218,8 +232,9 @@ def build_synthesis_context(
     # Fair round-robin admission measures the complete JSON including shared
     # excerpts and omission metadata. Large entries cannot block small ones.
     candidates = [deque(_candidates(result, card)) for result, card in zip(results, selections)]
+    admitted: list[tuple] = []
     while any(candidates):
-        for card, queue in zip(selections, candidates):
+        for result, card, queue in zip(results, selections, candidates):
             if not queue:
                 continue
             key, name, item = queue.popleft()
@@ -236,10 +251,24 @@ def build_synthesis_context(
             trial = build_payload()
             if trial["budget"]["actual_chars"] <= max_chars:
                 payload = trial
+                admitted.append((result["result_type"], target, None if is_list else name))
             elif is_list:
                 target.pop()
+                dropped.setdefault(result["result_type"], []).append(f"{key}:{name}")
             else:
                 del target[name]
+                dropped.setdefault(result["result_type"], []).append(f"{key}:{name}")
+    # 记账本身也占字符：加上最后一批丢弃记录后若超预算，就继续让出最大的卡片内容。
+    payload = build_payload()
+    while _size(payload) > max_chars and admitted:
+        module, target, name = admitted.pop()
+        if name is None:
+            target.pop()
+        else:
+            del target[name]
+        dropped.setdefault(module, []).append("budget:disclosure")
+        payload = build_payload()
+    payload["budget"]["actual_chars"] = _size(payload)
     return payload
 
 
@@ -249,7 +278,7 @@ def main() -> None:
     parser.add_argument("--optional-input", action="append", default=[], help="optional module result.json")
     parser.add_argument("--reconciliation", required=True)
     parser.add_argument("--evidence-index", required=True)
-    parser.add_argument("--max-chars", type=int, default=30000)
+    parser.add_argument("--max-chars", type=int, default=40000)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -264,6 +293,11 @@ def main() -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Synthesis context written: {args.output} ({payload['budget']['actual_chars']} chars)")
+    dropped = payload["budget"].get("dropped") or {}
+    if dropped:
+        detail = "；".join(f"{module}: {', '.join(fields)}" for module, fields in dropped.items())
+        print(f"预算不足，已丢弃 {payload['budget']['dropped_count']} 项卡片内容（{detail}）；"
+              "需要完整卡片请上调 --max-chars")
 
 
 if __name__ == "__main__":

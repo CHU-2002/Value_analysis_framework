@@ -1,5 +1,9 @@
 """Tests for the structured result and bounded-context pipeline."""
 
+# 覆盖需求：REQ-006.1（财报分析端到端实跑加固）—— AC-1.3 prepare 的 run_id 一致性、
+# AC-1.4 period_delta 作为可选模块参与 digest、AC-1.5 上下文预算与丢卡可见性、
+# AC-1.7 证据边界检查器
+
 import json
 import sys
 from pathlib import Path
@@ -7,7 +11,14 @@ from pathlib import Path
 import pytest
 
 from results.context import build_module_context
-from results.evidence import build_evidence_index, chunk_text, select_evidence, validate_result_evidence
+from results.evidence import (
+    build_evidence_index,
+    bundle_evidence_ids,
+    chunk_text,
+    select_evidence,
+    validate_bundle_evidence,
+    validate_result_evidence,
+)
 from results.manifest import build_manifest, describe_input
 from results.prepare import prepare_run
 from results.resolve_qualitative import main as resolve_main, resolve_qualitative_input
@@ -73,12 +84,27 @@ DEFAULT_PARAMETERS = {
     },
 }
 
+DEFAULT_PARAMETERS["qualitative.period_delta"] = {
+    "report_period": "2026H1",
+    "comparable_period": "2025H1",
+    "business_trend": "稳定",
+    "conclusion_change": "维持",
+    "change_significance": "一般",
+    "guidance_delivery": "无指引",
+    "requires_full_rerun": False,
+    "revenue_yoy_pct": 5.0,
+    "net_profit_yoy_pct": 4.0,
+    "gross_margin_change_pct": 0.5,
+    "operating_cashflow_to_profit": 1.0,
+}
+
 RESULT_SCOPES = {
     "qualitative.business_moat": ["D1", "D2"],
     "qualitative.environment": ["D3"],
     "qualitative.governance": ["D4"],
     "qualitative.mda_quality": ["D5"],
     "qualitative.holding_structure": ["D6"],
+    "qualitative.period_delta": ["D7"],
     "qualitative.synthesis": ["D1", "D2", "D3", "D4", "D5", "D6"],
 }
 
@@ -637,7 +663,14 @@ def test_synthesis_budget_covers_metrics_quality_and_preserves_protected_content
     context = build_synthesis_context(**args)
     assert context == build_synthesis_context(**args)
     assert context["budget"]["actual_chars"] == len(json.dumps(context, ensure_ascii=False, indent=2) + "\n")
-    assert context["budget"]["actual_chars"] <= 30000
+    assert context["budget"]["actual_chars"] <= 40000
+    # 预算不足时必须留下丢弃记录：条数是完整的，字段名只留样本（REQ-006.1 AC-1.5）
+    assert context["budget"]["dropped_count"] > 0
+    assert context["budget"]["dropped"], "丢弃的模块名必须列出来"
+    assert all(len(fields) <= 3 for fields in context["budget"]["dropped"].values())
+    assert context["budget"]["dropped_count"] >= sum(
+        len(fields) for fields in context["budget"]["dropped"].values()
+    )
     assert context["reconciliation"] == json.loads(args["reconciliation_path"].read_text(encoding="utf-8"))
     assert context["upstream_digest"] == result_set_digest(results)
     for card, result in zip(context["modules"], results):
@@ -772,9 +805,9 @@ def _use_prepared_evidence(result, output_dir):
 
 def _write_synthesis_artifacts(output_dir, *, ticker="600000.SH"):
     module_names = ["business_moat", "environment", "governance", "mda_quality"]
-    holding_path = output_dir / "modules" / "holding_structure" / "result.json"
-    if holding_path.exists():
-        module_names.append("holding_structure")
+    for optional in ("holding_structure", "period_delta"):
+        if (output_dir / "modules" / optional / "result.json").exists():
+            module_names.append(optional)
     module_results = [
         json.loads((output_dir / "modules" / module / "result.json").read_text(encoding="utf-8"))
         for module in module_names
@@ -870,7 +903,8 @@ def test_qualitative_resolver_surfaces_partial_and_optional_status(tmp_path):
 
     assert payload["source"] == "structured"
     assert payload["parameters"]["holding_structure"] is False
-    assert payload["missing_modules"] == []
+    # D7 是登记过的可选模块（REQ-006.1 AC-1.4），本夹具没有提供它，所以它应当出现在 missing 里
+    assert payload["missing_modules"] == ["period_delta"]
     assert "environment result is partial" in payload["warnings"]
 
 
@@ -1054,3 +1088,133 @@ def test_synthesis_rejects_mixed_subjects(tmp_path):
             reconciliation_path=reconciliation_path,
             evidence_index_path=evidence_path,
         )
+
+
+# --- REQ-006.1：实跑暴露的接线与预算问题 ---
+
+
+def _write_period_delta(output_dir, *, ticker="600000.SH"):
+    delta = make_result("qualitative.period_delta", ticker=ticker, run_id="test-run")
+    _use_prepared_evidence(delta, output_dir)
+    path = output_dir / "modules" / "period_delta" / "result.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(delta, ensure_ascii=False), encoding="utf-8")
+    return delta
+
+
+def test_qualitative_resolver_consumes_period_delta_without_digest_mismatch(tmp_path):
+    """AC-1.4：D7 登记为可选模块后，文档口径（把 D7 一起喂给 reconcile/synthesis）不再分叉。
+
+    回归（2026-09-20 实跑）：resolver 之前不认 period_delta，一按文档喂进去就
+    `reconciliation result_digest does not match module results`、source=unavailable。
+    """
+    output_dir = tmp_path / "600000_Example"
+    _write_complete_structured_run(output_dir)
+    delta = _write_period_delta(output_dir)
+    _write_synthesis_artifacts(output_dir)  # 夹具按文档口径把 D7 一起算进 digest
+
+    payload = resolve_qualitative_input(output_dir, ticker="600000.SH")
+
+    assert payload["source"] == "structured", payload["warnings"]
+    assert "period_delta" in payload["modules"]
+    assert payload["missing_modules"] == ["holding_structure"]
+    module_results = [
+        json.loads((output_dir / "modules" / module / "result.json").read_text(encoding="utf-8"))
+        for module in ("business_moat", "environment", "governance", "mda_quality", "period_delta")
+    ]
+    assert payload["reconciliation"] is not None
+    assert result_set_digest(module_results) == json.loads(
+        (output_dir / "synthesis" / "reconciliation.json").read_text(encoding="utf-8")
+    )["result_digest"]
+    assert delta["result_type"] == "qualitative.period_delta"
+
+
+def test_period_delta_absent_keeps_the_legacy_digest(tmp_path):
+    """AC-1.4 的向后兼容面：没有 D7 时 digest 与既有基线一致（仍然只有核心四模块）。"""
+    output_dir = tmp_path / "600000_Example"
+    _write_complete_structured_run(output_dir)
+    payload = resolve_qualitative_input(output_dir, ticker="600000.SH")
+    assert payload["source"] == "structured"
+    assert "period_delta" not in payload["modules"]
+    assert payload["missing_modules"] == ["holding_structure", "period_delta"]
+
+
+def _fake_run_json(output_dir, run_id):
+    """模拟 `runs.py new` 在运行目录里留下的 run.json（prepare 以它为准）。"""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "run.json").write_text(
+        json.dumps({"schema": "investment.run", "run_id": run_id}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def test_prepare_run_rejects_a_run_id_that_conflicts_with_run_json(tmp_path):
+    """AC-1.3：台账 id 与 run 内部 id 不允许分叉（实跑里靠人肉补 --run-id 才自洽）。"""
+    output_dir = tmp_path / "run"
+    _fake_run_json(output_dir, "run-a")
+    with pytest.raises(ValueError, match="run_id"):
+        prepare_run(output_dir, ticker="600000.SH", company="Example Co", run_id="run-b")
+
+
+def test_prepare_run_adopts_the_run_directories_own_run_id(tmp_path):
+    """AC-1.3：run.json 已签发 id 时，prepare 不再另生成一个。"""
+    output_dir = tmp_path / "run"
+    _fake_run_json(output_dir, "run-a")
+    prepare_run(output_dir, ticker="600000.SH", company="Example Co")
+    recorded = json.loads((output_dir / "run_manifest.json").read_text(encoding="utf-8"))
+    assert recorded["run_id"] == "run-a", "prepare 必须沿用 run.json 里已签发的 id"
+
+
+def test_synthesis_context_discloses_dropped_content(tmp_path):
+    """AC-1.5：预算装不下时必须列出被丢的模块与字段，不得静默。"""
+    results = [make_result("qualitative.business_moat"), make_result("qualitative.governance")]
+    for result in results:
+        result["quality"]["extra_detail"] = "Unbounded quality extension. " * 500
+    args = _synthesis_fixture(tmp_path, results)
+    full = build_synthesis_context(**args)
+    assert full["budget"]["dropped_count"] == 0
+    assert full["budget"]["dropped"] == {}
+
+    tight = build_synthesis_context(**{**args, "max_chars": full["budget"]["actual_chars"] - 500})
+    assert tight["budget"]["actual_chars"] <= full["budget"]["actual_chars"] - 500
+    assert tight["budget"]["dropped_count"] > 0
+    assert tight["budget"]["dropped"], "被丢的模块名必须列出来"
+
+
+def test_bundle_evidence_checker_rejects_out_of_bundle_citations(tmp_path):
+    """AC-1.7：模块结果引用 bundle 之外的证据必须能被检出（实跑观察：大量越界引用）。"""
+    bundle = {"evidence": [{"evidence_id": "market_data:3:001", "quote": "q"}]}
+    inside = make_result()
+    inside["evidence"] = [{"evidence_id": "market_data:3:001"}]
+    inside["claims"][0]["evidence_ids"] = ["market_data:3:001"]
+    assert bundle_evidence_ids(bundle) == {"market_data:3:001"}
+    assert validate_bundle_evidence(inside, bundle) == []
+
+    outside = make_result()
+    outside["evidence"] = [{"evidence_id": "pdf_sections:MDA:009"}]
+    outside["claims"][0]["evidence_ids"] = ["pdf_sections:MDA:009"]
+    problems = validate_bundle_evidence(outside, bundle)
+    assert problems and "outside this module's context bundle" in problems[0]
+
+
+def test_bundle_evidence_checker_flags_a_bundle_without_evidence():
+    problems = validate_bundle_evidence(make_result(), {"evidence": []})
+    assert problems == ["context bundle contains no evidence ids"]
+
+
+def test_validate_result_cli_checks_the_bundle(tmp_path, capsys):
+    """AC-1.7 的可执行入口：`validate_result.py --context <bundle>`。"""
+    result = make_result()
+    result_path = tmp_path / "result.json"
+    result_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+    bundle_path = tmp_path / "context.json"
+    bundle_path.write_text(
+        json.dumps({"evidence": [{"evidence_id": "market_data:3:999"}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        validate_main_args = [str(result_path), "--context", str(bundle_path)]
+        sys.argv = ["validate_result.py", *validate_main_args]
+        validate_main()
+    assert excinfo.value.code == 1
+    assert "outside this module's context bundle" in capsys.readouterr().err
