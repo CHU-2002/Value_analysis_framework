@@ -15,7 +15,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | 项 | 当前 | 上限 | 使用率 |
 |----|------|------|--------|
 | 测试文件数 | 33 | 40 | 82% |
-| 收集到的用例数 | 1474 | 1600 | 92% |
+| 收集到的用例数 | 1489 | 1600 | 93% |
 
 （用例数含 `parametrize` 展开，由 `pytest --collect-only` 统计；函数数见下表末列，仅作参考。）
 
@@ -46,12 +46,12 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_prepare_prior_analysis.py` | REQ-004 | `unit` | — | 6 |
 | `tests/test_qualitative_consumers.py` | 基线 | `contract` | — | 10 |
 | `tests/test_refresh_market.py` | 基线 | `unit` | — | 23 |
-| `tests/test_release_gates.py` | REQ-003, REQ-005, REQ-006 | `unit` | — | 30 |
-| `tests/test_requirement_traceability.py` | 基线 | `unit` | — | 8 |
+| `tests/test_release_gates.py` | REQ-003, REQ-005, REQ-006 | `unit` | — | 35 |
+| `tests/test_requirement_traceability.py` | 基线 | `unit` | — | 17 |
 | `tests/test_results_pipeline.py` | 基线 | `e2e` | — | 53 |
 | `tests/test_runs_ledger.py` | REQ-003 | `unit` | — | 35 |
 | `tests/test_screener.py` | 基线 | `unit` | — | 96 |
-| `tests/test_test_scope.py` | REQ-003, REQ-006 | `unit` | `scripts/test_scope.py` | 15 |
+| `tests/test_test_scope.py` | REQ-003, REQ-006 | `unit` | `scripts/test_scope.py` | 16 |
 | `tests/test_tushare_client.py` | 基线 | `unit` | — | 207 |
 | `tests/test_two_layout_e2e.py` | REQ-005, REQ-006 | `unit` | — | 5 |
 | `tests/test_update_docs_contract.py` | REQ-005, REQ-006 | `unit` | — | 18 |
@@ -60,3 +60,4 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 归属为「基线」的测试覆盖需求体系建立前就已交付的能力，见
 [`docs/requirements/ledger.md`](requirements/ledger.md) 的「已交付基线」小节。
 把它们补齐到具体需求属于 Inbox 事项。
+归属列可以写父需求 `REQ-NNN`，也可以写子需求 `REQ-NNN.S`，见 [`docs/requirements/README.md`](requirements/README.md) §6.1。

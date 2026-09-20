@@ -13,7 +13,9 @@ feat(results): add artifact hash verification
 
 <!--
 必填，且**必须填在这一栏**（CI 会拦：scripts/pr_body_guard.py 只认本小节）。
-填 REQ-NNN；子任务也要写它服务的需求；未登记先读 docs/requirements/README.md。
+填 REQ-NNN；子任务也要写它服务的需求；若本 PR 交付的是某个大特性的一个切片，
+写它的子需求完整编号 REQ-NNN.S（见 docs/requirements/README.md §6.1）；
+未登记先读 docs/requirements/README.md。
 正文其它地方提到编号不能替代本栏——它是「本批需求」的唯一权威来源。
 -->
 

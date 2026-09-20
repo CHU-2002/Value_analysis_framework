@@ -29,7 +29,8 @@ make verify
 
 ## 逐条验收
 
-<!-- 至少给出本批需求的 AC 结论，或链接对应的 docs/verification/ 报告。 -->
+<!-- 至少给出本批需求的 AC 结论，或链接对应的 docs/verification/ 报告。
+     子需求单独写一行：`### REQ-00X.S <标题>` 配 `- [x] **AC-S.1**`。 -->
 
 ## 结论
 

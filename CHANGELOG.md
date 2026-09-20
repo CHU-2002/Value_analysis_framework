@@ -19,6 +19,18 @@
 
 ### Changed
 
+- 评审改为**按子需求/大特性收口**触发，不再每个 PR 都拉评审：只有把某个编号
+  （`REQ-NNN` / `REQ-NNN.S`）推进到 `verified` 的那个 PR 才需要独立验收报告，并必须把该编号
+  写进「## 需求编号」批次署名；没有状态推进的 PR 不看报告（`scripts/acceptance_gate.py`
+  依据 diff 判定，PR 描述守卫不再要求报告栏）。REQ-006 的 AC-3 相应修改并留变更记录
+
+- 需求模型改为「大特性 + 子需求」：`REQ-NNN` 表示一整块用户可见的能力，其内部可独立交付、
+  独立验收的切片写成子需求 `REQ-NNN.S`（AC 编号 `AC-S.n`，写在父需求文件的「## 子需求」小节）。
+  规则见 `docs/requirements/README.md` §6.1；`scripts/req_registry.py` 是编号解析的唯一来源，
+  验收 / 追溯 / 测试 scope 三个门禁据此支持子需求编号；追溯门禁新增不变量
+  「父需求的状态不得比它最慢的子需求更靠前」，验收门禁新增
+  「把需求推到 `implemented` / `verified` 的 PR 必须把该编号写进批次」——
+  两条一起堵住「拆子需求 = 偷偷少验收」的通道（后者由独立评审者实测发现后补上）
 - CI 提速与简化：8 个 job 收敛为 1 个 `ci` + 1 个 `ci-success` 汇总；测试只装新的
   `requirements-test.txt`（最小依赖集，site-packages 618MB→357MB）；`pytest -n auto`
   并行（本机串行约 55s→约 30s）；默认只跑 Python 3.12，最低支持版本 3.10 改为手动触发核验

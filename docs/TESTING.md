@@ -122,24 +122,26 @@ make scope-check   # CI 用的校验：登记表是否最新 + 是否超预算
 
 ## 8. 需求 ↔ 测试追溯
 
-- 测试文件里用注释声明归属，关键条款写 `AC-n`：
+- 测试文件里用注释声明归属，关键条款写 `AC-n`；归属子需求时写完整编号 `REQ-NNN.S`
+  （对应条款 `AC-S.n`）：
 
   ```python
   # 覆盖需求：REQ-001（定期报告发现与下载）—— AC-1 四类发现与 secCode 过滤、AC-6 单条失败不中断整批
   ```
 
 - 治理门禁 [`tests/test_requirement_traceability.py`](../tests/test_requirement_traceability.py) 强制：
-  - 测试引用的 `REQ-NNN` 必须真实存在（防悬空引用）；
-  - 状态为 `implemented` / `verified` 的需求必须至少被一个测试文件引用；
-  - 台账与 `REQ-*.md` 文件集合、状态必须一致。
+  - 测试引用的 `REQ-NNN` / `REQ-NNN.S` 必须真实存在（防悬空引用）；
+  - 状态为 `implemented` / `verified` 的需求（含子需求）必须至少被一个测试文件引用；
+  - 台账与 `REQ-*.md` 文件集合、状态必须一致；子需求与台账「子需求台账」表必须一致，
+    且父需求的状态不得比它最慢的子需求更靠前。
 
 ## 9. 完成定义（测试部分）
 
 一条需求的测试只有在下面全部成立时才算完成：
 
-- [ ] 每条 `AC-n` 都有对应断言，失败路径也有
+- [ ] 每条 `AC-n`（子需求为 `AC-S.n`）都有对应断言，失败路径也有
 - [ ] 全 mock，本地 `make verify` 通过，覆盖率不低于门禁，scope 在预算内
-- [ ] 文件里标注了 `# 覆盖需求：REQ-NNN` 与覆盖到的 `AC-n`
+- [ ] 文件里标注了 `# 覆盖需求：REQ-NNN`（子需求写 `REQ-NNN.S`）与覆盖到的条款编号
 - [ ] 没有为了通过而放宽的断言、`pytest.mark.skip` 或空 `except`
 - [ ] 公共接口变更时同步更新了合同测试
 - [ ] 需要人工确认的行为已写进 PR 的「研发自测（手工）」栏（见 [`docs/DEVELOPMENT.md`](DEVELOPMENT.md) §4）

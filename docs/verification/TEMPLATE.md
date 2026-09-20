@@ -11,8 +11,11 @@ full-suite: "<passed> passed, <skipped> skipped，覆盖率 <x>%"
 <!--
 谁写这份报告：**没有参与实现的独立评审者**（人或独立 agent）。
 不要由实现者自己写，也不要在报告里复述实现者的说法——以自己的观察为准。
-写完放到 docs/verification/，并在「特性分支 → main」的 PR 正文「## 验收报告」里链接它。
-CI 会用 scripts/acceptance_gate.py 校验：报告存在、覆盖本批全部 REQ、每条 AC 都打勾、有全量测试结果。
+写这份报告的时机：**把某个编号推进到 verified 时**（一个子需求/大特性只做一次），
+写完放到 docs/verification/，并在收口 PR 正文的「## 验收报告」里链接它。
+CI 会用 scripts/acceptance_gate.py 校验：报告存在、覆盖被推进的编号、每条 AC 都打勾、有全量测试结果。
+批次里写的是子需求编号 `REQ-NNN.S` 时，为它单独分节并逐条核对 `AC-S.n`
+（门的判定按编号走：写父需求核对 `AC-n`，写子需求只核对那个小节）。
 -->
 
 # 独立验收报告：<批次名>
