@@ -71,9 +71,11 @@ class TushareClient(
     BASIC_CACHE_TTL = 7 * 86400  # 7 days in seconds
 
     def __init__(self, token: str):
-        ts.set_token(token)
-        self.pro = ts.pro_api(timeout=30)
         self.token = token
+        # Inject the token straight into pro_api() instead of calling
+        # ts.set_token(): set_token() persists the credential to ~/tk.csv,
+        # which raises PermissionError when HOME is read-only (sandboxes/CI).
+        self.pro = self._new_pro_api()
         self._store = {}  # {key: pd.DataFrame} for derived metrics computation
         self._yf_available = _yf_available
         self._cache_dir = os.path.join("output", ".collector_cache")
@@ -85,6 +87,24 @@ class TushareClient(
         if api_url:
             self.pro._DataApi__token = token
             self.pro._DataApi__http_url = api_url
+
+    def _new_pro_api(self):
+        """Build a Tushare pro client, passing the token in-process.
+
+        ``ts.set_token()`` writes the credential to ``~/tk.csv``; that side
+        effect fails with ``PermissionError`` when HOME is read-only, so the
+        token is handed to ``ts.pro_api()`` directly instead (AC-1.2). When no
+        token is supplied, tushare resolves it itself — still without writing
+        anything to disk.
+        """
+        if not self.token:
+            print(
+                "⚠️ No Tushare token provided (--token / TUSHARE_TOKEN); "
+                "falling back to tushare's own token lookup "
+                "(no ~/tk.csv is written).",
+                file=sys.stderr,
+            )
+        return ts.pro_api(self.token, timeout=30)
 
     @rate_limit
     def _safe_call(self, api_name: str, **kwargs) -> pd.DataFrame:
@@ -122,7 +142,7 @@ class TushareClient(
                         "RemoteDisconnected" in str(e)
                     if is_conn_err:
                         print(f"[retry {attempt}/{self.MAX_RETRIES}] {effective_name}: connection error, re-creating API client...", file=sys.stderr)
-                        self.pro = ts.pro_api(timeout=30)
+                        self.pro = self._new_pro_api()
                         # Re-apply broker hacks after re-creating client
                         api_url = get_api_url()
                         if api_url:

@@ -237,6 +237,63 @@ class TestScreenerCache:
         assert cache.get("k2", 3600) is None
 
 
+class TestScreenerTokenInjection:
+    """AC-1.2: the token is injected, never written to HOME."""
+
+    def test_get_pro_injects_token_without_writing_home(self, tmp_path):
+        """pro_api() receives the token; ts.set_token() is never called."""
+        screener = _make_screener(tmp_path)
+        mock_pro = MagicMock()
+        with patch("tushare.pro_api", return_value=mock_pro) as mock_pro_api, \
+                patch("tushare.set_token",
+                      side_effect=PermissionError("read-only HOME")) as mock_set_token:
+            pro = screener._get_pro()
+
+        assert pro is mock_pro
+        mock_pro_api.assert_called_once_with("test_token", timeout=30)
+        mock_set_token.assert_not_called()
+
+    def test_get_pro_with_read_only_home(self, tmp_path, monkeypatch):
+        """AC-1.2: real tushare + read-only HOME still yields an API object."""
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        home.chmod(0o500)
+        try:
+            screener = _make_screener(tmp_path)
+            pro = screener._get_pro()
+            assert pro._DataApi__token == "test_token"
+            assert not (home / "tk.csv").exists()
+        finally:
+            home.chmod(0o700)
+
+    def test_retry_reinjects_token_without_writing_home(self, tmp_path):
+        """The retry path rebuilds the client with the token, not via HOME.
+
+        Note: the retry loop keeps using the client captured before the except
+        block (pre-existing behaviour, out of scope here), so the call still
+        fails; this test only pins how the replacement client is built.
+        """
+        screener = _make_screener(tmp_path)
+        old_pro = MagicMock()
+        old_pro.income.side_effect = OSError("RemoteDisconnected")
+        new_pro = MagicMock()
+        new_pro.income.return_value = pd.DataFrame({"x": [1]})
+        screener._pro = old_pro
+
+        with patch("tushare.pro_api", return_value=new_pro) as mock_pro_api, \
+                patch("tushare.set_token",
+                      side_effect=PermissionError("read-only HOME")) as mock_set_token, \
+                patch("screener_core.time.sleep"):
+            with pytest.raises(RuntimeError, match="failed after 3 retries"):
+                screener._safe_call("income", ts_code="600887.SH")
+
+        assert mock_pro_api.call_count == 2
+        for args in mock_pro_api.call_args_list:
+            assert args == (("test_token",), {"timeout": 30})
+        mock_set_token.assert_not_called()
+
+
 class TestTier1BulkData:
     """Tests for _tier1_bulk_data and _get_latest_trade_date."""
 
