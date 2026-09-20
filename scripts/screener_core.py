@@ -169,12 +169,28 @@ class TushareScreener:
         self._rf_cache: float | None = None  # global risk-free rate
         self._stock_data_cache: dict[str, pd.DataFrame] = {}  # per-stock in-memory cache
 
+    def _new_pro_api(self):
+        """Build a Tushare pro client, passing the token in-process.
+
+        ``ts.set_token()`` writes the credential to ``~/tk.csv``; that side
+        effect fails with ``PermissionError`` when HOME is read-only, so the
+        token is handed to ``ts.pro_api()`` directly instead (AC-1.2). When no
+        token is supplied, tushare resolves it itself — still without writing
+        anything to disk.
+        """
+        import tushare as ts
+        if not self._token:
+            print(
+                "⚠️ No Tushare token provided; falling back to tushare's own "
+                "token lookup (no ~/tk.csv is written).",
+                file=sys.stderr,
+            )
+        return ts.pro_api(self._token, timeout=30)
+
     def _get_pro(self):
-        """Lazy-initialize Tushare pro API."""
+        """Lazy-initialize Tushare pro API (token injected, never written to HOME)."""
         if self._pro is None:
-            import tushare as ts
-            ts.set_token(self._token)
-            self._pro = ts.pro_api(timeout=30)
+            self._pro = self._new_pro_api()
             api_url = os.environ.get("TUSHARE_API_URL", "")
             if api_url:
                 self._pro._DataApi__http_url = api_url
@@ -192,8 +208,7 @@ class TushareScreener:
             except Exception as e:
                 last_err = e
                 if attempt < 3:
-                    import tushare as ts
-                    self._pro = ts.pro_api(timeout=30)
+                    self._pro = self._new_pro_api()
                     api_url = os.environ.get("TUSHARE_API_URL", "")
                     if api_url:
                         self._pro._DataApi__http_url = api_url

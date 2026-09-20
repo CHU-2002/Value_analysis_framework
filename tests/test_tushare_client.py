@@ -4,7 +4,7 @@ import json
 import os
 import tempfile
 import time
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch, PropertyMock, call
 
 import pandas as pd
 import pytest
@@ -53,12 +53,53 @@ class TestRateLimit:
 
 class TestTushareClientInit:
     @patch("tushare_collector.ts")
-    def test_init_sets_token(self, mock_ts):
+    def test_init_injects_token_without_writing_home(self, mock_ts):
+        """AC-1.2: the token goes to pro_api(), never to ~/tk.csv."""
         mock_ts.pro_api.return_value = MagicMock()
         client = TushareClient("test_token")
-        mock_ts.set_token.assert_called_once_with("test_token")
-        mock_ts.pro_api.assert_called_once_with(timeout=30)
+        mock_ts.pro_api.assert_called_once_with("test_token", timeout=30)
+        mock_ts.set_token.assert_not_called()
         assert client.token == "test_token"
+        assert client.pro is mock_ts.pro_api.return_value
+
+    @patch("tushare_collector.ts")
+    def test_init_survives_read_only_home(self, mock_ts):
+        """AC-1.2: ts.set_token() raising PermissionError must not break init."""
+        mock_ts.set_token.side_effect = PermissionError(
+            "[Errno 30] Read-only file system: 'tk.csv'"
+        )
+        mock_pro = MagicMock()
+        mock_ts.pro_api.return_value = mock_pro
+
+        client = TushareClient("test_token")
+
+        assert client.pro is mock_pro
+        mock_ts.pro_api.assert_called_once_with("test_token", timeout=30)
+
+    def test_collector_entry_point_with_read_only_home(self, tmp_path, monkeypatch):
+        """AC-1.2: real tushare + read-only HOME collects without PermissionError.
+
+        Uses the real ``tushare`` package (client construction performs no
+        network I/O) with HOME redirected to a non-writable directory, then
+        drives the collection entry point ``assemble_data_pack`` with the API
+        layer mocked out. Also asserts the token really reached the API object.
+        """
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        home.chmod(0o500)  # read-only: writing ~/tk.csv now fails
+        try:
+            client = TushareClient("test_token")
+            assert client.pro._DataApi__token == "test_token"
+            assert not (home / "tk.csv").exists()
+
+            client._cache_dir = str(tmp_path / "cache")
+            with patch("tushare_collector.time.sleep"):
+                client._safe_call = MagicMock(return_value=pd.DataFrame())
+                result = client.assemble_data_pack("600887.SH")
+            assert "# 数据包 — 600887.SH" in result
+        finally:
+            home.chmod(0o700)
 
 
 class TestCachedBasicCall:
@@ -283,6 +324,26 @@ class TestSafeCall:
         assert mock_ts.pro_api.call_count == 2
         mock_pro_old.cashflow.assert_called_once()
         mock_pro_new.cashflow.assert_called_once()
+
+    @patch("tushare_collector.ts")
+    def test_connection_error_reconnect_reinjects_token(self, mock_ts):
+        """AC-1.2: the reconnect path passes the token again, not via HOME."""
+        mock_ts.set_token.side_effect = PermissionError("read-only HOME")
+        mock_pro_old = MagicMock()
+        mock_pro_new = MagicMock()
+        mock_pro_old.cashflow.side_effect = OSError("RemoteDisconnected")
+        mock_pro_new.cashflow.return_value = pd.DataFrame({"col": [1]})
+        mock_ts.pro_api.side_effect = [mock_pro_old, mock_pro_new]
+
+        client = TushareClient("token")
+        with patch("tushare_collector.time.sleep"):
+            client._safe_call("cashflow", ts_code="600887.SH")
+
+        assert mock_ts.pro_api.call_args_list == [
+            call("token", timeout=30),
+            call("token", timeout=30),
+        ]
+        mock_ts.set_token.assert_not_called()
 
 
 # --- Feature #14: get_basic_info ---
