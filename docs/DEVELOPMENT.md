@@ -157,7 +157,7 @@ python scripts/regression_gate.py --new     # 打印可直接填写的记录草�
 | 独立验收 | 报告覆盖本批 REQ 且 AC 全打勾 | `scripts/acceptance_gate.py` |
 | 批量回归 | 每 3 个特性合入必须留档 | `scripts/regression_gate.py` |
 | PR 标题 | Conventional Commits，≤ 72 字符 | CI `pr-title` |
-| 全量测试耗时 | 约 1 分钟（随主机负载浮动，不写死秒数） | `make cov` |
+| 全量测试耗时 | 约 1 分钟（墙钟时间；机器休眠/挂起会显著拉长，不作为判据） | `make cov` |
 
 ## 15. 反模式
 
