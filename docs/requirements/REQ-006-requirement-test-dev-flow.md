@@ -83,7 +83,7 @@ supersedes: TBD
   - **AC-1.8**：**流程闭环**：验收标准里写了「实跑」的编号，其收口报告必须带「## 实跑记录」（含可复制命令、环境与观察），由 `scripts/acceptance_gate.py` 强制；实跑发现的问题当次登记（子需求或任务），不允许只用运行时补丁绕过。
   - **AC-1.10**：`TushareScreener._safe_call` 的重试必须作用在**重建后**的客户端上（原实现把 `pro` 取在循环外，三次尝试都打在同一个坏客户端上，重试等于没做）；有回归测试证明「第一次失败、第二次成功」。
   - **AC-1.9**：在只读 HOME + 真实 token 下**复跑**一次迭代，不使用任何运行时补丁，产出完整 run（台账、manifest、结构化结果、两篇报告），命令与观察写进实跑记录。
-- 追溯：`tests/test_discover_report.py`、`tests/test_tushare_client.py`、`tests/test_screener.py`、`tests/test_runs_ledger.py`、`tests/test_results_pipeline.py`、`tests/test_change_report.py`、`tests/test_update_docs_contract.py`、`tests/test_release_gates.py`；PR #36（登记与规则）、修复 PR 号回填
+- 追溯：`tests/test_discover_report.py`、`tests/test_tushare_client.py`、`tests/test_screener.py`、`tests/test_runs_ledger.py`、`tests/test_results_pipeline.py`、`tests/test_change_report.py`、`tests/test_update_docs_contract.py`、`tests/test_release_gates.py`；PR #36（登记与规则）、PR #37（6 个实跑问题的修复，`4450863`）
 
 ## 验收标准
 
@@ -228,7 +228,7 @@ supersedes: TBD
 | AC-1.8 | 实跑问题没有固定去处 | 已在 #36 交付：验收标准写「实跑」的编号，收口报告必须有「## 实跑记录」 |
 | AC-1.10 | `TushareScreener._safe_call` 重试用的是旧客户端 | 每次尝试重新取客户端；回归测试证明「第一次失败、第二次成功」 |
 
-本批实测：`make verify` → 1519 passed / 3 skipped，scope 33 支文件 1522 用例，三类门禁全绿。
+本批实测：`make verify` → 1519 passed / 3 skipped，scope 33 支文件 1522 用例，三类门禁全绿；合入 `4450863`（PR #37）。
 
 **T4 决定不做**（2026-09-20）：使用者明确「不用补测了」。覆盖率维持 76.80%、门禁维持 ≥74%；
 `REQ-008` 文件保留为规格，编号仍为 `superseded`。
