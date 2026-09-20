@@ -81,8 +81,9 @@ supersedes: TBD
   - **AC-1.6**：`runs.py finish --artifact name=path` 对不存在的文件报错且不写台账；相对路径按调用者 cwd 解析并在台账里存绝对路径；重复 name 报错；三条路径都有单测。
   - **AC-1.7**：模块结果引用的每条 evidence id 都属于该模块 bundle 的 id 集合，越界可由检查手段检出（校验器或 bundle 生成侧裁剪）。
   - **AC-1.8**：**流程闭环**：验收标准里写了「实跑」的编号，其收口报告必须带「## 实跑记录」（含可复制命令、环境与观察），由 `scripts/acceptance_gate.py` 强制；实跑发现的问题当次登记（子需求或任务），不允许只用运行时补丁绕过。
+  - **AC-1.10**：`TushareScreener._safe_call` 的重试必须作用在**重建后**的客户端上（原实现把 `pro` 取在循环外，三次尝试都打在同一个坏客户端上，重试等于没做）；有回归测试证明「第一次失败、第二次成功」。
   - **AC-1.9**：在只读 HOME + 真实 token 下**复跑**一次迭代，不使用任何运行时补丁，产出完整 run（台账、manifest、结构化结果、两篇报告），命令与观察写进实跑记录。
-- 追溯：`tests/test_discover_report.py`、`tests/test_runs_ledger.py`、`tests/test_results_pipeline.py`、`tests/test_update_docs_contract.py`、`tests/test_qualitative_consumers.py`、`tests/test_release_gates.py`；PR #36（登记与规则）、后续修复 PR 待回填
+- 追溯：`tests/test_discover_report.py`、`tests/test_tushare_client.py`、`tests/test_screener.py`、`tests/test_runs_ledger.py`、`tests/test_results_pipeline.py`、`tests/test_change_report.py`、`tests/test_update_docs_contract.py`、`tests/test_release_gates.py`；PR #36（登记与规则）、修复 PR 号回填
 
 ## 验收标准
 
@@ -211,6 +212,23 @@ supersedes: TBD
 | 追溯门禁 | `tests/test_requirement_traceability.py` 新增子需求与台账「子需求台账」的一致性、状态一致、`AC-S.n` 编号写法、子需求必须写在「## 子需求」小节内且编号唯一、以及**父需求状态不得先于最慢子需求**的不变量 |
 | scope 与回归 | `scripts/test_scope.py` 归属列接受 `REQ-NNN.S`；`scripts/regression_gate.py` 的逐条验收小节接受子需求编号；`pr_body_guard` / PR 模板 / 开发与测试文档同步 |
 | 评审粒度 | 独立验收改为**按子需求/大特性收口**触发（AC-3 变更，使用者要求）：`acceptance_gate` 只看「本 PR 是否把编号推进到 `verified`」，不看 PR 大小与目标分支；收口 PR 必须署名该编号并链接报告；`pr_body_guard` 不再要求报告栏；CI 的验收步骤对所有 PR 生效 |
+
+**REQ-006.1 交付内容**（一次真实实跑暴露 6 个问题 + 1 个观察，全部落在同一个子需求里；
+状态仍为 `in-progress`——**AC-1.9「无补丁复跑」要在真实 token + 只读 HOME 下由使用者执行**）：
+
+| AC | 实跑暴露的问题 | 交付 |
+|----|----------------|------|
+| AC-1.1 | CNINFO 硬编码 https（403） | `discover_report.py` 协议可配置（`--cninfo-protocol` / `CNINFO_QUERY_PROTOCOL`）：默认 https，403 回退 http 且请求头一致并留痕，显式指定则钉死；+10 单测 |
+| AC-1.2 | Tushare 要写 `~/tk.csv` | token 直接传给 `ts.pro_api(token, timeout=30)`（四处调用点），只读 HOME 下可用；+6 单测 |
+| AC-1.3 | 文档漏 `--run-id`，台账与 run id 分叉 | 文档 Step 4 补 `--run-id {run_id}`；`prepare` 以 `run.json` 的 id 为准、不一致直接报错；契约测试钉住 |
+| AC-1.4 | resolver 不认 `period_delta`（按文档喂就 digest 不匹配） | D7 登记为可选模块并参与 digest；不提供时 digest 与基线逐字节一致 |
+| AC-1.5 | 默认预算装不下真实载荷且静默丢卡 | `synthesis` 默认 40k、`change_report` 默认 160k（按实跑实测载荷：30,124 / 38,070 / 26,141 / ~150k）；`budget.dropped`、`degraded` 显式记录并在 CLI 打印；文档写明依据 |
+| AC-1.6 | `finish --artifact` 不校验 | 文件不存在/重复 name 报错且不写台账；相对路径按调用者 cwd 解析并入库绝对路径；+3 单测 |
+| AC-1.7 | 模块 agent 越界引用 bundle 外证据 | `validate_bundle_evidence()` + `validate_result.py --context <bundle>` 可检出（越界即 exit≠0） |
+| AC-1.8 | 实跑问题没有固定去处 | 已在 #36 交付：验收标准写「实跑」的编号，收口报告必须有「## 实跑记录」 |
+| AC-1.10 | `TushareScreener._safe_call` 重试用的是旧客户端 | 每次尝试重新取客户端；回归测试证明「第一次失败、第二次成功」 |
+
+本批实测：`make verify` → 1519 passed / 3 skipped，scope 33 支文件 1522 用例，三类门禁全绿。
 
 **T4 决定不做**（2026-09-20）：使用者明确「不用补测了」。覆盖率维持 76.80%、门禁维持 ≥74%；
 `REQ-008` 文件保留为规格，编号仍为 `superseded`。

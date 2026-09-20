@@ -15,7 +15,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | 项 | 当前 | 上限 | 使用率 |
 |----|------|------|--------|
 | 测试文件数 | 33 | 40 | 82% |
-| 收集到的用例数 | 1491 | 1600 | 93% |
+| 收集到的用例数 | 1522 | 1600 | 95% |
 
 （用例数含 `parametrize` 展开，由 `pytest --collect-only` 统计；函数数见下表末列，仅作参考。）
 
@@ -25,12 +25,12 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 |----------|----------|----|----------|------------|
 | `tests/test_analysis_status.py` | REQ-003 | `unit` | `scripts/analysis_status.py` | 24 |
 | `tests/test_buy_sell_engine.py` | 基线 | `unit` | `scripts/buy_sell_engine.py` | 45 |
-| `tests/test_change_report.py` | REQ-004 | `unit` | — | 19 |
+| `tests/test_change_report.py` | REQ-004, REQ-006.1 | `unit` | — | 21 |
 | `tests/test_comparable_periods.py` | REQ-002 | `unit` | — | 39 |
 | `tests/test_config.py` | 基线 | `unit` | `scripts/config.py` | 43 |
 | `tests/test_coordinator.py` | 基线 | `unit` | — | 9 |
 | `tests/test_derived_metrics.py` | 基线 | `unit` | — | 83 |
-| `tests/test_discover_report.py` | REQ-001 | `unit` | `scripts/discover_report.py` | 52 |
+| `tests/test_discover_report.py` | REQ-001, REQ-006.1 | `unit` | `scripts/discover_report.py` | 62 |
 | `tests/test_download_report.py` | REQ-001 | `unit` | `scripts/download_report.py` | 85 |
 | `tests/test_format_utils.py` | 基线 | `unit` | `scripts/format_utils.py` | 21 |
 | `tests/test_integration.py` | 基线 | `integration` | — | 3 |
@@ -48,13 +48,13 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_refresh_market.py` | 基线 | `unit` | — | 23 |
 | `tests/test_release_gates.py` | REQ-003, REQ-005, REQ-006, REQ-006.1 | `unit` | — | 37 |
 | `tests/test_requirement_traceability.py` | 基线 | `unit` | — | 17 |
-| `tests/test_results_pipeline.py` | 基线 | `e2e` | — | 53 |
-| `tests/test_runs_ledger.py` | REQ-003 | `unit` | — | 35 |
-| `tests/test_screener.py` | 基线 | `unit` | — | 96 |
+| `tests/test_results_pipeline.py` | REQ-006.1 | `e2e` | — | 61 |
+| `tests/test_runs_ledger.py` | REQ-003, REQ-006.1 | `unit` | — | 38 |
+| `tests/test_screener.py` | REQ-006.1 | `unit` | — | 99 |
 | `tests/test_test_scope.py` | REQ-003, REQ-006 | `unit` | `scripts/test_scope.py` | 16 |
-| `tests/test_tushare_client.py` | 基线 | `unit` | — | 207 |
+| `tests/test_tushare_client.py` | REQ-006.1 | `unit` | — | 210 |
 | `tests/test_two_layout_e2e.py` | REQ-005, REQ-006 | `unit` | — | 5 |
-| `tests/test_update_docs_contract.py` | REQ-005, REQ-006 | `unit` | — | 18 |
+| `tests/test_update_docs_contract.py` | REQ-005, REQ-006, REQ-006.1 | `unit` | — | 20 |
 | `tests/test_version.py` | REQ-003 | `unit` | `scripts/version.py` | 14 |
 
 归属为「基线」的测试覆盖需求体系建立前就已交付的能力，见

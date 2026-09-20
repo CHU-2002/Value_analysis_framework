@@ -1,5 +1,6 @@
 
 # 覆盖需求：REQ-001（定期报告发现与下载）—— AC-1 四类发现与 secCode 过滤、AC-2 auto/latest 不静默退化、AC-4 --since 拓宽窗口、AC-6 单条失败不中断整批
+# 覆盖需求：REQ-006.1 —— AC-1.1 CNINFO 协议可配置且 403 回退 http（含请求头一致）
 """Tests for scripts/discover_report.py"""
 
 import os

@@ -247,6 +247,12 @@ python3 scripts/download_report.py --stock-code 600887 --report-type auto --sinc
 7. 监控项兑现情况与风险更新
 8. 数据缺口与降级说明
 
+> **上下文预算（2026-09-20 实跑实测，REQ-006.1 AC-1.5）**：`synthesis` 默认 40,000 字符
+> （四个核心模块实测 30,124，含 D7 是 38,070）；`change_report` 默认 160,000 字符
+> （D7 单卡就要 26,141，「本期 + 上次」两卡俱全实测约 150k）。装不下时**不静默**：
+> `synthesis` 在 `budget.dropped` / `dropped_count` 里列出被丢模块与字段样本，
+> `change_report` 在 `degraded` 里记降级项（含结论条数），两者都会在 CLI 打印出来。
+
 ---
 
 ## 8. 迭代管理（PR3）

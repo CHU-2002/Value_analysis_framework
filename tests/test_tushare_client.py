@@ -1,4 +1,5 @@
 """Tests for TushareClient class — init, rate limiting, retry, data methods."""
+# 覆盖需求：REQ-006.1 —— AC-1.2 token 显式注入、不写 HOME（只读 HOME 下可用）
 
 import json
 import os
