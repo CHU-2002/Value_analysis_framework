@@ -26,6 +26,17 @@
   拆成 5 个子需求（数据源与运行环境 / 文档接线与 resolver 口径 / 上下文预算与丢卡可见性 /
   台账 artifact 校验 / 证据边界可执行化）
 
+### Fixed
+
+- 财报分析端到端实跑的 6 个问题（`REQ-006.1`，一次真实运行暴露、原先只能靠运行时补丁绕过）：
+  CNINFO 协议不再硬编码 https 且 403 自动回退 http（保持请求头一致）；Tushare token 不再依赖
+  写 HOME；`prepare` 以 `run.json` 的 run_id 为准、不一致直接报错（台账与 run 内部 id 不再分叉）；
+  `resolve_qualitative` 接受 `period_delta` 作为可选模块参与 digest（按文档喂 D7 不再 digest 不匹配）；
+  `synthesis` / `change_report` 默认预算按实跑载荷设定且丢卡/降级必须显式列出；
+  `runs.py finish --artifact` 校验文件存在性、按调用者 cwd 解析并存绝对路径、拒绝重复 name
+- 模块结果的证据边界可执行化：`validate_result.py --context <bundle>` 拒绝引用 bundle 之外
+  的 evidence id（实跑观察：environment 16 条里 9 条、business_moat 26 条里 21 条越界）
+
 ### Changed
 
 - 评审改为**按子需求/大特性收口**触发，不再每个 PR 都拉评审：只有把某个编号

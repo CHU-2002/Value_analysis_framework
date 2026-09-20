@@ -164,6 +164,56 @@ def build_evidence_index(
     return index
 
 
+def bundle_evidence_ids(bundle: dict[str, Any]) -> set[str]:
+    """context bundle 里出现过的 evidence id 集合（即模块被允许引用的全部证据）。"""
+
+    ids: set[str] = set()
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "evidence_id" and isinstance(value, str):
+                    ids.add(value)
+                else:
+                    walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(bundle)
+    return ids
+
+
+def validate_bundle_evidence(result: dict[str, Any], bundle: dict[str, Any]) -> list[str]:
+    """模块结果引用的证据必须落在这个模块自己的 bundle 里。
+
+    实跑观察（REQ-006.1 第 7 条）：模块 agent 大量引用 bundle 之外的 evidence/index.json
+    条目（environment 16 条里 9 条、business_moat 26 条里 21 条）——quote 逐字可验证，
+    但绕过了契约里「只用 bundle 提供的证据 id」与上下文预算的设计。本函数把这条边界变成
+    可执行的检查（CLI：`validate_result.py --context <bundle.json>`）。
+    """
+
+    allowed = bundle_evidence_ids(bundle)
+    if not allowed:
+        return ["context bundle contains no evidence ids"]
+    errors: list[str] = []
+    for position, evidence in enumerate(result.get("evidence", [])):
+        evidence_id = evidence.get("evidence_id") if isinstance(evidence, dict) else None
+        if isinstance(evidence_id, str) and evidence_id not in allowed:
+            errors.append(
+                f"evidence[{position}] ID {evidence_id!r} is outside this module's context bundle"
+            )
+    for position, claim in enumerate(result.get("claims", [])):
+        if not isinstance(claim, dict):
+            continue
+        for evidence_id in claim.get("evidence_ids", []) or []:
+            if isinstance(evidence_id, str) and evidence_id not in allowed:
+                errors.append(
+                    f"claims[{position}] references {evidence_id!r} outside this module's context bundle"
+                )
+    return errors
+
+
 def validate_result_evidence(result: dict[str, Any], index: dict[str, Any]) -> list[str]:
     """Verify result evidence against the immutable evidence index."""
 

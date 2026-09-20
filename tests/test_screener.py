@@ -1,4 +1,5 @@
 """Tests for Stock Screener (选股器).
+# 覆盖需求：REQ-006.1 —— AC-1.2 token 不写 HOME、AC-1.10 重试必须用重建后的客户端
 
 Tests cover:
 - ScreenerConfig defaults, overrides, validation
@@ -235,6 +236,64 @@ class TestScreenerCache:
         cache.clear()
         assert cache.get("k1", 3600) is None
         assert cache.get("k2", 3600) is None
+
+
+class TestScreenerTokenInjection:
+    """AC-1.2: the token is injected, never written to HOME."""
+
+    def test_get_pro_injects_token_without_writing_home(self, tmp_path):
+        """pro_api() receives the token; ts.set_token() is never called."""
+        screener = _make_screener(tmp_path)
+        mock_pro = MagicMock()
+        with patch("tushare.pro_api", return_value=mock_pro) as mock_pro_api, \
+                patch("tushare.set_token",
+                      side_effect=PermissionError("read-only HOME")) as mock_set_token:
+            pro = screener._get_pro()
+
+        assert pro is mock_pro
+        mock_pro_api.assert_called_once_with("test_token", timeout=30)
+        mock_set_token.assert_not_called()
+
+    def test_get_pro_with_read_only_home(self, tmp_path, monkeypatch):
+        """AC-1.2: real tushare + read-only HOME still yields an API object."""
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        home.chmod(0o500)
+        try:
+            screener = _make_screener(tmp_path)
+            pro = screener._get_pro()
+            assert pro._DataApi__token == "test_token"
+            assert not (home / "tk.csv").exists()
+        finally:
+            home.chmod(0o700)
+
+    def test_retry_actually_uses_the_rebuilt_client(self, tmp_path):
+        """AC-1.10: the retry must run on the rebuilt client, not the stale one.
+
+        回归（开发中发现）：`pro` 原先取在循环外，except 里重建了 `self._pro` 却继续用旧对象，
+        三次尝试都打在坏客户端上，重试等于没做。
+        """
+        screener = _make_screener(tmp_path)
+        old_pro = MagicMock()
+        old_pro.income.side_effect = OSError("RemoteDisconnected")
+        new_pro = MagicMock()
+        new_pro.income.return_value = pd.DataFrame({"x": [1]})
+        screener._pro = old_pro
+
+        with patch("tushare.pro_api", return_value=new_pro) as mock_pro_api, \
+                patch("tushare.set_token",
+                      side_effect=PermissionError("read-only HOME")) as mock_set_token, \
+                patch("screener_core.time.sleep"):
+            frame = screener._safe_call("income", ts_code="600887.SH")
+
+        assert list(frame["x"]) == [1], "重试必须真的换成重建后的客户端"
+        assert old_pro.income.call_count == 1
+        assert new_pro.income.call_count == 1
+        assert mock_pro_api.call_count == 1
+        for args in mock_pro_api.call_args_list:
+            assert args == (("test_token",), {"timeout": 30})
+        mock_set_token.assert_not_called()
 
 
 class TestTier1BulkData:

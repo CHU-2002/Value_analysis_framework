@@ -1,5 +1,6 @@
 
 # 覆盖需求：REQ-001（定期报告发现与下载）—— AC-1 四类发现与 secCode 过滤、AC-2 auto/latest 不静默退化、AC-4 --since 拓宽窗口、AC-6 单条失败不中断整批
+# 覆盖需求：REQ-006.1 —— AC-1.1 CNINFO 协议可配置且 403 回退 http（含请求头一致）
 """Tests for scripts/discover_report.py"""
 
 import os
@@ -7,14 +8,19 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 from discover_report import (
     CNINFO_ALL_REGULAR_CATEGORIES,
+    CNINFO_HEADERS,
+    CNINFO_PROTOCOL_ENV_VAR,
+    CNINFO_QUERY_URL,
     EXIT_BAD_ARGUMENTS,
     EXIT_NETWORK_FAILURE,
     EXIT_NO_MATCH,
     EXIT_SUCCESS,
+    build_cninfo_query_url,
     build_stockpage_url,
     discover_latest_period,
     discover_periods,
@@ -26,6 +32,7 @@ from discover_report import (
     get_required_keywords,
     is_excluded_title,
     main,
+    resolve_cninfo_protocol,
     score_candidate,
     select_best_candidate,
     should_prefer_cninfo,
@@ -862,3 +869,157 @@ class TestScoreCandidateYearAlignment:
 
     def test_matching_year_still_scores(self):
         assert score_candidate({"title": "五粮液：2024年年度报告"}, "2024", "年报") is not None
+
+
+# --- CNINFO query protocol configuration / https 403 -> http fallback ---
+# 子需求 AC-1.1：查询协议可配置、https 403 回退 http 且请求头保持、回退留痕。
+# （本条测试归属仍随本文件登记为 REQ-001；如需在 docs/TEST_SCOPE.md 里
+#  追加子需求编号，请运行 `make scope-write`，本任务范围内不改 docs。）
+
+
+def _forbidden_response():
+    response = MagicMock()
+    response.status_code = 403
+    response.raise_for_status = MagicMock(side_effect=requests.HTTPError("403 Client Error"))
+    return response
+
+
+def _ok_response(payload):
+    response = _cninfo_mock(payload)
+    response.status_code = 200
+    return response
+
+
+CNINFO_QUERY_URLS_BY_PROTOCOL = {
+    "https": "https://www.cninfo.com.cn/new/hisAnnouncement/query",
+    "http": "http://www.cninfo.com.cn/new/hisAnnouncement/query",
+}
+
+ANNUAL_ANNOUNCEMENTS = {
+    "announcements": [
+        {
+            "announcementTitle": "五粮液：2025年年度报告",
+            "announcementTime": 1774540800000,  # 2026-03-27
+            "adjunctUrl": "finalpage/2026-03-27/fy2025.PDF",
+        }
+    ]
+}
+
+
+class TestCninfoProtocolFallback:
+    """AC-1.1: configurable protocol, https 403 -> http fallback."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_protocol_env(self, monkeypatch):
+        monkeypatch.delenv(CNINFO_PROTOCOL_ENV_VAR, raising=False)
+
+    @patch("discover_report.requests.post")
+    def test_https_403_falls_back_to_http_and_keeps_headers(self, mock_post, capsys):
+        mock_post.side_effect = [_forbidden_response(), _ok_response(PERIODIC_ANNOUNCEMENTS)]
+
+        periods = discover_periods("000858", "五粮液")
+
+        assert [candidate["period"] for candidate in periods] == ["2026H1", "2026Q1", "2025FY"]
+        # Regression guard: no fallback -> the 403 raises; fallback without the
+        # headers -> the headers assertion below fails.
+        assert [call.args[0] for call in mock_post.call_args_list] == [
+            CNINFO_QUERY_URLS_BY_PROTOCOL["https"],
+            CNINFO_QUERY_URLS_BY_PROTOCOL["http"],
+        ]
+        assert [call.kwargs["headers"] for call in mock_post.call_args_list] == [
+            CNINFO_HEADERS,
+            CNINFO_HEADERS,
+        ]
+        assert mock_post.call_args_list[-1].kwargs["headers"]["Referer"].startswith(
+            "https://www.cninfo.com.cn/"
+        )
+        # The switch is reported, not silent.
+        assert "403" in capsys.readouterr().err
+
+    @patch("discover_report.requests.get")
+    @patch("discover_report.requests.post")
+    def test_annual_query_path_also_falls_back(self, mock_post, mock_get):
+        page_response = MagicMock()
+        page_response.text = """
+        <html>
+          <title>五粮液(000858)个股行情</title>
+          <strong stockname="五粮液"></strong>
+        </html>
+        """
+        page_response.raise_for_status = MagicMock()
+        mock_get.return_value = page_response
+        mock_post.side_effect = [_forbidden_response(), _ok_response(ANNUAL_ANNOUNCEMENTS)]
+
+        _, _, best = discover_report("000858", "2025", "年报")
+
+        assert best is not None
+        assert best["url"] == "https://static.cninfo.com.cn/finalpage/2026-03-27/fy2025.PDF"
+        assert [call.args[0] for call in mock_post.call_args_list] == [
+            CNINFO_QUERY_URLS_BY_PROTOCOL["https"],
+            CNINFO_QUERY_URLS_BY_PROTOCOL["http"],
+        ]
+
+    @patch("discover_report.requests.post")
+    def test_explicit_https_pins_and_does_not_fall_back(self, mock_post):
+        mock_post.return_value = _forbidden_response()
+
+        with pytest.raises(requests.HTTPError):
+            discover_periods("000858", "五粮液", protocol="https")
+
+        assert mock_post.call_count == 1
+        assert mock_post.call_args.args[0] == CNINFO_QUERY_URLS_BY_PROTOCOL["https"]
+
+    @patch("discover_report.requests.post")
+    def test_explicit_http_never_tries_https(self, mock_post):
+        mock_post.return_value = _ok_response(PERIODIC_ANNOUNCEMENTS)
+
+        periods = discover_periods("000858", "五粮液", protocol="http")
+
+        assert [candidate["period"] for candidate in periods] == ["2026H1", "2026Q1", "2025FY"]
+        assert mock_post.call_count == 1
+        assert mock_post.call_args.args[0] == CNINFO_QUERY_URLS_BY_PROTOCOL["http"]
+
+    @patch("discover_report.requests.post")
+    def test_env_var_selects_the_protocol(self, mock_post, monkeypatch):
+        monkeypatch.setenv(CNINFO_PROTOCOL_ENV_VAR, "http")
+        mock_post.return_value = _ok_response(PERIODIC_ANNOUNCEMENTS)
+
+        assert resolve_cninfo_protocol() == "http"
+        discover_periods("000858", "五粮液")
+
+        assert mock_post.call_count == 1
+        assert mock_post.call_args.args[0] == CNINFO_QUERY_URLS_BY_PROTOCOL["http"]
+
+    def test_default_protocol_is_still_https(self):
+        assert CNINFO_QUERY_URL == CNINFO_QUERY_URLS_BY_PROTOCOL["https"]
+        assert resolve_cninfo_protocol() == "https"
+        assert build_cninfo_query_url("http") == CNINFO_QUERY_URLS_BY_PROTOCOL["http"]
+
+    def test_explicit_protocol_beats_the_env_var(self, monkeypatch):
+        monkeypatch.setenv(CNINFO_PROTOCOL_ENV_VAR, "http")
+        assert resolve_cninfo_protocol("https") == "https"
+
+    def test_invalid_explicit_protocol_is_rejected(self):
+        with pytest.raises(ValueError):
+            resolve_cninfo_protocol("ftp")
+
+    def test_invalid_env_var_warns_and_keeps_https(self, monkeypatch, capsys):
+        monkeypatch.setenv(CNINFO_PROTOCOL_ENV_VAR, "gopher")
+
+        assert resolve_cninfo_protocol() == "https"
+        assert "ignoring invalid" in capsys.readouterr().err
+
+    @patch("discover_report.requests.get")
+    @patch("discover_report.requests.post")
+    def test_cli_flag_pins_the_protocol(self, mock_post, mock_get, monkeypatch, capsys):
+        monkeypatch.setenv(CNINFO_PROTOCOL_ENV_VAR, "https")
+        mock_post.return_value = _ok_response(PERIODIC_ANNOUNCEMENTS)
+        mock_get.side_effect = requests.exceptions.ConnectionError("no stockpage")
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--stock-code", "000858", "--latest", "--cninfo-protocol", "http"])
+
+        assert exc_info.value.code == EXIT_SUCCESS
+        assert mock_post.call_count == 1
+        assert mock_post.call_args.args[0] == CNINFO_QUERY_URLS_BY_PROTOCOL["http"]
+        assert "period: 2026H1" in capsys.readouterr().out

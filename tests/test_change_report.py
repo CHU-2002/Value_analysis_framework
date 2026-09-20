@@ -1,5 +1,6 @@
 
 # 覆盖需求：REQ-004（增量更新分析）—— AC-4 失效证据降级而非拒绝、AC-5 变化报告产出
+# 覆盖需求：REQ-006.1 —— AC-1.5 变化报告默认预算按真实载荷、降级必须显式
 """Tests for scripts/results/change_report.py context builder."""
 
 import json
@@ -166,6 +167,8 @@ class TestBuildChangeReportContext:
         assert payload["degraded"] == {
             "prior_synthesis_dropped": False,
             "synthesis_dropped": False,
+            "prior_synthesis_claims": 6,
+            "synthesis_claims": 6,
             "prior_evidence_unavailable": 0,
             "missing_inputs": [],
             "unusable_inputs": [],
@@ -182,6 +185,8 @@ class TestBuildChangeReportContext:
         assert payload["degraded"] == {
             "prior_synthesis_dropped": False,
             "synthesis_dropped": False,
+            "prior_synthesis_claims": 0,
+            "synthesis_claims": 0,
             "prior_evidence_unavailable": 0,
             "missing_inputs": [],
             "unusable_inputs": [],
@@ -449,3 +454,37 @@ class TestBudgetAndDegradationSemantics:
         assert payload["prior_synthesis"] is None
         assert payload["degraded"]["prior_synthesis_dropped"] is True
         assert payload["degraded"]["prior_evidence_unavailable"] == 0
+
+
+def test_default_budget_covers_the_measured_real_payload():
+    """AC-1.5：默认预算按实跑真实载荷设定（D7 单卡 26,141；两卡俱全实测要 ~150k）。"""
+    import inspect
+
+    default = inspect.signature(build_change_report_context).parameters["max_chars"].default
+    assert default >= 150000, f"默认预算 {default} 小于实跑测得的 150k，会静默丢卡"
+
+
+def test_main_reports_the_degradation_to_the_operator(tmp_path, capsys):
+    """AC-1.5：降级不能只在 JSON 里，CLI 也要说出来。"""
+    index = _write_index(tmp_path)
+    delta = _write(tmp_path, "delta.json", _delta_result())
+    synthesis = _write(tmp_path, "synthesis.json", _synthesis_result(RUN_ID, ("market_data:3:001",)))
+    prior = _write(tmp_path, "prior.json", _synthesis_result(PRIOR_RUN_ID))
+    full = build_change_report_context(
+        delta_result_path=delta,
+        evidence_index_path=index,
+        synthesis_result_path=synthesis,
+        prior_synthesis_path=prior,
+    )
+    output = tmp_path / "context.json"
+    main(
+        [
+            "--delta", str(delta),
+            "--evidence-index", str(index),
+            "--synthesis", str(synthesis),
+            "--prior-synthesis", str(prior),
+            "--max-chars", str(full["budget"]["actual_chars"] - 200),
+            "--output", str(output),
+        ]
+    )
+    assert "已降级" in capsys.readouterr().out

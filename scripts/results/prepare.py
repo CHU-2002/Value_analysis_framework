@@ -168,6 +168,23 @@ def prepare_run(
             report_periods[source_id] = period
 
     resolved_run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    # run-store 布局下 ``runs.py new`` 已经签发了 run_id 并写进 run.json：此处必须以它为准。
+    # 不这样做的话，「文档漏传 --run-id」会让 prepare 另生成一个 id，台账 id 与 run 内部 id 分叉，
+    # 而且没有任何报错（2026-09-20 实跑实测）。
+    run_meta_path = root / "run.json"
+    if run_meta_path.is_file():
+        try:
+            recorded_run_id = json.loads(run_meta_path.read_text(encoding="utf-8")).get("run_id")
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"run.json is unreadable: {run_meta_path}: {exc}") from exc
+        if isinstance(recorded_run_id, str) and recorded_run_id:
+            if run_id and run_id != recorded_run_id:
+                raise ValueError(
+                    f"run_id {run_id!r} does not match this run directory's run.json "
+                    f"({recorded_run_id!r}); pass the run_id issued by `runs.py new` so the "
+                    "ledger id and the run's internal id cannot diverge"
+                )
+            resolved_run_id = recorded_run_id
     subject = {"ticker": validate_stock_code(ticker), "company": company, "market": market}
     input_paths = []
     for source in sources:

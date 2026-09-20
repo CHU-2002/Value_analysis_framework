@@ -8,7 +8,7 @@ import json
 import sys
 from pathlib import Path
 
-from .evidence import validate_result_evidence
+from .evidence import validate_bundle_evidence, validate_result_evidence
 from .schema import load_result
 
 
@@ -17,6 +17,10 @@ def main() -> None:
     parser.add_argument("path")
     parser.add_argument("--allow-legacy", action="store_true", help="allow missing evidence references")
     parser.add_argument("--evidence-index", help="verify exact quotes, locators and run identity against this index")
+    parser.add_argument(
+        "--context",
+        help="module context bundle (contexts/<module>.json): reject evidence ids outside it",
+    )
     args = parser.parse_args()
     try:
         result = load_result(args.path, strict=not args.allow_legacy)
@@ -31,6 +35,13 @@ def main() -> None:
                     errors.append("evidence index subject does not match result")
             if errors:
                 raise ValueError("Invalid result evidence:\n- " + "\n- ".join(errors))
+        if args.context:
+            bundle = json.loads(Path(args.context).read_text(encoding="utf-8"))
+            bundle_errors = validate_bundle_evidence(result, bundle)
+            if bundle_errors:
+                raise ValueError(
+                    "Evidence outside the module's context bundle:\n- " + "\n- ".join(bundle_errors)
+                )
     except (OSError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(1) from exc

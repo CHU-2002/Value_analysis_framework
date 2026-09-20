@@ -169,31 +169,50 @@ class TushareScreener:
         self._rf_cache: float | None = None  # global risk-free rate
         self._stock_data_cache: dict[str, pd.DataFrame] = {}  # per-stock in-memory cache
 
+    def _new_pro_api(self):
+        """Build a Tushare pro client, passing the token in-process.
+
+        ``ts.set_token()`` writes the credential to ``~/tk.csv``; that side
+        effect fails with ``PermissionError`` when HOME is read-only, so the
+        token is handed to ``ts.pro_api()`` directly instead (AC-1.2). When no
+        token is supplied, tushare resolves it itself — still without writing
+        anything to disk.
+        """
+        import tushare as ts
+        if not self._token:
+            print(
+                "⚠️ No Tushare token provided; falling back to tushare's own "
+                "token lookup (no ~/tk.csv is written).",
+                file=sys.stderr,
+            )
+        return ts.pro_api(self._token, timeout=30)
+
     def _get_pro(self):
-        """Lazy-initialize Tushare pro API."""
+        """Lazy-initialize Tushare pro API (token injected, never written to HOME)."""
         if self._pro is None:
-            import tushare as ts
-            ts.set_token(self._token)
-            self._pro = ts.pro_api(timeout=30)
+            self._pro = self._new_pro_api()
             api_url = os.environ.get("TUSHARE_API_URL", "")
             if api_url:
                 self._pro._DataApi__http_url = api_url
         return self._pro
 
     def _safe_call(self, api_name: str, **kwargs) -> pd.DataFrame:
-        """Call Tushare API with retry (mirrors TushareClient._safe_call)."""
-        pro = self._get_pro()
+        """Call Tushare API with retry (mirrors TushareClient._safe_call).
+
+        客户端必须在**每次尝试时**重新取：重试分支会重建 `self._pro`，若在循环外取一次，
+        重建就白做了，三次尝试都打在同一个坏客户端上（REQ-006.1 AC-1.10，开发中发现）。
+        """
         last_err = None
         for attempt in range(1, 4):
             try:
                 time.sleep(0.5)
+                pro = self._get_pro()
                 api_func = getattr(pro, api_name)
                 return api_func(**kwargs)
             except Exception as e:
                 last_err = e
                 if attempt < 3:
-                    import tushare as ts
-                    self._pro = ts.pro_api(timeout=30)
+                    self._pro = self._new_pro_api()
                     api_url = os.environ.get("TUSHARE_API_URL", "")
                     if api_url:
                         self._pro._DataApi__http_url = api_url

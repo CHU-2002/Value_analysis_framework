@@ -31,7 +31,14 @@ CORE_MODULES = {
     "governance": "qualitative.governance",
     "mda_quality": "qualitative.mda_quality",
 }
-OPTIONAL_MODULES = {"holding_structure": "qualitative.holding_structure"}
+OPTIONAL_MODULES = {
+    "holding_structure": "qualitative.holding_structure",
+    # D7 是文档（docs/PERIODIC_UPDATE_PLAN.md §7.1 步骤 6、§7.3）要求的增量模块：它必须被
+    # reconcile + synthesis 消费。此前 resolver 不认它，于是按文档把它喂进去时 digest 分叉
+    # （实跑实测：reconciliation result_digest does not match module results，source=unavailable）。
+    # 它只在结果文件存在时才进入 upstream_digest，所以「不提供 D7」的 digest 与历史基线逐字节一致。
+    "period_delta": "qualitative.period_delta",
+}
 CONSUMABLE_STATUSES = {"complete", "partial"}
 
 

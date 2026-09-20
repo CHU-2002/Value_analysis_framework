@@ -1,5 +1,6 @@
 
 # 覆盖需求：REQ-003（分析迭代台账）—— AC-2…AC-5 run 生命周期、快照不可变、adopt 接管、指针与台账
+# 覆盖需求：REQ-006.1 —— AC-1.6 `finish --artifact` 校验存在性/相对路径/重复 name
 """Tests for the run-store ledger (``scripts/runs.py``)."""
 
 import json
@@ -353,6 +354,72 @@ def test_finish_rejects_run_dir_outside_company_runs(tmp_path):
     with pytest.raises(runs.LedgerError):
         runs.finish_run(company, outsider)
     assert not (company / "latest.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# artifact path validation (AC-1.6: validate --artifact before writing the ledger)
+# ---------------------------------------------------------------------------
+
+
+def test_finish_rejects_missing_artifact_without_writing_ledger(tmp_path):
+    """AC-1.6: a nonexistent --artifact file aborts before any ledger write."""
+
+    company = _company_dir(tmp_path)
+    created = runs.create_run(company, ticker="600887.SH", company="伊利股份", run_id="missing-artifact")
+    run_path = Path(created["run_dir"])
+    missing = tmp_path / "src" / "absent.json"
+
+    with pytest.raises(runs.LedgerError) as excinfo:
+        runs.finish_run(company, run_path, artifacts=[f"report={missing}"])
+
+    message = str(excinfo.value)
+    assert "report" in message
+    assert str(missing) in message
+    # Nothing may be recorded: no history, no pointer, no record card.
+    assert not (company / "history.jsonl").exists()
+    assert not (company / "latest.json").exists()
+    assert not (company / "record.json").exists()
+
+
+def test_finish_resolves_relative_artifact_against_caller_cwd(tmp_path, monkeypatch):
+    """AC-1.6: relative paths are cwd-relative and stored as absolute paths."""
+
+    company = _company_dir(tmp_path)
+    created = runs.create_run(company, ticker="600887.SH", company="伊利股份", run_id="cwd-artifact")
+    run_path = Path(created["run_dir"])
+    workdir = tmp_path / "workdir"
+    artifact = _write(workdir / "out" / "report.md", "report body")
+    _write(run_path / "out" / "report.md", "decoy inside the run dir")
+    monkeypatch.chdir(workdir)
+
+    result = runs.finish_run(company, run_path, artifacts=["report=out/report.md"])
+
+    recorded = result["entry"]["artifacts"]["report"]
+    assert recorded == str(artifact.resolve())
+    assert Path(recorded).is_absolute()
+    # The old bug silently rebased onto run_path, recording runs/<id>/runs/<id>/out/report.md.
+    assert not Path(recorded).is_relative_to(run_path)
+    assert runs.read_history(company)[0]["artifacts"]["report"] == recorded
+    assert runs.read_latest(company)["artifacts"]["report"] == recorded
+
+
+def test_finish_rejects_duplicate_artifact_name(tmp_path, monkeypatch):
+    """AC-1.6: repeating a name is an error instead of a silent last-wins overwrite."""
+
+    company = _company_dir(tmp_path)
+    created = runs.create_run(company, ticker="600887.SH", company="伊利股份", run_id="dup-artifact")
+    run_path = Path(created["run_dir"])
+    workdir = tmp_path / "workdir"
+    _write(workdir / "first.md", "first")
+    _write(workdir / "second.md", "second")
+    monkeypatch.chdir(workdir)
+
+    with pytest.raises(runs.LedgerError, match="more than once"):
+        runs.finish_run(company, run_path, artifacts=["report=first.md", "report=second.md"])
+
+    assert not (company / "history.jsonl").exists()
+    assert not (company / "latest.json").exists()
+    assert not (company / "record.json").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -726,7 +793,7 @@ def test_new_cli_rejects_missing_input(tmp_path, capsys):
     assert "not a regular file" in capsys.readouterr().err
 
 
-def test_full_cli_roundtrip_with_artifacts(tmp_path, capsys):
+def test_full_cli_roundtrip_with_artifacts(tmp_path, capsys, monkeypatch):
     company = _company_dir(tmp_path)
     assert (
         runs.main(
@@ -752,6 +819,8 @@ def test_full_cli_roundtrip_with_artifacts(tmp_path, capsys):
     )
     run_path = Path(capsys.readouterr().out.strip())
     _write(run_path / "qualitative_report.md", "body")
+    # ``--artifact`` relative paths are cwd-relative, so run from the run dir.
+    monkeypatch.chdir(run_path)
 
     code = runs.main(
         [
