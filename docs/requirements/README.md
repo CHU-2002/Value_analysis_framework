@@ -115,5 +115,5 @@ Issue 在**验收通过后**才关闭（`verified`），不在 PR 合并时自�
 | [REQ-004](REQ-004-period-delta-analysis.md) | 定期报告增量更新分析与变化报告 | `verified` |
 | [REQ-005](REQ-005-periodic-update-docs.md) | 增量更新文档与下游接线 | `verified` |
 | [REQ-006](REQ-006-requirement-test-dev-flow.md) | 需求-测试-开发流程与三道门 | `verified` |
-| [REQ-007](REQ-007-governance-hardening.md) | 门禁与治理工具加固 | `in-progress` |
+| [REQ-007](REQ-007-governance-hardening.md) | 门禁与治理工具加固 | `verified` |
 | [REQ-008](REQ-008-coverage-debt.md) | 覆盖率洼地补测 | `proposed` |

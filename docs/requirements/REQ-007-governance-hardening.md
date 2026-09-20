@@ -1,7 +1,7 @@
 ---
 id: REQ-007
 title: 门禁与治理工具加固
-status: in-progress
+status: verified
 priority: P2
 owner: CHU-2002
 created: 2026-09-20
@@ -9,7 +9,7 @@ updated: 2026-09-20
 issue: N/A（以 PR 跟踪）
 design: docs/DEVELOPMENT.md
 milestone: 工程化流程
-pr: TBD
+pr: "#29"
 depends-on: REQ-006
 supersedes: TBD
 ---
@@ -93,9 +93,15 @@ REQ-006 落地的三道门在第一次实战（#25–#28）中暴露了一批**�
 | 项 | 内容 |
 |----|------|
 | 设计文档 | `docs/DEVELOPMENT.md`、`docs/TESTING.md` |
-| 实现 PR | TBD |
+| 实现 PR | #29（已合入 `c65b47e`） |
 | 测试 | `tests/test_release_gates.py`、`tests/test_test_scope.py`、`tests/test_two_layout_e2e.py`、`tests/test_update_docs_contract.py` |
 | 文档更新 | `docs/DEVELOPMENT.md`、`docs/TESTING.md`、`CHANGELOG.md`、`.github/PULL_REQUEST_TEMPLATE.md` |
+
+## 验收记录
+
+| 日期 | 复验 sha | 合并 | 评审者 | 报告 | 结论 |
+|------|----------|------|--------|------|------|
+| 2026-09-20 | `229593e` | `c65b47e`（#29） | 独立 agent（无上下文，未参与实现） | [`docs/verification/2026-09-20-REQ-007.md`](../verification/2026-09-20-REQ-007.md) | 见报告逐条结论 |
 
 ## 备注
 
