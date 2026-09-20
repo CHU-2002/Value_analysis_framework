@@ -4,6 +4,7 @@
 import argparse
 from datetime import date, datetime, timedelta, timezone
 import html
+import os
 import re
 import sys
 
@@ -30,7 +31,15 @@ except ImportError:  # Support importing with scripts/ on sys.path.
 
 
 DEFAULT_TIMEOUT = 30
-CNINFO_QUERY_URL = "https://www.cninfo.com.cn/new/hisAnnouncement/query"
+# The live CNINFO query endpoint rejects https with 403 while the identical
+# request over http succeeds, so the protocol is configurable rather than
+# hardcoded. ``CNINFO_QUERY_PROTOCOL`` sets the preferred protocol; an explicit
+# ``protocol`` argument (or the ``--cninfo-protocol`` CLI flag) pins it.
+DEFAULT_CNINFO_PROTOCOL = "https"
+CNINFO_PROTOCOLS = ("https", "http")
+CNINFO_PROTOCOL_ENV_VAR = "CNINFO_QUERY_PROTOCOL"
+CNINFO_QUERY_HOST = "www.cninfo.com.cn/new/hisAnnouncement/query"
+CNINFO_QUERY_URL = f"{DEFAULT_CNINFO_PROTOCOL}://{CNINFO_QUERY_HOST}"
 CNINFO_STATIC_BASE_URL = "https://static.cninfo.com.cn/"
 BASE_HEADERS = {
     "User-Agent": (
@@ -58,6 +67,100 @@ CNINFO_HEADERS = {
     "X-Requested-With": "XMLHttpRequest",
     "Referer": "https://www.cninfo.com.cn/new/commonUrl/pageOfSearch?url=disclosure/list/search",
 }
+
+
+def build_cninfo_query_url(protocol):
+    """Build the CNINFO query URL for an explicit ``http``/``https`` protocol."""
+
+    return f"{protocol}://{CNINFO_QUERY_HOST}"
+
+
+def normalize_cninfo_protocol(protocol):
+    """Return a supported lower-case protocol, or ``None`` when unrecognized."""
+
+    if protocol is None:
+        return None
+    value = str(protocol).strip().lower()
+    if "://" in value:
+        value = value.split("://", 1)[0]
+    if value in CNINFO_PROTOCOLS:
+        return value
+    return None
+
+
+def resolve_cninfo_protocol(protocol=None):
+    """Resolve the preferred CNINFO query protocol.
+
+    Precedence: explicit ``protocol`` argument, then ``CNINFO_QUERY_PROTOCOL``,
+    then the historical https default. An unrecognized explicit argument is a
+    caller error (``ValueError``), while an unrecognized environment value only
+    warns and keeps the default, so a stale ``.env`` cannot break discovery.
+    """
+
+    explicit = normalize_cninfo_protocol(protocol)
+    if explicit:
+        return explicit
+    if protocol is not None and str(protocol).strip():
+        raise ValueError(
+            f"Unsupported CNINFO protocol: {protocol!r}; expected one of {CNINFO_PROTOCOLS}"
+        )
+
+    configured = os.environ.get(CNINFO_PROTOCOL_ENV_VAR)
+    resolved = normalize_cninfo_protocol(configured)
+    if resolved:
+        return resolved
+    if configured and configured.strip():
+        print(
+            f"Warning: ignoring invalid {CNINFO_PROTOCOL_ENV_VAR}={configured!r}; "
+            f"using {DEFAULT_CNINFO_PROTOCOL}",
+            file=sys.stderr,
+        )
+    return DEFAULT_CNINFO_PROTOCOL
+
+
+def cninfo_query_urls(protocol=None):
+    """Return the query URLs to try in order.
+
+    Without an explicit ``protocol`` the preferred protocol is tried first and
+    the other one is kept as a one-shot fallback (https 403 -> http). An
+    explicit ``protocol`` pins the request, so the caller gets exactly the
+    protocol it asked for.
+    """
+
+    preferred = resolve_cninfo_protocol(protocol)
+    urls = [build_cninfo_query_url(preferred)]
+    if protocol is None or not str(protocol).strip():
+        urls.extend(
+            build_cninfo_query_url(other)
+            for other in CNINFO_PROTOCOLS
+            if other != preferred
+        )
+    return urls
+
+
+def post_cninfo_query(data, *, timeout=DEFAULT_TIMEOUT, protocol=None):
+    """POST a CNINFO query, retrying over the other protocol when 403'd.
+
+    Both attempts pass the identical ``CNINFO_HEADERS`` and ``data=`` body, so
+    Referer/User-Agent (and the form Content-Type requests derives from the
+    body) are unchanged by the fallback. Every switch is announced on stderr so
+    it is never silent. When all attempts 403 the last response is returned for
+    the caller's ``raise_for_status()`` to surface.
+    """
+
+    urls = cninfo_query_urls(protocol)
+    response = None
+    for index, url in enumerate(urls):
+        response = requests.post(url, headers=CNINFO_HEADERS, data=data, timeout=timeout)
+        if response.status_code != 403:
+            return response
+        if index + 1 < len(urls):
+            print(
+                f"Warning: CNINFO {url} returned 403; retrying with {urls[index + 1]}",
+                file=sys.stderr,
+            )
+    return response
+
 
 PDF_LINK_RE = re.compile(
     r'<a\s+href="(?P<url>https?://notice\.10jqka\.com\.cn/api/pdf/[^"]+\.pdf)"[^>]*>'
@@ -241,7 +344,9 @@ def extract_cninfo_candidates(payload):
     return candidates
 
 
-def discover_cninfo_report(stock_code, company_name, year, report_type, timeout=DEFAULT_TIMEOUT):
+def discover_cninfo_report(
+    stock_code, company_name, year, report_type, timeout=DEFAULT_TIMEOUT, protocol=None
+):
     if not is_a_share_stock_code(stock_code):
         return []
 
@@ -251,10 +356,8 @@ def discover_cninfo_report(stock_code, company_name, year, report_type, timeout=
 
     all_candidates = []
     for keyword in build_cninfo_search_keywords(stock_code, company_name):
-        response = requests.post(
-            CNINFO_QUERY_URL,
-            headers=CNINFO_HEADERS,
-            data={
+        response = post_cninfo_query(
+            {
                 "pageNum": 1,
                 "pageSize": 50,
                 "tabName": "fulltext",
@@ -265,6 +368,7 @@ def discover_cninfo_report(stock_code, company_name, year, report_type, timeout=
                 "seDate": build_cninfo_date_range(year, report_type),
             },
             timeout=timeout,
+            protocol=protocol,
         )
         response.raise_for_status()
         all_candidates.extend(extract_cninfo_candidates(response.json()))
@@ -339,7 +443,9 @@ def _period_candidate_rank(candidate):
     return (candidate.get("date") or "", "更新后" in candidate.get("title", ""))
 
 
-def _query_cninfo_periods(stock_code, keywords, *, lookback_months, timeout, today, max_pages=10):
+def _query_cninfo_periods(
+    stock_code, keywords, *, lookback_months, timeout, today, max_pages=10, protocol=None
+):
     """Query CNINFO for period-tagged reports, following pagination.
 
     CNINFO caps a page at 30 records regardless of the requested ``pageSize``
@@ -354,10 +460,8 @@ def _query_cninfo_periods(stock_code, keywords, *, lookback_months, timeout, tod
     for keyword in keywords:
         scanned = 0
         for page in range(1, max_pages + 1):
-            response = requests.post(
-                CNINFO_QUERY_URL,
-                headers=CNINFO_HEADERS,
-                data={
+            response = post_cninfo_query(
+                {
                     "pageNum": page,
                     "pageSize": page_size,
                     "tabName": "fulltext",
@@ -368,6 +472,7 @@ def _query_cninfo_periods(stock_code, keywords, *, lookback_months, timeout, tod
                     "seDate": se_date,
                 },
                 timeout=timeout,
+                protocol=protocol,
             )
             response.raise_for_status()
             payload = response.json()
@@ -420,6 +525,7 @@ def discover_periods(
     lookback_months=18,
     timeout=DEFAULT_TIMEOUT,
     today=None,
+    protocol=None,
 ):
     """Discover the newest published report for every period in the window.
 
@@ -444,6 +550,7 @@ def discover_periods(
         lookback_months=lookback_months,
         timeout=timeout,
         today=today,
+        protocol=protocol,
     )
 
     if not candidates and not normalize_company_name(company_name):
@@ -460,6 +567,7 @@ def discover_periods(
                 lookback_months=lookback_months,
                 timeout=timeout,
                 today=today,
+                protocol=protocol,
             )
 
     by_period = {}
@@ -486,6 +594,7 @@ def discover_latest_period(
     lookback_months=18,
     timeout=DEFAULT_TIMEOUT,
     today=None,
+    protocol=None,
 ):
     """Return the newest published regular report, or ``None`` when absent."""
 
@@ -496,6 +605,7 @@ def discover_latest_period(
         lookback_months=lookback_months,
         timeout=timeout,
         today=today,
+        protocol=protocol,
     )
     return periods[0] if periods else None
 
@@ -620,7 +730,7 @@ def select_best_candidate(candidates, year, report_type, allow_summary_fallback=
     return scored[0][1]
 
 
-def discover_report(stock_code, year, report_type, timeout=DEFAULT_TIMEOUT):
+def discover_report(stock_code, year, report_type, timeout=DEFAULT_TIMEOUT, protocol=None):
     url = build_stockpage_url(stock_code)
     company_name = ""
     candidates = []
@@ -643,6 +753,7 @@ def discover_report(stock_code, year, report_type, timeout=DEFAULT_TIMEOUT):
             year=year,
             report_type=report_type,
             timeout=timeout,
+            protocol=protocol,
         )
         if cninfo_candidates:
             candidates = cninfo_candidates + candidates
@@ -658,6 +769,7 @@ def discover_report(stock_code, year, report_type, timeout=DEFAULT_TIMEOUT):
             year=year,
             report_type=report_type,
             timeout=timeout,
+            protocol=protocol,
         )
         if cninfo_candidates:
             candidates.extend(cninfo_candidates)
@@ -707,6 +819,15 @@ def parse_args(argv=None):
         action="store_true",
         help="Discover the newest published regular report instead of a fixed year",
     )
+    parser.add_argument(
+        "--cninfo-protocol",
+        choices=list(CNINFO_PROTOCOLS),
+        default=None,
+        help=(
+            "Pin the CNINFO query protocol instead of trying https first and "
+            f"falling back to http on a 403 (env: {CNINFO_PROTOCOL_ENV_VAR})"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -721,7 +842,11 @@ def run_latest_discovery(args):
     if normalize_report_type(args.report_type) in REPORT_TYPES:
         report_type = args.report_type
 
-    best = discover_latest_period(args.stock_code, report_type=report_type)
+    best = discover_latest_period(
+        args.stock_code,
+        report_type=report_type,
+        protocol=args.cninfo_protocol,
+    )
     if not best:
         message = (
             f"No published regular report found for {args.stock_code} "
@@ -773,6 +898,7 @@ def main(argv=None):
             stock_code=args.stock_code,
             year=args.year,
             report_type=args.report_type,
+            protocol=args.cninfo_protocol,
         )
     except requests.RequestException as exc:
         print(f"Error: {exc}", file=sys.stderr)
