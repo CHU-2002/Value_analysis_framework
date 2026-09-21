@@ -133,6 +133,24 @@ def contribute(registry):
 
 服务端把「页面长什么样」当**数据**返回。前端不知道任何具体业务，只认 `kind`。
 
+**两种渲染模式**（实现时明确的取舍，见 §6.1）：
+
+- `render: "server"` —— 服务端渲染成 HTML 片段（表格 / 时间线 / 指标卡 / Markdown / 降级卡片）；
+- `render: "client"` —— 服务端只回数据契约，浏览器画（图表需要 canvas）。
+
+### 6.1 为什么把表格/时间线放服务端（实现时确定）
+
+CI 里**没有浏览器、没有 JS 运行时**。如果所有 kind 都在前端渲染，AC-3.3 的
+「给定面板描述 → 断言渲染输出」就只能在人肉点开浏览器时验，等于没法验收。
+把结构化展示（表格/时间线/指标卡/Markdown）放服务端渲染后：
+
+- 渲染结果可在 CI 里直接断言（含 XSS 转义：`<script>` 必须以 `&lt;script&gt;` 出现）；
+- 未知 `kind` 的降级卡片也在服务端产出，可断言「不白屏、不 500」；
+- **只有真正需要 canvas 的图表**保留客户端渲染，服务端只给 `{labels, series}` 数据契约。
+
+代价：前后端各有一小部分渲染代码（服务端 HTML 生成器 + 前端 canvas 绘制），
+但换来的是「面板渲染」这件事**真的被测试覆盖**，而不是靠肉眼。
+
 ```jsonc
 // GET /api/v1/pages/charts → data
 {
@@ -141,11 +159,11 @@ def contribute(registry):
   "panels": [
     {
       "id": "charts.annual_price", "kind": "chart", "title": "年度股价走势",
-      "size": "half",
+      "size": "half", "render": "client",
       "endpoint": "/api/v1/companies/{dir}/charts/annual_price",
       "params": [{"name": "dir", "type": "company", "required": true, "source": "selection.company"}],
       "options": {"chart": {"type": "line", "x": "labels", "series": "series", "yFormat": "number"}},
-      "meta": {"description": "来源：data_pack_market.md §11"}
+      "data": {"labels": ["2025", "2026"], "series": [{"name": "年末收盘", "values": [28.6, 26.6]}]}
     }
   ]
 }
@@ -469,12 +487,21 @@ scripts/webui/
 │   ├── collect.py           # 采集面板 / 批次进度 / 缺口清单（REQ-009.4）
 │   └── run_history.py       # 迭代台账时间线
 ├── static/
-│   ├── index.html           # 只有骨架 + 挂载点
-│   ├── app.js               # 启动、导航、选择器、面板分发（dispatchPanel）
-│   ├── kinds/               # table.js / chart.js / timeline.js / markdown.js / form.js / jobs.js / stat.js / fallback.js
-│   └── style.css
-└── webui.config.sample.json # 配置样例（真实配置 webui.config.json 用 .gitignore 忽略）
+│   ├── index.html           # 只有骨架 + 挂载点（已实现）
+│   ├── app.js               # 启动、导航、选择器、面板分发（已实现）
+│   ├── kinds/               # 只有客户端渲染的 kind 需要渲染器：
+│   │                        #   chart.js（canvas 折线/柱状，已实现）、fallback.js（降级卡片，已实现）
+│   │                        #   form.js / jobs.js 随 REQ-009.1、.4 加
+│   └── style.css            # 已实现
+└── webui.config.sample.json # 配置样例（真实配置 webui.config.json 用 .gitignore 忽略）——待补
 ```
+
+> **实现进度（2026-09-21）**：`config.py`、`core/*`（models / registry / router / routes /
+> envelope / errors / security / server / context）、`render/panels.py`、`plugins/__init__.py`、
+> `__main__.py`、`static/`（index/app/style/kinds）已完成并有 22 条用例；
+> `datastore/*`（AC-3.4）与 `archive/*`（REQ-009.4）尚未实现。
+> 服务端渲染的 kind（table / timeline / stat / markdown / fallback）**不需要** `static/kinds/` 下的文件，
+> 原因见 §6.1。
 
 `Makefile` 增加：`gui`（启动）、`gui-cache-clear`（清派生缓存）、`gui-collect`（跑一个采集批次，需 `--batch` 或 `--profile`）。
 测试：`tests/test_webui_framework.py`、`tests/test_webui_archive.py`、`tests/test_webui_server.py`、`tests/test_webui_views.py`。
@@ -533,13 +560,19 @@ scripts/webui/
 
 `app.js` 只做四件事：取 `/api/v1/nav` 与 `/api/v1/pages/{id}` → 渲染左侧导航 →
 维护「当前选择」（公司 / 期次 / run，面板通过 `params[].source` 消费）→ 把每个面板交给
-`registry.getKind(kind)` 返回的渲染器。**没有任何业务判断**。
+对应渲染器。**没有任何业务判断**。
 
-- 渲染器接口：`render(container, panelSpec, data, ctx)`；
-- 未注册 `kind` → `fallback` 渲染器给出可读卡片（AC-3.3）；
+- **`render: "server"` 的面板不需要前端渲染器**：服务端已经给了 HTML 片段，shell 直接插入
+  （这是 §6.1 的取舍——让渲染在 CI 里可断言）；
+- **`render: "client"` 的面板**才走 `registerPanelKind(kind, renderer)` 注册表；
+  渲染器接口：`render(container, panelSpec, data)`；
+- 未注册 `kind` → `kinds/fallback.js` 给出可读卡片（AC-3.3），**不白屏**；
 - 图表用原生 Canvas：折线/柱状 + 悬停数值 + 图例；数据形状固定为 `{labels, series}`，
-  将来加 K 线/热力图只加渲染器；
+  将来加 K 线/热力图只加渲染器与 kind；
 - 无构建步骤：`index.html` 用 `<script type="module">` 引入，改完刷新即生效。
+
+已实现的静态资源：`index.html`（骨架）、`app.js`（shell + 面板分发）、
+`style.css`、`kinds/chart.js`（canvas 折线/柱状）、`kinds/fallback.js`（降级卡片）。
 
 ## 16. 配置
 
