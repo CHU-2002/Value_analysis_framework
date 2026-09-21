@@ -309,6 +309,7 @@ supersedes: TBD
 | 项 | 内容 |
 |----|------|
 | 设计文档 | `docs/GUI_CONSOLE_PLAN.md`（含扩展点清单、面板协议 schema、数据层缓存规则、扩展步骤清单） |
+| 需求总览（导读） | `docs/GUI_CONSOLE_OVERVIEW.md`——给使用者的大白话汇总（需求图景 / 方案 / 工作方式 / 决策点）；**非权威**，与条目或设计文档冲突时以它们为准 |
 | 实现 PR | TBD |
 | 测试 | `tests/test_webui_framework.py`（REQ-009.3）、`tests/test_webui_archive.py`（REQ-009.4）、`tests/test_webui_server.py`（REQ-009.1）、`tests/test_webui_views.py`（REQ-009.2） |
 | 文档更新 | `README.md`（面板一节）、`Makefile`（`make gui`）、`CHANGELOG.md` |

@@ -2,6 +2,7 @@
 
 > 本文写**怎么做**。要什么、做到什么程度以 [`docs/requirements/REQ-009-local-gui-console.md`](requirements/REQ-009-local-gui-console.md)
 > 为准；两者不互相复制。开发流程见 [`docs/DEVELOPMENT.md`](DEVELOPMENT.md)，测试策略见 [`docs/TESTING.md`](TESTING.md)。
+> 只想了解「做完能干什么、怎么干活」请看导读 [`docs/GUI_CONSOLE_OVERVIEW.md`](GUI_CONSOLE_OVERVIEW.md)（非权威）。
 
 **阅读顺序**：§2 原则 → §3 架构 → §4 扩展点 → §5 插件模型 → §6 面板协议 → §7 API 契约 →
 §8 数据层与缓存 → §9 远程边界 → §9.1 手动采集与长期存档 → §11 目录布局 →
