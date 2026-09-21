@@ -44,6 +44,7 @@ bash init.sh
 | `refactor/` | 重构（不改行为） | `refactor/results-context-budget` |
 | `test/` | 仅测试 | `test/evidence-index-edge-cases` |
 | `chore/` | 构建、依赖、杂项 | `chore/bump-dependencies` |
+| `maint/` | 流程/工程性维护（不新增用户可见能力：门禁、文档接线、模板、脚本校验） | `maint/sub-requirements` |
 
 工作流：
 
@@ -148,6 +149,7 @@ CI 只有两个 job：一个干全部活，一个汇总（分支保护只认汇�
 | 需求 | [`docs/requirements/README.md`](docs/requirements/README.md) | `REQ-NNN`（一个大特性）条目 + [台账](docs/requirements/ledger.md) 一行，验收标准必须可判定；大特性的切片登记为子需求 `REQ-NNN.S`（§6.1，AC 编号 `AC-S.n`） |
 | 测试 | [`docs/TESTING.md`](docs/TESTING.md) | 覆盖新行为的测试，文件里标注 `# 覆盖需求：REQ-NNN`（子需求写 `REQ-NNN.S`） |
 | 开发 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | 主题分支 + Conventional Commits + 聚焦的 PR；正文的「## 需求编号」小节必须真的填（正文提及不算，`pr_body_guard` 会拦） |
+| （用 agent 干活时）| [`AGENTS.md`](AGENTS.md) | 入口文件，已导入需求规则与开发流程；agent 每次会话自动读到 |
 
 闭环：**需求登记 → 验收标准定稿 → 实现（PR）→ 测试追溯 → 逐条验收 → 台账状态推进**。
 就绪定义（DoR）与完成定义（DoD）见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
