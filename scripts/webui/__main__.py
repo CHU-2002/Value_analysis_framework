@@ -1,6 +1,6 @@
 """`python -m scripts.webui`：启动本地控制台。
 
-退出码：`0` 正常停止；`2` 配置/用法错误或插件加载失败；`3` 端口被占用。
+退出码：`0` 正常停止；`2` 配置/用法错误或插件加载失败；`3` 端口被占用；`4` 绑定失败（非端口占用）。
 端口被占用**不静默换端口**——否则你会以为服务跑在别的端口上（AC-3.1）。
 """
 
@@ -15,7 +15,7 @@ import webbrowser
 
 from . import __version__
 from .config import ConfigError, is_loopback, load_config
-from .core.errors import PortInUse
+from .core.errors import BindFailed, PortInUse
 from .core.registry import build_registry
 from .core.routes import install_core_routes
 from .core.server import WebUIServer
@@ -122,9 +122,9 @@ def main(argv=None) -> int:
                     "cache_dir": str(config.cache_dir),
                     "archive_root": str(config.archive_root),
                     "nav": [item.id for item in registry.nav_items()],
-                    "panels": sorted(
-                        name for (kind, name) in registry.origins().items() if kind == "panel"
-                    ),
+                    # 用注册表的公开方法，不再自己解包 origins() 的 (kind, key) 元组——
+                    # 上一版就是在这里解包写错、导致 panels 恒为空（独立验收 D2）。
+                    "panels": registry.panel_ids(),
                     "datasets": registry.datasets(),
                     "routes": [
                         f"{route.method} {route.template}" for route in registry.routes()
@@ -142,6 +142,10 @@ def main(argv=None) -> int:
     except PortInUse as exc:
         print(f"启动失败：{exc}\n提示：{exc.hint}", file=sys.stderr)
         return 3
+    except BindFailed as exc:
+        # 不是端口占用就别让用户换端口（复验 N4：此前会裸 traceback + exit 1）。
+        print(f"启动失败：{exc}\n提示：{exc.hint}", file=sys.stderr)
+        return 4
 
     print(f"面板已启动：{server.base_url}（Ctrl-C 停止；只监听本机）")
     if config.open_browser:

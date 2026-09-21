@@ -23,6 +23,7 @@ CODES = (
     "JOB_NOT_FOUND",
     "NOT_LOOPBACK",
     "PORT_IN_USE",
+    "BIND_FAILED",
     "INTERNAL",
     "NO_TOKEN",
     "QUOTA_CONFIRM_REQUIRED",
@@ -115,6 +116,26 @@ class JobNotFound(WebUIError):
 class NotLoopback(WebUIError):
     code = "NOT_LOOPBACK"
     status = 400
+
+
+class BindFailed(WebUIError):
+    """绑定失败但**不是**端口占用（例如地址不可用）：别让用户去换端口，换了也没用。"""
+
+    code = "BIND_FAILED"
+    status = 500
+
+
+class RegistrationConflict(ValueError):
+    """注册冲突：同一个 id 被注册两次。
+
+    刻意**不继承** `WebUIError`：它不是 HTTP 错误，而是**启动期的配置错误**。
+    `from_registry=True` 标记「这是注册表自己抛的」——插件代码里恰好抛出的同名异常
+    不该被当成真冲突（复验 N9）。
+    """
+
+    def __init__(self, message: str, *, from_registry: bool = False):
+        super().__init__(message)
+        self.from_registry = from_registry
 
 
 class PortInUse(WebUIError):

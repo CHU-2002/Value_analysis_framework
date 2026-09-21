@@ -7,6 +7,9 @@
 from __future__ import annotations
 
 import hashlib
+import html
+import json
+import os
 from pathlib import Path
 
 from .errors import NotLoopback, PathOutsideRoot, ShellMetachar
@@ -56,12 +59,34 @@ def safe_join(root: Path, *parts: str) -> Path:
             )
         candidate = candidate / part
     resolved = candidate.resolve()
-    if resolved != root_resolved and not resolved.is_relative_to(root_resolved):
+    if not is_within(resolved, root_resolved):
         raise PathOutsideRoot(
             "路径越出允许的根目录",
             hint=f"只允许访问 {root_resolved} 之下的内容（含符号链接的真实路径判定）。",
         )
     return resolved
+
+
+def is_within(path: Path, root: Path) -> bool:
+    """`path` 是否就是 `root` 或在 `root` 之下。
+
+    先逐级用 `os.path.samefile` **问操作系统**（大小写不敏感的文件系统、符号链接、
+    硬链接都由内核判定，修 N5）；路径还不存在时 `samefile` 会失败，
+    此时退回**词法比较**——注意两端都已经 `resolve()` 过，所以存在的符号链接
+    仍然在词法比较里体现为它的真实路径。
+    """
+    current, root = Path(path), Path(root)
+    while True:
+        try:
+            if os.path.samefile(current, root):
+                return True
+        except OSError:
+            pass
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return current == root or path == root or path.is_relative_to(root)
 
 
 def collect_secrets(env: dict) -> tuple:
@@ -74,14 +99,33 @@ def collect_secrets(env: dict) -> tuple:
     return tuple(secrets)
 
 
+def _escaped_forms(secret: str) -> tuple:
+    """一个凭据在「已序列化文本」里的几种形态。
+
+    复验 P1：`redact` 作用在**已经序列化过的**文本上（JSON 字符串、HTML 片段），
+    凭据里的 `"` `\\` `&` `<` 会被转义，裸 `replace` 就漏掉了。
+    真实 token 是字母数字串、当前不受影响，但这里一并堵上——
+    否则「脱敏」会被后来者误读成「任意凭据都安全」。
+    """
+    forms = {secret}
+    try:
+        forms.add(json.dumps(secret, ensure_ascii=False)[1:-1])
+    except (TypeError, ValueError):  # pragma: no cover
+        pass
+    forms.add(html.escape(secret, quote=True))
+    forms.add(html.escape(secret, quote=False))
+    return tuple(form for form in forms if form)
+
+
 def redact(text: str, secrets) -> str:
-    """把已知凭据从文本里替换掉（日志、任务输出、存档写入前都要过这一道）。"""
+    """把已知凭据从文本里替换掉（日志、响应体、任务输出、存档写入前都要过这一道）。"""
     if not text:
         return text
     redacted = text
     for secret in secrets or ():
         if secret:
-            redacted = redacted.replace(secret, _REDACT_PLACEHOLDER)
+            for form in _escaped_forms(str(secret)):
+                redacted = redacted.replace(form, _REDACT_PLACEHOLDER)
     return redacted
 
 

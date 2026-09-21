@@ -34,7 +34,7 @@
 | [REQ-006.1](REQ-006-requirement-test-dev-flow.md) | REQ-006 | 财报分析端到端实跑加固与实跑验收规则 | `in-progress` | #36, #37 | `tests/test_release_gates.py` `tests/test_update_docs_contract.py` |
 | [REQ-009.1](REQ-009-local-gui-console.md) | REQ-009 | 按键执行器与任务生命周期 | `accepted` | TBD | `tests/test_webui_server.py` |
 | [REQ-009.2](REQ-009-local-gui-console.md) | REQ-009 | 报告浏览、图表与迭代台账视图 | `accepted` | TBD | `tests/test_webui_views.py` |
-| [REQ-009.3](REQ-009-local-gui-console.md) | REQ-009 | 可扩展框架与本地数据层（微内核 / 插件注册表 / 面板协议 / 数据缓存 / API 契约 / 安全中间件） | `implemented` | #44 | `tests/test_webui_framework.py` |
+| [REQ-009.3](REQ-009-local-gui-console.md) | REQ-009 | 可扩展框架与本地数据层（微内核 / 插件注册表 / 面板协议 / 数据缓存 / API 契约 / 安全中间件） | `verified` | #44, #45 | `tests/test_webui_framework.py` |
 | [REQ-009.4](REQ-009-local-gui-console.md) | REQ-009 | 手动触发的远程采集与长期存档（批次 / 配额档案 / 原始存档 / 断点续跑 / 权限缺口清单） | `accepted` | TBD | `tests/test_webui_archive.py` |
 
 > **编号按登记顺序，交付按「交付顺序」**：`REQ-009` 的交付顺序为

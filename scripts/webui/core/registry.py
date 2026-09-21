@@ -23,7 +23,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 
 from . import models
-from .errors import BadRequest, NotFound
+from .errors import BadRequest, NotFound, RegistrationConflict
 from .router import Route
 
 
@@ -60,9 +60,10 @@ class Registry:
         marker = (kind, key)
         previous = self._origins.get(marker)
         if previous is not None:
-            raise ValueError(
+            raise RegistrationConflict(
                 f"{kind} {key!r} 重复注册：已由 {previous!r} 注册，{self.origin!r} 又想注册同一个 id。"
-                "请改 id，或删掉其中一处。"
+                "请改 id，或删掉其中一处。",
+                from_registry=True,
             )
         self._origins[marker] = self.origin
 
@@ -111,6 +112,14 @@ class Registry:
 
     def has_panel(self, panel_id: str) -> bool:
         return panel_id in self._panels
+
+    def panel_ids(self) -> list:
+        """已注册的面板 id。
+
+        单独一个方法而不是让调用方去解包 `origins()` 的 `(kind, key)` 键——
+        `__main__ --check` 就是在这里解包写错、导致 panels 恒为空（独立验收 D2）。
+        """
+        return sorted(self._panels)
 
     def dataset_spec(self, name: str) -> models.DatasetSpec:
         spec = self._datasets.get(name)

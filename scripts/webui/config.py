@@ -20,7 +20,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_FILENAME = "webui.config.json"
-LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
+# 只列 IPv4 环回与 localhost：服务是 `AF_INET`（`ThreadingHTTPServer` 默认），
+# `::1` / `[::1]` 实际永远绑不上，却会被误报成「端口被占用」并让用户去换端口（独立验收 D5）。
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
+IPV6_LOOPBACK_HOSTS = frozenset({"::1", "[::1]"})
 DEFAULT_PORT = 8765
 DEFAULT_HOST = "127.0.0.1"
 
@@ -127,9 +130,14 @@ def load_config(path: Path | str | None = None, env: dict | None = None) -> Conf
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"port 必须是整数：{values.get('port')!r}") from exc
     host = str(values.get("host", DEFAULT_HOST)).strip() or DEFAULT_HOST
+    if host.lower() in IPV6_LOOPBACK_HOSTS:
+        raise ConfigError(
+            f"host={host!r} 是 IPv6 环回：本服务目前只支持 IPv4 环回（AF_INET），"
+            "请用 127.0.0.1 或 localhost。"
+        )
     if not is_loopback(host):
         raise ConfigError(
-            f"host={host!r} 不是环回地址：本面板只允许监听本机（127.0.0.1 / localhost / ::1）。"
+            f"host={host!r} 不是环回地址：本面板只允许监听本机（127.0.0.1 / localhost）。"
             "远程访问与鉴权属于另一个需求，不在本期范围内。"
         )
     if not 0 <= port <= 65535:

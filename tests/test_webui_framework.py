@@ -130,12 +130,13 @@ def make_app(config: Config):
     return registry
 
 
-def call_route(registry, method: str, path: str, **query):
+def call_route(registry, method: str, path: str, *, log=None, **query):
     """不起 HTTP，直接调用路由 handler（handler 只依赖 RequestContext）。"""
     route, params = find_route(registry.routes(), method, path)
     assert route is not None, f"没有匹配的路由：{method} {path}"
     ctx = RequestContext(
-        method=method, path=path, query=dict(query), config=registry.config, registry=registry
+        method=method, path=path, query=dict(query), config=registry.config, registry=registry,
+        log=log, bound_port=registry.config.port,
     )
     return route.handler(ctx, **params)
 
@@ -190,7 +191,7 @@ def fingerprint() -> dict:
 
 def test_config_rejects_non_loopback_host_and_bad_port(tmp_path):
     """AC-3.1：非环回地址与非法端口都要在启动前失败（不提供放开边界的开关）。"""
-    assert is_loopback("127.0.0.1") and is_loopback("localhost") and is_loopback("::1")
+    assert is_loopback("127.0.0.1") and is_loopback("localhost")
     assert not is_loopback("0.0.0.0") and not is_loopback("192.168.1.10")
 
     config_file = tmp_path / "webui.config.json"
@@ -200,7 +201,7 @@ def test_config_rejects_non_loopback_host_and_bad_port(tmp_path):
     config_file.write_text(json.dumps({"port": 70000}), encoding="utf-8")
     with pytest.raises(ConfigError):
         load_config(config_file, env={})
-    config_file.write_text(json.dumps({"host": "::1", "port": 0}), encoding="utf-8")
+    config_file.write_text(json.dumps({"host": "localhost", "port": 0}), encoding="utf-8")
     assert load_config(config_file, env={}).port == 0
     config_file.write_text("{ 这不是 JSON", encoding="utf-8")
     with pytest.raises(ConfigError):
@@ -718,7 +719,7 @@ def test_cache_dir_defaults_under_output_and_missing_sources_are_typed_errors(tm
     assert store.cache.root == tmp_path / "elsewhere"
 
     with pytest.raises(ArtifactMissing) as excinfo:
-        store.get(name, base=tmp_path / "没有这个目录")
+        store.get(name, base=config.output_root / "不存在的公司目录")
     assert excinfo.value.code == "ARTIFACT_MISSING"
     assert not counter, "取不到源文件时不该调用解析器"
 
@@ -729,7 +730,9 @@ def test_markdown_tables_parser_parses_and_rejects_ragged_rows():
 
     body = markdown_tables.find_section(SOURCE_TEXT, "12.")
     records = markdown_tables.table_as_records(markdown_tables.parse_rows(body), numeric=True)
-    assert records["columns"] == ["指标", "2025", "2026"]
+    assert [column["key"] for column in records["columns"]] == ["指标", "2025", "2026"]
+    assert records["columns"][0]["align"] == "left"
+    assert records["columns"][1]["align"] == "right"      # 数值列右对齐
     assert records["rows"][0] == {"指标": "ROE (%)", "2025": 21.45, "2026": 10.63}
 
     assert markdown_tables.parse_number("1,234.5") == 1234.5
@@ -777,8 +780,8 @@ def test_browsing_works_with_networking_disabled(tmp_path, monkeypatch):
         data, meta = ctx.registry.datastore.get(
             "test.table", base=base, params={"section": "12.", "numeric": True}
         )
-        return {"columns": [{"key": key, "title": key} for key in data["columns"]],
-                "rows": data["rows"], "meta": meta}
+        # 解析器的输出**直接**就是表格面板的契约（复验 N2：不需要再手工适配）
+        return {"columns": data["columns"], "rows": data["rows"], "meta": meta}
 
     registry.panel(models.PanelSpec(id="offline.table", kind="table", provider=provider,
                                     params=(models.Param("company", required=True),)))
@@ -813,3 +816,257 @@ def test_framework_has_no_network_client_imports():
                 if module in banned:
                     offenders.append(f"{path.relative_to(REPO_ROOT)}: import {module}")
     assert not offenders, "框架里出现了网络客户端 import：" + "；".join(offenders)
+
+
+# --------------------------------------------------- 独立验收缺口回归（2026-09-21，D1~D10）
+
+
+def test_client_panel_without_data_leaves_the_fetch_to_the_frontend(tmp_path):
+    """D1 回归：客户端 kind 没有服务端数据时**不许写 `data` 键**。
+
+    前端的取数契约是「`data === undefined` 就去请求 `endpoint`」。写成 `data: null`
+    会让取数分支永远不可达——真实 `app.js` 驱动真实服务时图表永远显示「暂无数据」。
+    """
+    registry = make_app(make_config(tmp_path))
+    registry.panel(
+        models.PanelSpec(id="c.pending", kind="chart", title="待取数",
+                         endpoint="/api/v1/demo/chart")
+    )
+    registry.panel(
+        models.PanelSpec(id="c.ready", kind="chart", title="有数据",
+                         options={"chart": {"type": "bar"}},
+                         provider=lambda ctx, **_: {"labels": ["a"], "series": []})
+    )
+    pending = call_route(registry, "GET", "/api/v1/panels/c.pending")["data"]
+    assert pending["render"] == "client" and pending["endpoint"]
+    assert "data" not in pending, "没有数据时不能写 data 键，否则前端永不 fetch"
+
+    ready = call_route(registry, "GET", "/api/v1/panels/c.ready")["data"]
+    assert ready["render"] == "client" and ready["data"]["labels"] == ["a"]
+
+
+def test_a_failing_panel_degrades_without_failing_the_page(tmp_path):
+    """D3 回归：单面板失败（抛错或缺必填参数）只降级那一块，不带崩整页。"""
+
+    def boom(ctx, **_):
+        raise RuntimeError("这个面板坏了")
+
+    registry = make_app(make_config(tmp_path))
+    registry.panel(
+        models.PanelSpec(id="p.good", kind="stat",
+                         provider=lambda ctx, **_: {"items": [{"label": "完备度", "value": "12/14"}]})
+    )
+    registry.panel(models.PanelSpec(id="p.broken", kind="table", provider=boom))
+    registry.panel(
+        models.PanelSpec(id="p.needs-param", kind="table",
+                         params=(models.Param("company", required=True),
+                                 models.Param("period", source="selection.period")),
+                         provider=lambda ctx, company, period=None: {"columns": [], "rows": []})
+    )
+    registry.nav(models.NavItem(id="mix", title="混合页",
+                                panels=("p.good", "p.broken", "p.needs-param")))
+
+    logs: list = []
+    payload = call_route(registry, "GET", "/api/v1/pages/mix", log=logs.append)
+    assert payload["ok"] is True
+    panels = {panel["id"]: panel for panel in payload["data"]["panels"]}
+    assert "12/14" in panels["p.good"]["html"], "好面板必须正常渲染"
+    for broken_id in ("p.broken", "p.needs-param"):
+        assert panels[broken_id]["fallback"] is True
+        assert "panel-error" in panels[broken_id]["html"]
+    assert panels["p.needs-param"]["html"].count("INVALID_PARAM") == 1
+    assert panels["p.broken"]["html"].count("INTERNAL") == 1
+    assert len(payload["warnings"]) == 2, "降级要在 warnings 里留痕"
+    # 降级必须**服务端也留痕**：否则「页面看起来正常」会掩盖真实故障（复验 N6）
+    assert len(logs) == 2 and any("INVALID_PARAM" in line for line in logs)
+    assert any("未预期异常" in line and "RuntimeError" in line for line in logs)
+
+
+def test_check_mode_lists_registered_panels(tmp_path, capsys):
+    """D2 回归：`--check` 的 panels 字段必须真的列出面板（诊断信息不许撒谎）。"""
+    from webui.__main__ import main
+
+    plugin_dir = write_plugin(tmp_path / "plugins", "demo.py", DEMO_PLUGIN).parent
+    assert main(["--check", "--no-browser", "--plugins", str(plugin_dir)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["panels"] == ["demo.future", "demo.table"]
+    assert payload["nav"] == ["demo"]
+
+
+def test_unexpected_exceptions_reach_stderr_and_the_log_is_bounded(tmp_path, capsys):
+    """D4 回归：500 的 hint 说「见服务端日志」，日志就得真的有；且内存有上界。"""
+    from webui.core.server import LOG_BUFFER_LINES
+
+    config = make_config(tmp_path)
+    registry = make_app(config)
+    registry.route("GET", "/api/v1/boom", lambda ctx, **_: 1 / 0)
+    with WebUIServer(config, registry) as server:
+        status, payload, _ = http_get(server, "/api/v1/boom")
+        assert status == 500 and payload["error"]["code"] == "INTERNAL"
+        assert server.logs.maxlen == LOG_BUFFER_LINES, "日志缓冲必须有上界"
+    stderr = capsys.readouterr().err
+    assert "未处理异常" in stderr and "ZeroDivisionError" in stderr
+
+
+def test_ipv6_loopback_is_rejected_with_a_clear_reason(tmp_path):
+    """D5 回归：`::1` 不能装作可用环回（服务是 AF_INET，永远绑不上）。"""
+    config_file = tmp_path / "webui.config.json"
+    config_file.write_text(json.dumps({"host": "::1"}), encoding="utf-8")
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(config_file, env={})
+    assert "IPv6" in str(excinfo.value)
+    with pytest.raises(ConfigError):
+        load_config(config_file, env={"WEBUI_PORT": "0"})   # 配置文件里的 ::1 仍要被拒
+    assert not is_loopback("::1")
+
+
+def test_datastore_refuses_a_base_outside_the_output_root(tmp_path):
+    """D6 回归：数据层的路径 jail 必须落在真正读文件的入口上。"""
+    config = make_config(tmp_path)
+    registry = make_app(config)
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (outside / "data_pack_market.md").write_text(SOURCE_TEXT, encoding="utf-8")
+    counter: list = []
+    name = register_counting_dataset(registry, counter)
+    store = DataStore(config, spec_lookup=registry.dataset_spec)
+
+    with pytest.raises(PathOutsideRoot) as excinfo:
+        store.get(name, base=outside)
+    assert excinfo.value.code == "PATH_OUTSIDE_ROOT"
+    assert not counter, "越界的 base 不该触发解析"
+
+    inside = company_dir(tmp_path)
+    assert store.get(name, base=inside)[0] == {"files": 1}
+
+
+def test_healthz_reports_the_actually_bound_port(tmp_path):
+    """D7 回归：`--port 0` 时 healthz 要回真实端口，而不是配置里的 0。"""
+    config = make_config(tmp_path)
+    with WebUIServer(config, make_app(config)) as server:
+        _, payload, _ = http_get(server, "/api/v1/healthz")
+        assert payload["data"]["port"] == server.port != 0
+        assert payload["data"]["configured_port"] == 0
+
+
+def test_plugin_value_error_is_not_fatal_but_a_real_conflict_is(tmp_path):
+    """D10 回归：插件里的普通 ValueError 只让它自己失效；真正的注册冲突才致命。"""
+    registry = make_app(make_config(tmp_path))
+    plugin_dir = tmp_path / "plugins"
+    write_plugin(plugin_dir, "sloppy.py", "def contribute(registry):\n    int('not-a-number')\n")
+    write_plugin(plugin_dir, "demo.py", DEMO_PLUGIN)
+
+    report = dict(load_plugins(registry, extra_dirs=(plugin_dir,)))
+    sloppy = next(error for origin, error in report.items() if "sloppy" in origin)
+    assert sloppy and "ValueError" in sloppy
+    assert registry.has_panel("demo.table"), "坏插件不该影响好插件"
+
+    conflict_dir = tmp_path / "conflict"
+    write_plugin(conflict_dir, "clash.py", DEMO_PLUGIN)
+    with pytest.raises(PluginLoadError) as excinfo:
+        load_plugins(registry, extra_dirs=(conflict_dir,))
+    assert "注册冲突" in str(excinfo.value)
+
+
+def test_tokens_are_redacted_from_response_bodies(tmp_path):
+    """N1 回归（阻断/安全）：凭据不能只从日志消失，也必须从**响应体**消失（AC-3.7）。"""
+    token = "abcdef0123456789abcdef0123456789"
+    config = make_config(tmp_path)
+    registry = make_app(config)
+    registry.panel(
+        models.PanelSpec(id="leak.card", kind="stat",
+                         provider=lambda ctx, **_: {"items": [{"label": "token", "value": token}]})
+    )
+    registry.panel(
+        models.PanelSpec(id="leak.param", kind="stat",
+                         params=(models.Param("company", type="int", required=True),),
+                         provider=lambda ctx, company: {"items": []})
+    )
+    registry.nav(models.NavItem(id="leak", title="泄漏页", panels=("leak.card",)))
+
+    with WebUIServer(config, registry, env={"TUSHARE_TOKEN": token}) as server:
+        status, page, _ = http_get(server, "/api/v1/pages/leak")
+        serialized = json.dumps(page, ensure_ascii=False)
+        assert status == 200 and "***" in serialized
+        assert token not in serialized, "响应体里不能出现明文 token"
+
+        # 参数校验失败时，原始取值会进 message —— 出口脱敏必须兜住
+        status, err, _ = http_get(server, f"/api/v1/panels/leak.param?company={token}")
+        assert status == 422
+        serialized = json.dumps(err, ensure_ascii=False)
+        assert token not in serialized and "***" in serialized
+
+    # 复验 P1：凭据在「已序列化文本」里的转义形态也要脱敏
+    from webui.core.security import redact
+
+    weird = 'ab"cd&ef12345678'
+    assert weird not in redact(json.dumps({"v": weird}, ensure_ascii=False), (weird,))
+    assert "***" in redact("ab&quot;cd&amp;ef12345678", (weird,))
+
+    # 复验 P2：非 UTF-8 的文本静态资源必须原样返回（不能被解码改坏）
+    static_dir = tmp_path / "static-latin1"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text("<html>ok</html>", encoding="utf-8")
+    latin1 = b"var s = 'caf\xe9';\n"
+    (static_dir / "latin1.js").write_bytes(latin1)
+    latin1_config = make_config(tmp_path)
+    with WebUIServer(latin1_config, make_app(latin1_config), static_dir=static_dir,
+                     env={"TUSHARE_TOKEN": token}) as latin1_server:
+        status, body, _ = http_get(latin1_server, "/latin1.js")
+        assert status == 200 and body == latin1, "非 UTF-8 文本资源必须原样返回"
+
+
+def test_table_parser_output_feeds_the_table_panel_contract():
+    """N2 回归：解析器输出必须直接符合表格面板的渲染契约（否则第一个真实表格面板就 INTERNAL）。"""
+    from webui.datastore.parsers import markdown_tables
+    from webui.render import panels as panel_render
+
+    parsed = markdown_tables.table_as_records(
+        markdown_tables.parse_rows(markdown_tables.find_section(SOURCE_TEXT, "12.")), numeric=True
+    )
+    html = panel_render.render_table(parsed)
+    assert "<table>" in html and "ROE (%)" in html and "21.45" in html
+
+
+def test_datastore_jails_source_level_symlinks_and_uses_samefile(tmp_path):
+    """N3 + N5 回归：源文件级符号链接要被拒；`base` 判定用 samefile，不误伤大小写变体。"""
+    config = make_config(tmp_path)
+    registry = make_app(config)
+    store = DataStore(config, spec_lookup=registry.dataset_spec)
+    base = company_dir(tmp_path)
+
+    outside = tmp_path / "outside.md"
+    outside.write_text(SOURCE_TEXT, encoding="utf-8")
+    link = base / "linked.md"
+    try:
+        link.symlink_to(outside)
+    except (OSError, NotImplementedError):  # pragma: no cover
+        pytest.skip("本平台不支持创建符号链接")
+
+    parsers.register_parser("test.link", lambda sources, params: {"n": len(sources)}, replace=True)
+    registry.dataset(models.DatasetSpec(name="test.link", sources=("linked.md",),
+                                        parser="test.link", parser_version=1))
+    with pytest.raises(PathOutsideRoot):
+        store.get("test.link", base=base)
+
+    assert security.is_within(base, config.output_root)
+    existing_outside = tmp_path / "outside-dir"
+    existing_outside.mkdir()
+    assert not security.is_within(existing_outside, config.output_root)
+    upper = Path(str(config.output_root).upper())
+    if upper.exists():      # 大小写不敏感的文件系统上不能误拒（N5）
+        assert security.is_within(upper, config.output_root)
+
+
+def test_bind_failure_is_not_reported_as_port_in_use(tmp_path, monkeypatch, capsys):
+    """N4 回归：非端口占用的绑定失败要有自己的退出码，别让用户去换端口。"""
+    from webui import __main__ as webui_main
+    from webui.core.errors import BindFailed
+
+    def boom(config, registry, **kwargs):
+        raise BindFailed("地址不可用", hint="这不是端口占用，换端口不会解决")
+
+    monkeypatch.setattr(webui_main, "WebUIServer", boom)
+    assert webui_main.main(["--check", "--no-browser"]) == 0
+    assert webui_main.main(["--no-browser"]) == 4
+    assert "换端口不会解决" in capsys.readouterr().err

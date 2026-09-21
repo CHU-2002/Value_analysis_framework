@@ -17,7 +17,8 @@ import datetime as _dt
 from pathlib import Path
 
 from .. import __version__
-from ..core.errors import ArtifactMissing, BadRequest, ParseFailed, WebUIError
+from ..core.errors import ArtifactMissing, BadRequest, ParseFailed, PathOutsideRoot, WebUIError
+from ..core.security import is_within
 from .cache import CacheStore, compute_fingerprint, normalize_params, source_digest
 from .parsers import get_parser
 
@@ -93,9 +94,11 @@ class DataStore:
             except WebUIError:
                 raise
             except Exception as exc:  # noqa: BLE001（解析失败要有错误码，不能漏成 500 堆栈）
+                # message 保持不含异常原文与路径（4xx 不该把文件系统细节回给调用方，D9）；
+                # 原文进 hint，排障时仍看得到。
                 raise ParseFailed(
-                    f"解析数据集 {name!r} 失败：{type(exc).__name__}: {exc}",
-                    hint="若是数据格式变化，请更新解析器并把它对应的 parser_version +1。",
+                    f"解析数据集 {name!r} 失败（{type(exc).__name__}）",
+                    hint=f"{exc}｜若是数据格式变化，请更新解析器并把它对应的 parser_version +1。",
                 ) from exc
 
             meta = {
@@ -137,15 +140,31 @@ class DataStore:
                 f"数据集 {spec.name!r} 需要 base 目录才能解析源文件",
                 hint="面板应把公司目录作为 base 传进来。",
             )
-        base_path = Path(base)
+        # 路径 jail 必须落在**真正读文件**的入口上：数据层只读 output/ 之下的东西。
+        # 只靠插件自己守规矩不够——`safe_join` 原本只覆盖静态资源（独立验收 D6）。
+        # 用 `is_within` 而不是字符串比较：符号链接与大小写都由内核判定（复验 N3/N5）。
+        base_path = Path(base).resolve()
+        root = Path(self.config.output_root).resolve()
+        if not is_within(base_path, root):
+            raise PathOutsideRoot(
+                "数据层拒绝读取 output/ 之外的目录",
+                hint="base 必须是配置里 output 根（config.output_root）之下的子目录。",
+            )
         found: list = []
         for pattern in spec.sources:
             found.extend(sorted(base_path.glob(pattern)))
         existing = [path for path in found if path.is_file()]
+        for path in existing:
+            # 源文件**自身**也可能是指向树外的符号链接（复验 N3）。
+            if not is_within(path.resolve(), base_path):
+                raise PathOutsideRoot(
+                    f"源文件 {path.name!r} 指向 base 目录之外（疑似符号链接越界）",
+                    hint="数据层只读 base 目录内的真实文件。",
+                )
         if not existing:
             raise ArtifactMissing(
-                f"数据集 {spec.name!r} 在 {base_path} 下没有找到源文件",
-                hint=f"按这些模式查找：{list(spec.sources)}",
+                f"数据集 {spec.name!r} 没有找到源文件",
+                hint=f"按这些模式在 base 目录下查找：{list(spec.sources)}",
             )
         digests = [
             (str(path.relative_to(base_path)) if base_path in path.parents else path.name,

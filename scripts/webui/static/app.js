@@ -23,7 +23,8 @@ async function api(path) {
     const error = payload.error || {};
     throw new Error(`${error.code || "ERROR"}: ${error.message || "请求失败"}`);
   }
-  return payload.data;
+  // warnings 要往上传：逐面板降级只在这里留痕，丢掉它们等于把故障藏起来（复验 N7）。
+  return { data: payload.data, warnings: payload.warnings || [] };
 }
 
 function banner(message, kind = "warn") {
@@ -71,7 +72,9 @@ async function mountPanel(panel) {
   const renderer = kindRegistry.get(panel.kind) || kindRegistry.get("fallback");
   try {
     let data = panel.data;
-    if (data === undefined && panel.endpoint) data = await api(withSelection(panel.endpoint));
+    if (data === undefined && panel.endpoint) {
+      data = (await api(withSelection(panel.endpoint))).data;
+    }
     await renderer(body, panel, data);
   } catch (error) {
     body.innerHTML = "";
@@ -85,9 +88,11 @@ async function mountPanel(panel) {
 
 async function openPage(pageId) {
   banner("");
-  const page = await api(`/api/v1/pages/${encodeURIComponent(pageId)}`);
+  const { data: page, warnings } = await api(`/api/v1/pages/${encodeURIComponent(pageId)}`);
   document.getElementById("page-title").textContent = page.title;
   document.getElementById("page-desc").textContent = page.description || "";
+  // 降级留痕要让人看见：否则页面「看起来正常」而实际有面板没渲染出来（复验 N7）。
+  if (warnings.length) banner(warnings.join("；"), "warn");
   const container = document.getElementById("panels");
   container.innerHTML = "";
   for (const panel of page.panels) container.append(await mountPanel(panel));
@@ -98,7 +103,8 @@ async function openPage(pageId) {
 
 async function boot() {
   try {
-    const { items } = await api("/api/v1/nav");
+    const { data } = await api("/api/v1/nav");
+    const items = data.items;
     const nav = document.getElementById("nav");
     nav.innerHTML = "";
     const groups = new Map();

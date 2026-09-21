@@ -6,19 +6,25 @@
 
 from __future__ import annotations
 
+import errno
 import os
+import sys
 import threading
 import traceback
 import uuid
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .. import __version__
 from . import envelope
 from .context import RequestContext
-from .errors import PathOutsideRoot, PortInUse, UnknownRoute, WebUIError
+from .errors import BindFailed, PathOutsideRoot, PortInUse, UnknownRoute, WebUIError
 from .router import find_route
 from .security import collect_secrets, redact, safe_join
+
+# 请求日志与异常堆栈的内存上限：长时间运行不能靠无界 list 吃内存（D4）。
+LOG_BUFFER_LINES = 500
 
 STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 JSON_CONTENT_TYPE = "application/json; charset=utf-8"
@@ -81,6 +87,10 @@ class _Handler(BaseHTTPRequestHandler):
                 registry=self.server.registry,
                 request_id=request_id,
                 secrets=self.server.secrets,
+                log=self._log,
+                # 真实绑定端口随请求传下去：不再把它挂在注册表上（复验 N8：
+                # 同一个 registry 起第二个服务会污染第一个的 healthz）。
+                bound_port=self.server.server_address[1],
             )
             payload = route.handler(ctx, **params)
             return envelope.dumps(payload), 200, JSON_CONTENT_TYPE
@@ -139,6 +149,18 @@ class _Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------ 底层
 
     def _send(self, status: int, body: bytes, content_type: str) -> None:
+        # **统一响应出口脱敏**（复验 N1）：凭据不但不能进日志，也不能进响应体——
+        # 面板数据、降级卡片、错误 hint 都可能夹带 token。
+        if self.server.secrets and (
+            content_type.startswith("text/") or content_type.startswith("application/json")
+        ):
+            try:
+                text = body.decode("utf-8")
+            except UnicodeDecodeError:
+                # 非 UTF-8 的文本资源：宁可原样返回，也不能用 replace 解码把字节改坏（复验 P2）。
+                text = None
+            if text is not None:
+                body = redact(text, self.server.secrets).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -179,12 +201,23 @@ class _Server(ThreadingHTTPServer):
 class WebUIServer:
     """把 HTTP 服务的生命周期收成一个对象：起、停、拿真实端口。"""
 
-    def __init__(self, config, registry, *, env=None, log_sink=None, static_dir=None):
+    def __init__(
+        self, config, registry, *, env=None, log_sink=None, static_dir=None, echo_logs=True
+    ):
         self.config = config
         self.registry = registry
         self.secrets = collect_secrets(dict(os.environ if env is None else env))
-        self.logs: list = []
-        sink = log_sink or self.logs.append
+        # 环形缓冲：日志不能无上界地吃内存（独立验收 D4）。
+        self.logs: deque = deque(maxlen=LOG_BUFFER_LINES)
+        self.echo_logs = echo_logs
+
+        def default_sink(text: str) -> None:
+            """写内存 + 写 stderr：500 响应的 hint 说「见服务端日志」，就得真的有日志。"""
+            self.logs.append(text)
+            if self.echo_logs:
+                print(text, file=sys.stderr, flush=True)
+
+        sink = log_sink or default_sink
         try:
             self._httpd = _Server(
                 (config.host, config.port),
@@ -196,9 +229,16 @@ class WebUIServer:
                 static_dir=static_dir,
             )
         except OSError as exc:
-            raise PortInUse(
-                f"端口 {config.port} 无法绑定：{exc}",
-                hint="换一个 --port，或先停掉占用该端口的进程（不静默换端口）。",
+            # 只有「地址已被占用」才叫端口占用；地址不可用（例如 IPv6 环回）时
+            # 让用户去换端口是错的建议（独立验收 D5）。
+            if exc.errno in (errno.EADDRINUSE, errno.EACCES):
+                raise PortInUse(
+                    f"端口 {config.port} 无法绑定（已被占用或无权限）",
+                    hint=f"换一个 --port，或先停掉占用该端口的进程（不静默换端口）。{exc}",
+                ) from exc
+            raise BindFailed(
+                f"地址 {config.host}:{config.port} 无法绑定",
+                hint=f"这不是端口占用问题，换端口不会解决：{exc}",
             ) from exc
         self._thread: threading.Thread | None = None
         # `BaseServer.shutdown()` 在 `serve_forever()` 从未启动时会**永久阻塞**
