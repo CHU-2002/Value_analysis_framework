@@ -15,7 +15,7 @@ from __future__ import annotations
 from .. import API_VERSION, __version__
 from ..render import panels as panel_render
 from . import envelope
-from .errors import InvalidParam
+from .errors import InvalidParam, WebUIError
 from .security import reject_shell_metachars
 
 
@@ -90,7 +90,9 @@ def _healthz(ctx, **_):
             "version": __version__,
             "api_version": API_VERSION,
             "host": ctx.config.host,
-            "port": ctx.config.port,
+            # 真实绑定端口：`--port 0` 时 config.port 是 0，诊断接口不能撒谎（D7）
+            "port": ctx.registry.bound_port or ctx.config.port,
+            "configured_port": ctx.config.port,
         }
     )
 
@@ -100,12 +102,41 @@ def _nav(ctx, **_):
     return envelope.ok({"items": items})
 
 
+def _degraded_panel(spec, code: str, message: str, hint: str, *, unexpected: bool = False) -> dict:
+    """把失败的面板渲染成降级卡片载荷（D3）。"""
+    payload = panel_render.render_panel(
+        spec, None, meta={"degraded": True, "error": {"code": code, "unexpected": unexpected}}
+    )
+    payload["html"] = panel_render.render_panel_error(spec, code, message, hint)
+    payload["render"] = "server"
+    payload["fallback"] = True
+    return payload
+
+
 def _page(ctx, page_id: str, **_):
+    """页面聚合**逐面板隔离**：某一块挂了只降级那一块，不带崩整页（独立验收 D3）。"""
     item = ctx.registry.page(page_id)
-    rendered = [_render_one(ctx.registry.panel_spec(panel_id), ctx) for panel_id in item.panels]
+    rendered = []
+    warnings = []
+    for panel_id in item.panels:
+        spec = ctx.registry.panel_spec(panel_id)
+        try:
+            rendered.append(_render_one(spec, ctx))
+        except WebUIError as exc:
+            warnings.append(f"面板 {panel_id} 渲染失败：{exc.code}")
+            rendered.append(_degraded_panel(spec, exc.code, exc.message, exc.hint))
+        except Exception as exc:  # noqa: BLE001（未预期异常也只降级这一块）
+            if ctx.log:
+                ctx.log(f"面板 {panel_id} 渲染出现未预期异常：{type(exc).__name__}: {exc}")
+            warnings.append(f"面板 {panel_id} 渲染失败：INTERNAL")
+            rendered.append(
+                _degraded_panel(
+                    spec, "INTERNAL", "面板内部错误", "细节见服务端日志。", unexpected=True
+                )
+            )
     payload = ctx.registry.page_payload(page_id)
     payload["panels"] = rendered
-    return envelope.ok(payload)
+    return envelope.ok(payload, warnings=warnings)
 
 
 def _panel(ctx, panel_id: str, **_):
@@ -126,14 +157,17 @@ def _kinds(ctx, **_):
 
 def _registry_snapshot(ctx, **_):
     """诊断用：谁注册了什么。冲突在注册时已经报错，这里给的是「已生效」的事实。"""
-    origins = ctx.registry.origins()
     return envelope.ok(
         {
             "nav": [item.id for item in ctx.registry.nav_items()],
-            "panels": sorted(name for (kind, name) in origins if kind == "panel"),
+            "panels": ctx.registry.panel_ids(),
             "datasets": ctx.registry.datasets(),
             "commands": [spec.id for spec in ctx.registry.commands()],
             "routes": [f"{route.method} {route.template}" for route in ctx.registry.routes()],
             "job_types": list(ctx.registry.job_types()),
+            "origins": {
+                f"{kind}:{key}": origin
+                for (kind, key), origin in sorted(ctx.registry.origins().items())
+            },
         }
     )

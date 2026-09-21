@@ -122,9 +122,9 @@ def main(argv=None) -> int:
                     "cache_dir": str(config.cache_dir),
                     "archive_root": str(config.archive_root),
                     "nav": [item.id for item in registry.nav_items()],
-                    "panels": sorted(
-                        name for (kind, name) in registry.origins().items() if kind == "panel"
-                    ),
+                    # 用注册表的公开方法，不再自己解包 origins() 的 (kind, key) 元组——
+                    # 上一版就是在这里解包写错、导致 panels 恒为空（独立验收 D2）。
+                    "panels": registry.panel_ids(),
                     "datasets": registry.datasets(),
                     "routes": [
                         f"{route.method} {route.template}" for route in registry.routes()

@@ -190,7 +190,7 @@ def fingerprint() -> dict:
 
 def test_config_rejects_non_loopback_host_and_bad_port(tmp_path):
     """AC-3.1：非环回地址与非法端口都要在启动前失败（不提供放开边界的开关）。"""
-    assert is_loopback("127.0.0.1") and is_loopback("localhost") and is_loopback("::1")
+    assert is_loopback("127.0.0.1") and is_loopback("localhost")
     assert not is_loopback("0.0.0.0") and not is_loopback("192.168.1.10")
 
     config_file = tmp_path / "webui.config.json"
@@ -200,7 +200,7 @@ def test_config_rejects_non_loopback_host_and_bad_port(tmp_path):
     config_file.write_text(json.dumps({"port": 70000}), encoding="utf-8")
     with pytest.raises(ConfigError):
         load_config(config_file, env={})
-    config_file.write_text(json.dumps({"host": "::1", "port": 0}), encoding="utf-8")
+    config_file.write_text(json.dumps({"host": "localhost", "port": 0}), encoding="utf-8")
     assert load_config(config_file, env={}).port == 0
     config_file.write_text("{ 这不是 JSON", encoding="utf-8")
     with pytest.raises(ConfigError):
@@ -718,7 +718,7 @@ def test_cache_dir_defaults_under_output_and_missing_sources_are_typed_errors(tm
     assert store.cache.root == tmp_path / "elsewhere"
 
     with pytest.raises(ArtifactMissing) as excinfo:
-        store.get(name, base=tmp_path / "没有这个目录")
+        store.get(name, base=config.output_root / "不存在的公司目录")
     assert excinfo.value.code == "ARTIFACT_MISSING"
     assert not counter, "取不到源文件时不该调用解析器"
 
@@ -813,3 +813,149 @@ def test_framework_has_no_network_client_imports():
                 if module in banned:
                     offenders.append(f"{path.relative_to(REPO_ROOT)}: import {module}")
     assert not offenders, "框架里出现了网络客户端 import：" + "；".join(offenders)
+
+
+# --------------------------------------------------- 独立验收缺口回归（2026-09-21，D1~D10）
+
+
+def test_client_panel_without_data_leaves_the_fetch_to_the_frontend(tmp_path):
+    """D1 回归：客户端 kind 没有服务端数据时**不许写 `data` 键**。
+
+    前端的取数契约是「`data === undefined` 就去请求 `endpoint`」。写成 `data: null`
+    会让取数分支永远不可达——真实 `app.js` 驱动真实服务时图表永远显示「暂无数据」。
+    """
+    registry = make_app(make_config(tmp_path))
+    registry.panel(
+        models.PanelSpec(id="c.pending", kind="chart", title="待取数",
+                         endpoint="/api/v1/demo/chart")
+    )
+    registry.panel(
+        models.PanelSpec(id="c.ready", kind="chart", title="有数据",
+                         options={"chart": {"type": "bar"}},
+                         provider=lambda ctx, **_: {"labels": ["a"], "series": []})
+    )
+    pending = call_route(registry, "GET", "/api/v1/panels/c.pending")["data"]
+    assert pending["render"] == "client" and pending["endpoint"]
+    assert "data" not in pending, "没有数据时不能写 data 键，否则前端永不 fetch"
+
+    ready = call_route(registry, "GET", "/api/v1/panels/c.ready")["data"]
+    assert ready["render"] == "client" and ready["data"]["labels"] == ["a"]
+
+
+def test_a_failing_panel_degrades_without_failing_the_page(tmp_path):
+    """D3 回归：单面板失败（抛错或缺必填参数）只降级那一块，不带崩整页。"""
+
+    def boom(ctx, **_):
+        raise RuntimeError("这个面板坏了")
+
+    registry = make_app(make_config(tmp_path))
+    registry.panel(
+        models.PanelSpec(id="p.good", kind="stat",
+                         provider=lambda ctx, **_: {"items": [{"label": "完备度", "value": "12/14"}]})
+    )
+    registry.panel(models.PanelSpec(id="p.broken", kind="table", provider=boom))
+    registry.panel(
+        models.PanelSpec(id="p.needs-param", kind="table",
+                         params=(models.Param("company", required=True),
+                                 models.Param("period", source="selection.period")),
+                         provider=lambda ctx, company, period=None: {"columns": [], "rows": []})
+    )
+    registry.nav(models.NavItem(id="mix", title="混合页",
+                                panels=("p.good", "p.broken", "p.needs-param")))
+
+    payload = call_route(registry, "GET", "/api/v1/pages/mix")
+    assert payload["ok"] is True
+    panels = {panel["id"]: panel for panel in payload["data"]["panels"]}
+    assert "12/14" in panels["p.good"]["html"], "好面板必须正常渲染"
+    for broken_id in ("p.broken", "p.needs-param"):
+        assert panels[broken_id]["fallback"] is True
+        assert "panel-error" in panels[broken_id]["html"]
+    assert panels["p.needs-param"]["html"].count("INVALID_PARAM") == 1
+    assert panels["p.broken"]["html"].count("INTERNAL") == 1
+    assert len(payload["warnings"]) == 2, "降级要在 warnings 里留痕"
+
+
+def test_check_mode_lists_registered_panels(tmp_path, capsys):
+    """D2 回归：`--check` 的 panels 字段必须真的列出面板（诊断信息不许撒谎）。"""
+    from webui.__main__ import main
+
+    plugin_dir = write_plugin(tmp_path / "plugins", "demo.py", DEMO_PLUGIN).parent
+    assert main(["--check", "--no-browser", "--plugins", str(plugin_dir)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["panels"] == ["demo.future", "demo.table"]
+    assert payload["nav"] == ["demo"]
+
+
+def test_unexpected_exceptions_reach_stderr_and_the_log_is_bounded(tmp_path, capsys):
+    """D4 回归：500 的 hint 说「见服务端日志」，日志就得真的有；且内存有上界。"""
+    from webui.core.server import LOG_BUFFER_LINES
+
+    config = make_config(tmp_path)
+    registry = make_app(config)
+    registry.route("GET", "/api/v1/boom", lambda ctx, **_: 1 / 0)
+    with WebUIServer(config, registry) as server:
+        status, payload, _ = http_get(server, "/api/v1/boom")
+        assert status == 500 and payload["error"]["code"] == "INTERNAL"
+        assert server.logs.maxlen == LOG_BUFFER_LINES, "日志缓冲必须有上界"
+    stderr = capsys.readouterr().err
+    assert "未处理异常" in stderr and "ZeroDivisionError" in stderr
+
+
+def test_ipv6_loopback_is_rejected_with_a_clear_reason(tmp_path):
+    """D5 回归：`::1` 不能装作可用环回（服务是 AF_INET，永远绑不上）。"""
+    config_file = tmp_path / "webui.config.json"
+    config_file.write_text(json.dumps({"host": "::1"}), encoding="utf-8")
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(config_file, env={})
+    assert "IPv6" in str(excinfo.value)
+    with pytest.raises(ConfigError):
+        load_config(config_file, env={"WEBUI_PORT": "0"})   # 配置文件里的 ::1 仍要被拒
+    assert not is_loopback("::1")
+
+
+def test_datastore_refuses_a_base_outside_the_output_root(tmp_path):
+    """D6 回归：数据层的路径 jail 必须落在真正读文件的入口上。"""
+    config = make_config(tmp_path)
+    registry = make_app(config)
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (outside / "data_pack_market.md").write_text(SOURCE_TEXT, encoding="utf-8")
+    counter: list = []
+    name = register_counting_dataset(registry, counter)
+    store = DataStore(config, spec_lookup=registry.dataset_spec)
+
+    with pytest.raises(PathOutsideRoot) as excinfo:
+        store.get(name, base=outside)
+    assert excinfo.value.code == "PATH_OUTSIDE_ROOT"
+    assert not counter, "越界的 base 不该触发解析"
+
+    inside = company_dir(tmp_path)
+    assert store.get(name, base=inside)[0] == {"files": 1}
+
+
+def test_healthz_reports_the_actually_bound_port(tmp_path):
+    """D7 回归：`--port 0` 时 healthz 要回真实端口，而不是配置里的 0。"""
+    config = make_config(tmp_path)
+    with WebUIServer(config, make_app(config)) as server:
+        _, payload, _ = http_get(server, "/api/v1/healthz")
+        assert payload["data"]["port"] == server.port != 0
+        assert payload["data"]["configured_port"] == 0
+
+
+def test_plugin_value_error_is_not_fatal_but_a_real_conflict_is(tmp_path):
+    """D10 回归：插件里的普通 ValueError 只让它自己失效；真正的注册冲突才致命。"""
+    registry = make_app(make_config(tmp_path))
+    plugin_dir = tmp_path / "plugins"
+    write_plugin(plugin_dir, "sloppy.py", "def contribute(registry):\n    int('not-a-number')\n")
+    write_plugin(plugin_dir, "demo.py", DEMO_PLUGIN)
+
+    report = dict(load_plugins(registry, extra_dirs=(plugin_dir,)))
+    sloppy = next(error for origin, error in report.items() if "sloppy" in origin)
+    assert sloppy and "ValueError" in sloppy
+    assert registry.has_panel("demo.table"), "坏插件不该影响好插件"
+
+    conflict_dir = tmp_path / "conflict"
+    write_plugin(conflict_dir, "clash.py", DEMO_PLUGIN)
+    with pytest.raises(PluginLoadError) as excinfo:
+        load_plugins(registry, extra_dirs=(conflict_dir,))
+    assert "注册冲突" in str(excinfo.value)

@@ -60,6 +60,10 @@ th { color: var(--muted); font-weight: 600; }
 }
 .panel-fallback { border: 1px dashed #d0a000; background: #fffdf5; border-radius: 8px; padding: 10px 12px; }
 .panel-fallback-title { margin: 0 0 4px; font-weight: 600; }
+.panel-error { border: 1px solid #d64545; background: #fff5f5; border-radius: 8px; padding: 10px 12px; }
+.panel-error-title { margin: 0 0 4px; font-weight: 600; }
+.panel-error-code { margin: 0; font-family: ui-monospace, monospace; font-size: 12px; color: #a12b2b; }
+.panel-error-detail { margin: 4px 0 0; }
 .panel-empty { color: var(--muted); }
 .banner { margin-top: 8px; padding: 8px 10px; border-radius: 6px; background: #fff5f5; color: #a12b2b; }
 .chart-canvas { width: 100%; height: auto; }

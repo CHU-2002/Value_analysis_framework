@@ -23,6 +23,7 @@ CODES = (
     "JOB_NOT_FOUND",
     "NOT_LOOPBACK",
     "PORT_IN_USE",
+    "BIND_FAILED",
     "INTERNAL",
     "NO_TOKEN",
     "QUOTA_CONFIRM_REQUIRED",
@@ -115,6 +116,22 @@ class JobNotFound(WebUIError):
 class NotLoopback(WebUIError):
     code = "NOT_LOOPBACK"
     status = 400
+
+
+class BindFailed(WebUIError):
+    """绑定失败但**不是**端口占用（例如地址不可用）：别让用户去换端口，换了也没用。"""
+
+    code = "BIND_FAILED"
+    status = 500
+
+
+class RegistrationConflict(ValueError):
+    """注册冲突：同一个 id 被注册两次。
+
+    刻意**不继承** `WebUIError`：它不是 HTTP 错误，而是**启动期的配置错误**。
+    单独一个类型是为了让插件加载器精确区分「注册表自己抛的冲突（致命）」与
+    「插件代码里恰好抛的 ValueError（只让它自己失效）」——对应独立验收的 D10。
+    """
 
 
 class PortInUse(WebUIError):

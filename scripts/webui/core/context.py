@@ -20,3 +20,6 @@ class RequestContext:
     registry: object = None
     request_id: str = ""
     secrets: tuple = ()
+    # 服务端日志出口（可调用对象）。handler 在**吞掉**异常时必须用它留痕，
+    # 否则 500 响应里「细节见服务端日志」就是一句空话（独立验收 D4）。
+    log: object = None

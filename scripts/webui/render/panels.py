@@ -106,6 +106,23 @@ def render_fallback(spec, reason: str = "") -> str:
     )
 
 
+def render_panel_error(spec, code: str, message: str, hint: str = "") -> str:
+    """面板渲染失败时的降级卡片（独立验收 D3）。
+
+    一个面板挂掉（provider 抛错、缺必填参数、数据集解析失败）不能让**整页**失败——
+    同页其他面板照常显示，失败的这块用可读卡片说明原因。
+    """
+    hint_html = f'<p class="panel-note">{_escape(hint)}</p>' if hint else ""
+    return (
+        '<div class="panel-error">'
+        f'<p class="panel-error-title">面板渲染失败：{_escape(spec.title or spec.id)}</p>'
+        f'<p class="panel-error-code">{_escape(code)}</p>'
+        f'<p class="panel-error-detail">{_escape(message)}</p>'
+        f"{hint_html}"
+        f'<p class="panel-note">面板 id：{_escape(spec.id)}</p></div>'
+    )
+
+
 def _empty(message: str) -> str:
     return f'<p class="panel-empty">{_escape(message)}</p>'
 
@@ -116,6 +133,10 @@ def render_panel(spec, data, *, meta=None) -> dict:
     - 服务端 kind：带 `html` 片段；
     - 客户端 kind：带 `endpoint` + `options`，数据由浏览器自己取/画；
     - 未知 kind：`render` 变成 `server` 且 html 是降级卡片。
+
+    **客户端 kind 在服务端没有数据时必须不带 `data` 键**：前端的取数契约是
+    「`data === undefined` 就去请求 `endpoint`」——写成 `data: null` 会让取数分支
+    永远不可达（独立验收 D1，真实 `app.js` 驱动真实服务复现过）。
     """
     payload = spec.to_json()
     if spec.kind in SERVER_KINDS:
@@ -132,7 +153,8 @@ def render_panel(spec, data, *, meta=None) -> dict:
             payload["fallback"] = True
     elif spec.kind in CLIENT_KINDS:
         payload["render"] = "client"
-        payload["data"] = data if data is not None else None
+        if data is not None:      # 没数据就**不写这个键**，让前端去 fetch（D1）
+            payload["data"] = data
     else:
         payload["render"] = "server"
         payload["fallback"] = True

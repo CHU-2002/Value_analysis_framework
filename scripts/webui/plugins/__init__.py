@@ -16,6 +16,8 @@ import importlib.util
 import traceback
 from pathlib import Path
 
+from ..core.errors import RegistrationConflict
+
 # 首版还没有功能插件；随 REQ-009.1（按键）/ .2（视图）/ .4（采集）逐个加一行。
 BUILTIN: tuple = ()
 
@@ -77,8 +79,8 @@ def _load_path(registry, path: Path) -> tuple:
         spec.loader.exec_module(module)
         _contribute(registry, module, origin)
         return origin, None
-    except ValueError as exc:
-        # 注册冲突：必须让启动失败（见模块文档）
+    except RegistrationConflict as exc:
+        # **只有注册表自己抛的冲突**才致命；插件代码里恰好抛的 ValueError 不该致命（D10）。
         raise PluginLoadError(f"{origin} 注册冲突：{exc}") from exc
     except Exception as exc:  # noqa: BLE001
         return origin, f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
