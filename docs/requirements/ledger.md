@@ -16,6 +16,7 @@
 | [REQ-006](REQ-006-requirement-test-dev-flow.md) | 工程化开发流程（建立与持续维护） | `in-progress` | P1 | N/A | #25, #29, #30, #31, #32, #34, #35, #36, #37 | `tests/test_release_gates.py` `tests/test_test_scope.py` `tests/test_update_docs_contract.py` `tests/test_two_layout_e2e.py`（追溯门禁自身即扫描器，按设计排除，故不列入声明） |
 | [REQ-007](REQ-007-governance-hardening.md) | 门禁与治理工具加固 | `superseded` | P2 | N/A | #29 | 已并入 REQ-006 任务 T2（文件与报告留作证据） |
 | [REQ-008](REQ-008-coverage-debt.md) | 覆盖率洼地补测 | `superseded` | P2 | TBD | TBD | 已并入 REQ-006 任务 T4（本文件即 T4 的规格） |
+| [REQ-009](REQ-009-local-gui-console.md) | 本地图形化控制台（按键执行 + 股票图表 + 报告与迭代记录浏览） | `accepted` | P1 | TBD | TBD | `tests/test_webui_server.py` `tests/test_webui_views.py` |
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
 
@@ -31,6 +32,8 @@
 | ID | 父需求 | 标题 | 状态 | 实现 PR | 关联测试 |
 |----|--------|------|------|---------|----------|
 | [REQ-006.1](REQ-006-requirement-test-dev-flow.md) | REQ-006 | 财报分析端到端实跑加固与实跑验收规则 | `in-progress` | #36, #37 | `tests/test_release_gates.py` `tests/test_update_docs_contract.py` |
+| [REQ-009.1](REQ-009-local-gui-console.md) | REQ-009 | 控制台骨架与按键执行器 | `accepted` | TBD | `tests/test_webui_server.py` |
+| [REQ-009.2](REQ-009-local-gui-console.md) | REQ-009 | 报告浏览、图表与迭代台账视图 | `accepted` | TBD | `tests/test_webui_views.py` |
 
 
 ## 里程碑
@@ -63,7 +66,7 @@
 | 想法 | 来源 | 备注 |
 |------|------|------|
 | 验收报告与它验收的代码改动可能被并进同一个提交，归属含糊（REQ-007 首轮报告即如此） | 独立验收（REQ-007） | 报告单独成提交（`docs(verification): …`），已在 REQ-007 收尾时纠正；若需强制可加 CI 检查 |
-| 测试用例预算逼近上限（1537/1600，96%） | `make status` 实测（2026-09-20） | 按 REQ-006 AC-5：先清理/合并冗余测试，**不要**调高上限；新增测试前先看 `make status` |
+| 测试用例预算逼近上限（1522/1600，95%；文件 33/40） | `make scope` 实测（2026-09-21） | 按 REQ-006 AC-5：先清理/合并冗余测试，**不要**调高上限；新增测试前先看 `make scope`。REQ-009 开工时余量 78 条，实现优先压在预算内；使用者已表示若确实不够可按 `docs/TESTING.md` §5 申请上调（写明理由 + owner 批准），但不得为让门禁变绿而放宽判定 |
 | `--light` 结转模式 | `docs/PERIODIC_UPDATE_PLAN.md` §12.1 | 需先量化「哪些模块可安全结转」 |
 | `runs/` 保留策略与 PDF 引用计数回收 | `docs/PERIODIC_UPDATE_PLAN.md` §12.2 | 依赖 REQ-003 落地后再评估 |
 | 港股 / 美股定期报告 PDF 通路 | `docs/PERIODIC_UPDATE_PLAN.md` §12.3 | 数据源与披露规则未定 |
