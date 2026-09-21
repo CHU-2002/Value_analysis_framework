@@ -1,0 +1,8 @@
+{
+  "core/registry.py": "e064355e4d80811ec59aa0d9fe3b984e016ab7e4aeca7bb838f477fa578f5009",
+  "core/router.py": "98ac55f3c614dec6e1b2767604b7cc07c834bedff5b51b340fecd8dfce33d74f",
+  "core/routes.py": "d5886fcd0f9c07192d6b84e94944869a63a9e97f01a1d45e4be1808f436000da",
+  "core/server.py": "c724993f82e4492b2c6af795ddde4ad80b34ac3c5ffebaf8d9884f06a350f1ba",
+  "static/app.js": "7f7346210b0ed88557c6838b44e94d331200d915eee4a17fd9d68ebd9325bf57",
+  "static/index.html": "ad09ca8d1122132bfaf48fbabcbe2a2c12576bb3617dfd592a3f5ad0558a9c73"
+}
