@@ -4,7 +4,8 @@
 > 为准；两者不互相复制。开发流程见 [`docs/DEVELOPMENT.md`](DEVELOPMENT.md)，测试策略见 [`docs/TESTING.md`](TESTING.md)。
 
 **阅读顺序**：§2 原则 → §3 架构 → §4 扩展点 → §5 插件模型 → §6 面板协议 → §7 API 契约 →
-§8 数据层与缓存 → §9 远程边界 → §11 目录布局 → §17 如何加一个新功能（cookbook）。
+§8 数据层与缓存 → §9 远程边界 → §9.1 手动采集与长期存档 → §11 目录布局 →
+§17 如何加一个新功能（cookbook）。
 
 ## 1. 一句话方案
 
@@ -191,6 +192,7 @@ def contribute(registry):
 BAD_REQUEST · BAD_JSON · NOT_FOUND · UNKNOWN_ROUTE · INVALID_PARAM · UNKNOWN_COMMAND
 SHELL_METACHAR · PATH_OUTSIDE_ROOT · ARTIFACT_MISSING · PARSE_FAILED · PARSE_COLUMNS_MISMATCH
 TOO_MANY_JOBS · JOB_NOT_FOUND · NOT_LOOPBACK · PORT_IN_USE · INTERNAL
+NO_TOKEN · QUOTA_CONFIRM_REQUIRED · BATCH_RUNNING · BATCH_NOT_FOUND · ARCHIVE_UNWRITABLE
 ```
 
 - 状态码映射：参数类 → 400/422；越界/穿越 → 403；缺文件 → 404；冲突（并发超限）→ 429；
@@ -279,6 +281,138 @@ DatasetSpec(
 面板上显示「数据生成于 X（缓存命中 / 刚刚重算）」。这样用户判断的是**数据有多旧**，
 而不是「页面卡不卡」——他才知道什么时候值得点那个联网的按键。
 
+## 9.1 手动采集与长期存档（REQ-009.4）
+
+### 9.1.1 它和 §8 的缓存是两回事
+
+| | 派生缓存（§8） | **原始存档（本节）** |
+|---|---|---|
+| 内容 | 解析后的图表序列、产物索引、迭代台账 | 远程接口的**原始响应** |
+| 来源 | `output/` 里已有产物 | Tushare / yfinance ——**花钱换来的** |
+| 过期 | 指纹变了就失效重算 | **永不过期**，只有显式重拉才更新 |
+| 位置 | `output/.webui_cache/`（仓库内、gitignore） | `~/turtle_archive/`（**仓库外**，可配） |
+| 删掉的代价 | 变慢（能重算） | **要重新花钱拉** → 框架不主动删，删除需二次确认 |
+| 失效语义 | 自动 | 只能由人显式覆盖（`--force`） |
+
+一句话：**派生缓存是「算出来的」，原始存档是「买来的」**，两者的过期策略与删除策略必须分开。
+
+### 9.1.2 数据流
+
+```
+人点「采集」（唯一联网入口）
+  → 批次编排器：目标清单（标的 × 期次 × 板块） × 配额档案（frugal | bulk）
+  → 调用量预估 → 人确认（--yes 可跳过）
+  → 复用既有客户端 scripts/tushare_modules/（rate_limit / MAX_RETRIES / VIP 路由 get_api_url）
+  → 原始响应落存档 + 追加采集台账 manifest.jsonl + 批次进度落盘（逐目标）
+  → 结果分类：ok / empty / no_permission / rate_limited / error  → 缺口清单 + 完备度
+  → 既有 tushare_collector.py 仍产出 data_pack_market.md（契约与退出码不变）
+  → §8 数据层解析 → 图表 / 报告 / 迭代台账视图（离线，AC-3.5 不变）
+```
+
+**采集是唯一的联网路径**，而且必须由人点。采集完成后所有视图仍走 §8 的本地缓存——
+「浏览不联网」这条不变量不因为本切片而放宽。
+
+### 9.1.3 存档布局与元信息
+
+```
+~/turtle_archive/                     # archive_root，可配；默认在仓库之外
+├── manifest.jsonl                    # 追加式台账：一行一条采集记录（谁、何时、拉了啥、结果）
+├── batches/{batch_id}.json           # 批次定义 + 进度 + 结果计数 + owner_pid/heartbeat_at
+└── {ticker}/
+    ├── meta.json                     # 标的级：最近采集时间、完备度、缺口摘要
+    └── {dataset}/{period}.json       # 原始响应
+        {dataset}/{period}.meta.json  # 与之一一对应的元信息（人工可读）
+```
+
+```jsonc
+// 存档元信息（{dataset}/{period}.meta.json）
+{ "schema": "webui.archive.record", "schema_version": "1.0",
+  "dataset": "income", "ticker": "600887.SH", "period": "2026H1",
+  "api": { "name": "income", "params": {"ts_code": "600887.SH", "period": "2026H1"} },
+  "fetched_at": "2026-09-25T02:10:11Z",
+  "token_fingerprint": "3f9a1c02",        // sha256(token) 前 8 位；永不写 token 本身
+  "tier_label": "租用 5000 分",            // 用户填写的账号档位标签
+  "quota_profile": "bulk",
+  "framework_version": "0.1.0",
+  "result": "ok",                          // ok | empty | no_permission | rate_limited | error
+  "error_excerpt": null,                   // 失败时保留接口原文摘要（截断）
+  "content_sha256": "…", "bytes": 20481 }
+```
+
+**为什么默认放仓库外**：`output/` 是 gitignore 目录，容易被 `git clean`、切分支、清缓存顺手删掉；
+而这里的每一条都是花配额换的。放仓库外 + 框架不主动删 + 删除要二次确认，才配得上它的成本。
+
+### 9.1.4 批次状态机与断点续跑
+
+```
+pending ──▶ running ──▶ done      （全部 ok/empty）
+                │  ├──▶ partial   （跑完但有缺口：no_permission / rate_limited / error）
+                │  └──▶ failed    （编排层错误：存档不可写、清单为空…）
+                └──◀── resume     （同 batch_id 重启：只补未完成目标）
+```
+
+- **进度逐目标落盘**：每完成一个目标就更新 `batches/{batch_id}.json`，
+  所以 Ctrl-C、崩溃、断电之后重启同一批次**只补未完成的目标**，已完成的不重拉（AC-4.4）；
+- **同批次并发保护**：批次文件带 `owner_pid` + `heartbeat_at`；启动时若心跳未过期 → `BATCH_RUNNING`，
+  防止手滑点两次把配额烧两遍；
+- **去重**：同一（接口 + 参数 + 期次）已有存档 → 默认跳过并计入「命中存档」；`--force` 才重拉；
+- **批次结束报告**：新增请求数 / 命中存档数 / 失败数 / 跳过（无权限）数——这是核对配额消耗的凭据。
+
+### 9.1.5 配额档案
+
+| 档案 | 适用 | 拉什么 | 调用量 |
+|------|------|--------|--------|
+| `frugal` | 低配额年包（日常） | 必需板块（§1 基本信息 / §2 行情 / §3–5 三表 / §12 关键指标）+ 最新期次 | 少 |
+| `bulk` | **短租高积分账号** | 全部板块 × 全部期次 × 全部标的 | 大，**先预估再确认** |
+
+调用量预估 = Σ(标的数 × 期次数 × 该档案的接口数)，在触发前展示（`QUOTA_CONFIRM_REQUIRED` 要求确认）。
+`bulk` 的存在理由就是使用者的用法：**趁租用的短窗口，一次把能拿的都拿下来，然后长期不拉**。
+
+### 9.1.6 缺口清单与完备度（修掉现状盲区）
+
+现状问题（已核对代码）：`scripts/tushare_modules/financials.py:1083` 等处把权限错误与空数据
+统一写成「数据缺失 (接口可能无权限)」，`data_pack_market.md` 末尾也只有一行「共 N/M 个数据板块成功获取」。
+使用者据此**无法判断租一个高权限账号能补到哪些数据**——这正好抵消了「短租高权限」策略的价值。
+
+```jsonc
+// 缺口清单（GET /api/v1/companies/{dir}/gaps 或批次报告里）
+{ "ticker": "600887.SH",
+  "completeness": { "ok": 12, "empty": 1, "no_permission": 2, "rate_limited": 0, "error": 0, "total": 15 },
+  "gaps": [ { "dataset": "holding_detail", "period": "2026H1",
+              "result": "no_permission",
+              "error_excerpt": "抱歉，您没有访问该接口的权限…" } ] }
+```
+
+- 结果枚举区分 **`no_permission`（权限/积分不足）**、**`rate_limited`（频率超限）**、
+  `empty`（真没数据）、`error`（其他错误）——不再一律写成「数据缺失」；
+- 缺口清单是**机器可读**的，界面上显示完备度（如 `12/14` 板块）与每个缺口的原因；
+- **不猜积分门槛**：Tushare 的积分规则会变，猜错会误导决策。只如实保留错误原文，让使用者自己判断
+  该租多高的档位（这一点写进 AC-4.5 的判据里：记录原文，不做门槛推断）；
+- **按缺口补齐**（AC-4.6）：高配额账号下**只请求缺口目标**，补齐后完备度与缺口清单相应收敛。
+
+### 9.1.7 与「浏览不联网」的关系
+
+| 路径 | 联网 | 触发 |
+|------|------|------|
+| 视图 / 图表 / 报告 / 迭代台账 | 否（AC-3.5） | 打开页面 |
+| 派生缓存重算 | 否（§8） | 指纹变化，自动 |
+| **采集批次** | **是** | **只能由人点按键或跑 CLI**（AC-4.1） |
+
+`frugal` 与 `bulk` 的切换、以及「补齐缺口」都不引入任何自动触发路径——没有调度器、没有启动即拉、
+没有页面加载即拉（AC-4.1 会断言不存在这类代码路径）。
+
+### 9.1.8 反模式（明确写下来，防止以后走偏）
+
+| 反模式 | 为什么不行 |
+|--------|-----------|
+| 定时 / 启动自动采集 | 配额会被悄悄烧掉；违反 AC-4.1 |
+| 把原始存档放 `output/` | 那是 gitignore 的临时目录，容易被顺手清理，而数据是花钱换的 |
+| 用 TTL 过期原始数据 | 过期就要求重拉 = 重新花钱 |
+| 权限错误当「数据缺失」 | 使用者无法判断高权限能补到什么（现状盲区） |
+| 猜测「需要多少积分」 | 规则会变，猜错会误导；只记录错误原文 |
+| 同一批次并发跑 | 重复烧配额（用 `owner_pid` + 心跳挡掉） |
+| 把 token 写进存档或日志 | 存档可能被拷走/备份；只写指纹与档位标签 |
+
 ## 10. 安全中间件
 
 | 风险 | 措施 | 归属 |
@@ -317,6 +451,13 @@ scripts/webui/
 │       ├── data_pack.py         # §11 / §12 / §3 → 图表序列
 │       ├── run_store.py         # history.jsonl / latest.json / record.json
 │       └── artifacts.py         # 产物索引（分类、大小、mtime、id）
+├── archive/                     # 原始存档层（REQ-009.4；与 datastore 的派生缓存分层）
+│   ├── store.py                 # 存档根定位 / 读写 / manifest.jsonl 追加台账 / 二次确认删除
+│   ├── batch.py                 # 批次状态机：目标清单、逐目标进度落盘、断点续跑、并发保护
+│   ├── quota.py                 # 配额档案（frugal | bulk）与调用量预估
+│   ├── gaps.py                  # 结果分类（ok/empty/no_permission/rate_limited/error）与缺口清单、完备度
+│   ├── token.py                 # token 来源（env/.env）与指纹（sha256 前 8 位），绝不落明文
+│   └── adapters/tushare.py      # 复用既有 scripts/tushare_modules 客户端的薄适配层（不重写协议）
 ├── render/
 │   └── markdown_safe.py     # 先转义再渲染：标题/列表/表格/代码/链接
 ├── plugins/
@@ -324,6 +465,7 @@ scripts/webui/
 │   ├── companies.py         # 公司列表 / 产物索引 / 报告渲染
 │   ├── charts.py            # 3 类图（数据来自 datasets）
 │   ├── commands.py          # 按键白名单（对应 AC-2 清单）
+│   ├── collect.py           # 采集面板 / 批次进度 / 缺口清单（REQ-009.4）
 │   └── run_history.py       # 迭代台账时间线
 ├── static/
 │   ├── index.html           # 只有骨架 + 挂载点
@@ -333,8 +475,8 @@ scripts/webui/
 └── webui.config.sample.json # 配置样例（真实配置 webui.config.json 用 .gitignore 忽略）
 ```
 
-`Makefile` 增加：`gui`（启动）、`gui-cache-clear`（清缓存）。
-测试：`tests/test_webui_framework.py`、`tests/test_webui_server.py`、`tests/test_webui_views.py`。
+`Makefile` 增加：`gui`（启动）、`gui-cache-clear`（清派生缓存）、`gui-collect`（跑一个采集批次，需 `--batch` 或 `--profile`）。
+测试：`tests/test_webui_framework.py`、`tests/test_webui_archive.py`、`tests/test_webui_server.py`、`tests/test_webui_views.py`。
 
 ## 12. 既有功能如何落到插件（首版四个插件）
 
@@ -344,6 +486,7 @@ scripts/webui/
 | `charts.py` | 数据集 `charts.annual_price` / `charts.metrics` / `charts.revenue_profit`（三个 `data_pack` 解析器）+ 三个 `chart` 面板 + 路由 `/api/v1/companies/{dir}/charts/{name}` | AC-2.4、AC-3 |
 | `run_history.py` | 数据集 `runs.timeline`（`history.jsonl` + `latest.json` + `run.json`）+ `timeline` 面板 + `stat` 面板（downstream stale）+ 路由 `/api/v1/companies/{dir}/runs` | AC-2.5、AC-5 |
 | `commands.py` | 按键清单（AC-2 的 14 个入口 + `runs` 六子命令 + 定性管线四步）+ `form` / `jobs` 面板 + 路由 `/api/v1/commands`、`/api/v1/jobs*` | AC-2、AC-1.1~AC-1.4 |
+| `collect.py` | 采集面板（目标清单、配额档案、调用量预估确认）+ 批次进度 + 缺口清单与完备度 + 路由 `/api/v1/collect/batches*`、`/api/v1/companies/{dir}/gaps` | AC-4.1~AC-4.7 |
 
 `commands.py` 的参数表与脚本真实 CLI **双向校验**（表里的 flag 必须存在于脚本源码；脚本里
 `required=True` 的 flag 必须在表里）——表与脚本不会各改各的，且校验是纯源码扫描，
@@ -353,25 +496,36 @@ scripts/webui/
 
 | 文件 | 覆盖 | 用例预算 | 手法 |
 |------|------|----------|------|
-| `tests/test_webui_framework.py` | REQ-009.3：AC-3.1~AC-3.7 + **AC-9（演示插件 + 核心指纹）** | ≤ 28 | 起真实服务绑 `127.0.0.1:0`（随机端口）；`tmp_path` 造 `output/` 与演示插件；网络用 stub 禁掉；解析器用计数假解析器 |
+| `tests/test_webui_framework.py` | REQ-009.3：AC-3.1~AC-3.7 + **AC-9（演示插件 + 核心指纹）** | ≤ 26 | 起真实服务绑 `127.0.0.1:0`（随机端口）；`tmp_path` 造 `output/` 与演示插件；网络用 stub 禁掉；解析器用计数假解析器 |
+| `tests/test_webui_archive.py` | REQ-009.4：AC-4.1~AC-4.7 | ≤ 14 | `tmp_path` 当存档根；**假采集适配器**（返回预设响应或抛权限/频率错误），0 次真实请求；断言批次断点续跑与缺口分类；token 用假值断言"只出现指纹" |
 | `tests/test_webui_server.py` | REQ-009.1：AC-1.1~AC-1.4 | ≤ 12 | `sys.executable -c` 假命令（不跑真实脚本、不联网）；断言不启动子进程的拒绝路径 |
 | `tests/test_webui_views.py` | REQ-009.2：AC-2.1~AC-2.5 | ≤ 12 | `tmp_path` 造假公司目录与 `data_pack_market.md`；XSS 注入用例 |
 
-预算核算：当前 1522/1600（余量 78）、33/40 文件；新增 3 文件 ≤ 52 用例 → 1574/1600、36/40，
-**均在预算内，不需要上调上限**。测试纪律照旧：不联网、不写仓库 `output/`、不 `time.sleep`、
-不依赖当前时间与随机顺序（时间通过注入固定值）。
+预算核算：当前 1522/1600（余量 78）、33/40 文件；新增 4 文件 ≤ 64 用例 → **1586/1600（99.1%）、37/40**，
+仍在预算内但**余量只剩 14 条**。按 `docs/TESTING.md` §5「涨到接近上限时先清理」，本批开工前应先在
+REQ-006 任务清单登记一次用例清理/合并（或由 owner 批准上调上限并写明理由）；
+**不得**为了让新测试挤进预算而删断言、加 `skip` 或放宽门禁。
+其余测试纪律照旧：不联网、不写仓库 `output/`、不 `time.sleep`、不依赖当前时间与随机顺序。
 
 ## 14. 交付顺序与验收
 
 | 顺序 | 编号 | 交付内容 | 独立验收 |
 |------|------|----------|----------|
 | 1 | `REQ-009.3` | 内核 + 注册表 + 面板协议 + 数据层缓存 + 契约 + 安全 + 演示插件 + 扩展文档 | 报告逐条核对 AC-3.1~3.7 |
-| 2 | `REQ-009.1` | 按键执行器 + 任务生命周期 + 任务历史 | 报告逐条核对 AC-1.1~1.4 |
-| 3 | `REQ-009.2` | 公司/产物/报告/图表/迭代台账视图 | 报告逐条核对 AC-2.1~2.5 |
+| 2 | `REQ-009.4` | 采集批次 + 配额档案 + 原始存档层 + 去重与断点续跑 + 权限缺口清单与补齐 + token 留痕 | 报告逐条核对 AC-4.1~4.7；**实跑记录必需**（真实数据源与真实 token 属 mock 测不到的类别） |
+| 3 | `REQ-009.1` | 按键执行器 + 任务生命周期 + 任务历史 | 报告逐条核对 AC-1.1~1.4 |
+| 4 | `REQ-009.2` | 公司/产物/报告/图表/迭代台账视图 | 报告逐条核对 AC-2.1~2.5 |
 | 收口 | `REQ-009` | README / CHANGELOG / `make gui` / 实跑 | 逐条核对 AC-1~AC-9，含「实跑记录」 |
 
-**框架先行的意义**：`REQ-009.1` 与 `REQ-009.2` 都只写插件与前端 `kind`，
+**框架先行的意义**：`REQ-009.1` / `REQ-009.2` / `REQ-009.4` 都只写插件、数据层与前端 `kind`，
 正好用来**验证框架**——如果实现它们时被迫改 `core/`，说明框架设计有洞，先修框架再加功能。
+
+**采集排在按键执行器之前**（顺序 2 早于 3）：采集先于「给既有脚本配按钮」提供了本项目真正需要的取数
+能力**存档化**；而它的界面本身就是框架扩展点的第一个真实用例（新插件 + 新数据集 + 新面板 + 新任务类型）。
+
+> ⚠️ **开工前置条件**：本批 4 个测试文件合计 ≤ 64 条用例 → 1522+64 = **1586/1600（99.1%）、37/40 文件**，
+> 余量只剩 14 条。按 `docs/TESTING.md` §5，`REQ-009.4` 开工前应先在 REQ-006 任务清单登记一次
+> **用例清理/合并**，或由 owner 批准上调上限并在 `scripts/test_scope.py` 与 `docs/TEST_SCOPE.md` 写明理由。
 
 ## 15. 前端 shell 与 kind 渲染器
 
