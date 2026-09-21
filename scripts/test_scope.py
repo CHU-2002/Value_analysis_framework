@@ -31,8 +31,18 @@ CONFTEST_PATH = TESTS_DIR / "conftest.py"
 
 # 预算：控制 CI 总量。上调必须在本文件与 docs/TEST_SCOPE.md 里写明理由，
 # 且优先考虑合并/删除冗余测试，而不是放宽上限。
-MAX_TEST_FILES = 40
-MAX_COLLECTED_CASES = 1600
+#
+# 2026-09-21 上调（40→48 文件、1600→1800 用例），经需求 owner CHU-2002 书面批准：
+#   理由：使用者已声明会持续给图形化控制台（REQ-009）追加新需求；REQ-009 的四个切片合计
+#     新增 4 个测试文件 / ≤64 条用例，原上限在 REQ-009 做完后只剩 14 条余量，
+#     会让后续每个 GUI 需求都卡在门禁上。使用者在会话中明确选择「改 AC-7 并上调」，
+#     而不是先做用例清理。
+#   代价：用例数上限 +12.5%，CI 墙钟时间随之增加（上调前实测：1519 passed、并行 28.45s）。
+#     这是本仓库第一次上调 scope 预算，**不构成先例**——下次接近上限仍按
+#     docs/TESTING.md §5「先清理，再谈上调」处理。
+#   留痕：REQ-006 的 AC-7 变更记录与任务清单 T7、docs/TESTING.md §5、docs/DEVELOPMENT.md §14。
+MAX_TEST_FILES = 48
+MAX_COLLECTED_CASES = 1800
 LAYERS = ("unit", "contract", "e2e", "integration")
 # 归属列可以写父需求 REQ-NNN，也可以写子需求 REQ-NNN.S（README.md §6.1）
 REQ_RE = req_registry.REQ_ID_RE
