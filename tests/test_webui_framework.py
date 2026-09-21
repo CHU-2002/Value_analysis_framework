@@ -996,6 +996,25 @@ def test_tokens_are_redacted_from_response_bodies(tmp_path):
         serialized = json.dumps(err, ensure_ascii=False)
         assert token not in serialized and "***" in serialized
 
+    # 复验 P1：凭据在「已序列化文本」里的转义形态也要脱敏
+    from webui.core.security import redact
+
+    weird = 'ab"cd&ef12345678'
+    assert weird not in redact(json.dumps({"v": weird}, ensure_ascii=False), (weird,))
+    assert "***" in redact("ab&quot;cd&amp;ef12345678", (weird,))
+
+    # 复验 P2：非 UTF-8 的文本静态资源必须原样返回（不能被解码改坏）
+    static_dir = tmp_path / "static-latin1"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text("<html>ok</html>", encoding="utf-8")
+    latin1 = b"var s = 'caf\xe9';\n"
+    (static_dir / "latin1.js").write_bytes(latin1)
+    latin1_config = make_config(tmp_path)
+    with WebUIServer(latin1_config, make_app(latin1_config), static_dir=static_dir,
+                     env={"TUSHARE_TOKEN": token}) as latin1_server:
+        status, body, _ = http_get(latin1_server, "/latin1.js")
+        assert status == 200 and body == latin1, "非 UTF-8 文本资源必须原样返回"
+
 
 def test_table_parser_output_feeds_the_table_panel_contract():
     """N2 回归：解析器输出必须直接符合表格面板的渲染契约（否则第一个真实表格面板就 INTERNAL）。"""

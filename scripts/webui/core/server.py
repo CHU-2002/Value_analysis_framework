@@ -154,9 +154,13 @@ class _Handler(BaseHTTPRequestHandler):
         if self.server.secrets and (
             content_type.startswith("text/") or content_type.startswith("application/json")
         ):
-            body = redact(body.decode("utf-8", errors="replace"), self.server.secrets).encode(
-                "utf-8"
-            )
+            try:
+                text = body.decode("utf-8")
+            except UnicodeDecodeError:
+                # 非 UTF-8 的文本资源：宁可原样返回，也不能用 replace 解码把字节改坏（复验 P2）。
+                text = None
+            if text is not None:
+                body = redact(text, self.server.secrets).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))

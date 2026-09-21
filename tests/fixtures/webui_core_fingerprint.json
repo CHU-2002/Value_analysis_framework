@@ -2,7 +2,7 @@
   "core/registry.py": "db4d7a98d560549cb5f2f07278cb21641552b2ff31ccb44592e49e22e60b9d14",
   "core/router.py": "98ac55f3c614dec6e1b2767604b7cc07c834bedff5b51b340fecd8dfce33d74f",
   "core/routes.py": "0647b1cd22cb2cc86eb0b5737f2afda73ae0ac0a3537d83062306119ce13da9a",
-  "core/server.py": "a5dbaf1390d77fe78af817cf0ced53ca013961f47ac5b64c1112b3ecddaeff94",
+  "core/server.py": "d42ca7f80790ac59390313c3a7637f76ed3553974995e7d6ebe60545874084f4",
   "static/app.js": "56f10bb58ca1cb5c5ad865eb63f8f535fe65f745337afe7031025c2d8dcea045",
   "static/index.html": "ad09ca8d1122132bfaf48fbabcbe2a2c12576bb3617dfd592a3f5ad0558a9c73"
 }
