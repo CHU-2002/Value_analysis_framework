@@ -130,12 +130,13 @@ def make_app(config: Config):
     return registry
 
 
-def call_route(registry, method: str, path: str, **query):
+def call_route(registry, method: str, path: str, *, log=None, **query):
     """不起 HTTP，直接调用路由 handler（handler 只依赖 RequestContext）。"""
     route, params = find_route(registry.routes(), method, path)
     assert route is not None, f"没有匹配的路由：{method} {path}"
     ctx = RequestContext(
-        method=method, path=path, query=dict(query), config=registry.config, registry=registry
+        method=method, path=path, query=dict(query), config=registry.config, registry=registry,
+        log=log, bound_port=registry.config.port,
     )
     return route.handler(ctx, **params)
 
@@ -729,7 +730,9 @@ def test_markdown_tables_parser_parses_and_rejects_ragged_rows():
 
     body = markdown_tables.find_section(SOURCE_TEXT, "12.")
     records = markdown_tables.table_as_records(markdown_tables.parse_rows(body), numeric=True)
-    assert records["columns"] == ["指标", "2025", "2026"]
+    assert [column["key"] for column in records["columns"]] == ["指标", "2025", "2026"]
+    assert records["columns"][0]["align"] == "left"
+    assert records["columns"][1]["align"] == "right"      # 数值列右对齐
     assert records["rows"][0] == {"指标": "ROE (%)", "2025": 21.45, "2026": 10.63}
 
     assert markdown_tables.parse_number("1,234.5") == 1234.5
@@ -777,8 +780,8 @@ def test_browsing_works_with_networking_disabled(tmp_path, monkeypatch):
         data, meta = ctx.registry.datastore.get(
             "test.table", base=base, params={"section": "12.", "numeric": True}
         )
-        return {"columns": [{"key": key, "title": key} for key in data["columns"]],
-                "rows": data["rows"], "meta": meta}
+        # 解析器的输出**直接**就是表格面板的契约（复验 N2：不需要再手工适配）
+        return {"columns": data["columns"], "rows": data["rows"], "meta": meta}
 
     registry.panel(models.PanelSpec(id="offline.table", kind="table", provider=provider,
                                     params=(models.Param("company", required=True),)))
@@ -863,7 +866,8 @@ def test_a_failing_panel_degrades_without_failing_the_page(tmp_path):
     registry.nav(models.NavItem(id="mix", title="混合页",
                                 panels=("p.good", "p.broken", "p.needs-param")))
 
-    payload = call_route(registry, "GET", "/api/v1/pages/mix")
+    logs: list = []
+    payload = call_route(registry, "GET", "/api/v1/pages/mix", log=logs.append)
     assert payload["ok"] is True
     panels = {panel["id"]: panel for panel in payload["data"]["panels"]}
     assert "12/14" in panels["p.good"]["html"], "好面板必须正常渲染"
@@ -873,6 +877,9 @@ def test_a_failing_panel_degrades_without_failing_the_page(tmp_path):
     assert panels["p.needs-param"]["html"].count("INVALID_PARAM") == 1
     assert panels["p.broken"]["html"].count("INTERNAL") == 1
     assert len(payload["warnings"]) == 2, "降级要在 warnings 里留痕"
+    # 降级必须**服务端也留痕**：否则「页面看起来正常」会掩盖真实故障（复验 N6）
+    assert len(logs) == 2 and any("INVALID_PARAM" in line for line in logs)
+    assert any("未预期异常" in line and "RuntimeError" in line for line in logs)
 
 
 def test_check_mode_lists_registered_panels(tmp_path, capsys):
@@ -959,3 +966,88 @@ def test_plugin_value_error_is_not_fatal_but_a_real_conflict_is(tmp_path):
     with pytest.raises(PluginLoadError) as excinfo:
         load_plugins(registry, extra_dirs=(conflict_dir,))
     assert "注册冲突" in str(excinfo.value)
+
+
+def test_tokens_are_redacted_from_response_bodies(tmp_path):
+    """N1 回归（阻断/安全）：凭据不能只从日志消失，也必须从**响应体**消失（AC-3.7）。"""
+    token = "abcdef0123456789abcdef0123456789"
+    config = make_config(tmp_path)
+    registry = make_app(config)
+    registry.panel(
+        models.PanelSpec(id="leak.card", kind="stat",
+                         provider=lambda ctx, **_: {"items": [{"label": "token", "value": token}]})
+    )
+    registry.panel(
+        models.PanelSpec(id="leak.param", kind="stat",
+                         params=(models.Param("company", type="int", required=True),),
+                         provider=lambda ctx, company: {"items": []})
+    )
+    registry.nav(models.NavItem(id="leak", title="泄漏页", panels=("leak.card",)))
+
+    with WebUIServer(config, registry, env={"TUSHARE_TOKEN": token}) as server:
+        status, page, _ = http_get(server, "/api/v1/pages/leak")
+        serialized = json.dumps(page, ensure_ascii=False)
+        assert status == 200 and "***" in serialized
+        assert token not in serialized, "响应体里不能出现明文 token"
+
+        # 参数校验失败时，原始取值会进 message —— 出口脱敏必须兜住
+        status, err, _ = http_get(server, f"/api/v1/panels/leak.param?company={token}")
+        assert status == 422
+        serialized = json.dumps(err, ensure_ascii=False)
+        assert token not in serialized and "***" in serialized
+
+
+def test_table_parser_output_feeds_the_table_panel_contract():
+    """N2 回归：解析器输出必须直接符合表格面板的渲染契约（否则第一个真实表格面板就 INTERNAL）。"""
+    from webui.datastore.parsers import markdown_tables
+    from webui.render import panels as panel_render
+
+    parsed = markdown_tables.table_as_records(
+        markdown_tables.parse_rows(markdown_tables.find_section(SOURCE_TEXT, "12.")), numeric=True
+    )
+    html = panel_render.render_table(parsed)
+    assert "<table>" in html and "ROE (%)" in html and "21.45" in html
+
+
+def test_datastore_jails_source_level_symlinks_and_uses_samefile(tmp_path):
+    """N3 + N5 回归：源文件级符号链接要被拒；`base` 判定用 samefile，不误伤大小写变体。"""
+    config = make_config(tmp_path)
+    registry = make_app(config)
+    store = DataStore(config, spec_lookup=registry.dataset_spec)
+    base = company_dir(tmp_path)
+
+    outside = tmp_path / "outside.md"
+    outside.write_text(SOURCE_TEXT, encoding="utf-8")
+    link = base / "linked.md"
+    try:
+        link.symlink_to(outside)
+    except (OSError, NotImplementedError):  # pragma: no cover
+        pytest.skip("本平台不支持创建符号链接")
+
+    parsers.register_parser("test.link", lambda sources, params: {"n": len(sources)}, replace=True)
+    registry.dataset(models.DatasetSpec(name="test.link", sources=("linked.md",),
+                                        parser="test.link", parser_version=1))
+    with pytest.raises(PathOutsideRoot):
+        store.get("test.link", base=base)
+
+    assert security.is_within(base, config.output_root)
+    existing_outside = tmp_path / "outside-dir"
+    existing_outside.mkdir()
+    assert not security.is_within(existing_outside, config.output_root)
+    upper = Path(str(config.output_root).upper())
+    if upper.exists():      # 大小写不敏感的文件系统上不能误拒（N5）
+        assert security.is_within(upper, config.output_root)
+
+
+def test_bind_failure_is_not_reported_as_port_in_use(tmp_path, monkeypatch, capsys):
+    """N4 回归：非端口占用的绑定失败要有自己的退出码，别让用户去换端口。"""
+    from webui import __main__ as webui_main
+    from webui.core.errors import BindFailed
+
+    def boom(config, registry, **kwargs):
+        raise BindFailed("地址不可用", hint="这不是端口占用，换端口不会解决")
+
+    monkeypatch.setattr(webui_main, "WebUIServer", boom)
+    assert webui_main.main(["--check", "--no-browser"]) == 0
+    assert webui_main.main(["--no-browser"]) == 4
+    assert "换端口不会解决" in capsys.readouterr().err

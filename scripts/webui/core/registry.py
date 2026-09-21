@@ -43,8 +43,6 @@ class Registry:
         # 数据层（AC-3.4）：面板的 provider 通过 `ctx.registry.datastore` 取派生数据，
         # 这样内核的路由与面板协议**不需要知道数据层存在**。
         self.datastore = None
-        # 真实绑定端口：`--port 0` 由内核分配，诊断接口要能报出真实值（D7）。
-        self.bound_port = None
 
     # ---------------------------------------------------------------- 来源标记
 
@@ -64,7 +62,8 @@ class Registry:
         if previous is not None:
             raise RegistrationConflict(
                 f"{kind} {key!r} 重复注册：已由 {previous!r} 注册，{self.origin!r} 又想注册同一个 id。"
-                "请改 id，或删掉其中一处。"
+                "请改 id，或删掉其中一处。",
+                from_registry=True,
             )
         self._origins[marker] = self.origin
 

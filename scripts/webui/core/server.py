@@ -88,6 +88,9 @@ class _Handler(BaseHTTPRequestHandler):
                 request_id=request_id,
                 secrets=self.server.secrets,
                 log=self._log,
+                # 真实绑定端口随请求传下去：不再把它挂在注册表上（复验 N8：
+                # 同一个 registry 起第二个服务会污染第一个的 healthz）。
+                bound_port=self.server.server_address[1],
             )
             payload = route.handler(ctx, **params)
             return envelope.dumps(payload), 200, JSON_CONTENT_TYPE
@@ -146,6 +149,14 @@ class _Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------ 底层
 
     def _send(self, status: int, body: bytes, content_type: str) -> None:
+        # **统一响应出口脱敏**（复验 N1）：凭据不但不能进日志，也不能进响应体——
+        # 面板数据、降级卡片、错误 hint 都可能夹带 token。
+        if self.server.secrets and (
+            content_type.startswith("text/") or content_type.startswith("application/json")
+        ):
+            body = redact(body.decode("utf-8", errors="replace"), self.server.secrets).encode(
+                "utf-8"
+            )
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -229,8 +240,6 @@ class WebUIServer:
         # `BaseServer.shutdown()` 在 `serve_forever()` 从未启动时会**永久阻塞**
         # （它等的是一个只有 serve_forever 退出时才 set 的事件）。所以自己记状态。
         self._serving = False
-        # 让诊断接口能报真实端口（D7）：config.port 在 `--port 0` 时是 0。
-        registry.bound_port = self.port
 
     @property
     def port(self) -> int:

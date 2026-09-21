@@ -90,8 +90,9 @@ def _healthz(ctx, **_):
             "version": __version__,
             "api_version": API_VERSION,
             "host": ctx.config.host,
-            # 真实绑定端口：`--port 0` 时 config.port 是 0，诊断接口不能撒谎（D7）
-            "port": ctx.registry.bound_port or ctx.config.port,
+            # 真实绑定端口：`--port 0` 时 config.port 是 0，诊断接口不能撒谎（D7）。
+            # 值来自 RequestContext（由服务在每次请求里注入），不挂在注册表上（复验 N8）。
+            "port": ctx.bound_port or ctx.config.port,
             "configured_port": ctx.config.port,
         }
     )
@@ -123,11 +124,19 @@ def _page(ctx, page_id: str, **_):
         try:
             rendered.append(_render_one(spec, ctx))
         except WebUIError as exc:
+            # 降级也必须**留痕**：否则「页面看起来正常」会掩盖真实故障（复验 N6）。
+            if ctx.log:
+                ctx.log(f"面板 {panel_id} 渲染失败：{exc.code} {exc.message}")
             warnings.append(f"面板 {panel_id} 渲染失败：{exc.code}")
             rendered.append(_degraded_panel(spec, exc.code, exc.message, exc.hint))
         except Exception as exc:  # noqa: BLE001（未预期异常也只降级这一块）
             if ctx.log:
-                ctx.log(f"面板 {panel_id} 渲染出现未预期异常：{type(exc).__name__}: {exc}")
+                import traceback as _traceback
+
+                ctx.log(
+                    f"面板 {panel_id} 渲染出现未预期异常：{type(exc).__name__}: {exc}\n"
+                    f"{_traceback.format_exc()}"
+                )
             warnings.append(f"面板 {panel_id} 渲染失败：INTERNAL")
             rendered.append(
                 _degraded_panel(

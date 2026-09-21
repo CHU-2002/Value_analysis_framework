@@ -18,6 +18,7 @@ from pathlib import Path
 
 from .. import __version__
 from ..core.errors import ArtifactMissing, BadRequest, ParseFailed, PathOutsideRoot, WebUIError
+from ..core.security import is_within
 from .cache import CacheStore, compute_fingerprint, normalize_params, source_digest
 from .parsers import get_parser
 
@@ -141,9 +142,10 @@ class DataStore:
             )
         # 路径 jail 必须落在**真正读文件**的入口上：数据层只读 output/ 之下的东西。
         # 只靠插件自己守规矩不够——`safe_join` 原本只覆盖静态资源（独立验收 D6）。
+        # 用 `is_within` 而不是字符串比较：符号链接与大小写都由内核判定（复验 N3/N5）。
         base_path = Path(base).resolve()
         root = Path(self.config.output_root).resolve()
-        if base_path != root and not base_path.is_relative_to(root):
+        if not is_within(base_path, root):
             raise PathOutsideRoot(
                 "数据层拒绝读取 output/ 之外的目录",
                 hint="base 必须是配置里 output 根（config.output_root）之下的子目录。",
@@ -152,6 +154,13 @@ class DataStore:
         for pattern in spec.sources:
             found.extend(sorted(base_path.glob(pattern)))
         existing = [path for path in found if path.is_file()]
+        for path in existing:
+            # 源文件**自身**也可能是指向树外的符号链接（复验 N3）。
+            if not is_within(path.resolve(), base_path):
+                raise PathOutsideRoot(
+                    f"源文件 {path.name!r} 指向 base 目录之外（疑似符号链接越界）",
+                    hint="数据层只读 base 目录内的真实文件。",
+                )
         if not existing:
             raise ArtifactMissing(
                 f"数据集 {spec.name!r} 没有找到源文件",

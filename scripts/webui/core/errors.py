@@ -129,9 +129,13 @@ class RegistrationConflict(ValueError):
     """注册冲突：同一个 id 被注册两次。
 
     刻意**不继承** `WebUIError`：它不是 HTTP 错误，而是**启动期的配置错误**。
-    单独一个类型是为了让插件加载器精确区分「注册表自己抛的冲突（致命）」与
-    「插件代码里恰好抛的 ValueError（只让它自己失效）」——对应独立验收的 D10。
+    `from_registry=True` 标记「这是注册表自己抛的」——插件代码里恰好抛出的同名异常
+    不该被当成真冲突（复验 N9）。
     """
+
+    def __init__(self, message: str, *, from_registry: bool = False):
+        super().__init__(message)
+        self.from_registry = from_registry
 
 
 class PortInUse(WebUIError):

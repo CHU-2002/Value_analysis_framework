@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 
 from .errors import NotLoopback, PathOutsideRoot, ShellMetachar
@@ -56,12 +57,34 @@ def safe_join(root: Path, *parts: str) -> Path:
             )
         candidate = candidate / part
     resolved = candidate.resolve()
-    if resolved != root_resolved and not resolved.is_relative_to(root_resolved):
+    if not is_within(resolved, root_resolved):
         raise PathOutsideRoot(
             "路径越出允许的根目录",
             hint=f"只允许访问 {root_resolved} 之下的内容（含符号链接的真实路径判定）。",
         )
     return resolved
+
+
+def is_within(path: Path, root: Path) -> bool:
+    """`path` 是否就是 `root` 或在 `root` 之下。
+
+    先逐级用 `os.path.samefile` **问操作系统**（大小写不敏感的文件系统、符号链接、
+    硬链接都由内核判定，修 N5）；路径还不存在时 `samefile` 会失败，
+    此时退回**词法比较**——注意两端都已经 `resolve()` 过，所以存在的符号链接
+    仍然在词法比较里体现为它的真实路径。
+    """
+    current, root = Path(path), Path(root)
+    while True:
+        try:
+            if os.path.samefile(current, root):
+                return True
+        except OSError:
+            pass
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return current == root or path == root or path.is_relative_to(root)
 
 
 def collect_secrets(env: dict) -> tuple:

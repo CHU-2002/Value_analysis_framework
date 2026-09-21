@@ -89,7 +89,22 @@ def table_as_records(rows: list, *, numeric: bool = False) -> dict:
         for column, cell in zip(header, row):
             record[column] = parse_number(cell) if numeric else cell
         records.append(record)
-    return {"columns": list(header), "rows": records}
+    return {"columns": _column_specs(header, records, numeric), "rows": records}
+
+
+def _column_specs(header: list, records: list, numeric: bool) -> list:
+    """列描述：数值列右对齐。
+
+    形状必须与**表格面板的渲染契约**一致（`[{key,title,align}]`）——
+    复验 N2：早先返回 `["指标", …]` 字符串列表，直接喂给 `render_table` 会 `AttributeError`
+    并被降级成 INTERNAL，而仓库测试靠 provider 里手写适配绕过了这个坑。
+    """
+    specs = []
+    for name in header:
+        values = [record.get(name) for record in records]
+        is_numeric = numeric and any(isinstance(value, (int, float)) for value in values)
+        specs.append({"key": name, "title": name, "align": "right" if is_numeric else "left"})
+    return specs
 
 
 def _read_first(sources: list) -> tuple:
