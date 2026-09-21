@@ -497,9 +497,11 @@ scripts/webui/
 ```
 
 > **实现进度（2026-09-21）**：`config.py`、`core/*`（models / registry / router / routes /
-> envelope / errors / security / server / context）、`render/panels.py`、`plugins/__init__.py`、
-> `__main__.py`、`static/`（index/app/style/kinds）已完成并有 22 条用例；
-> `datastore/*`（AC-3.4）与 `archive/*`（REQ-009.4）尚未实现。
+> envelope / errors / security / server / context）、`datastore/*`（cache / datasets / parsers +
+> `markdown_tables`）、`render/panels.py`、`plugins/__init__.py`、`__main__.py`、
+> `static/`（index/app/style/kinds）已完成并有 30 条用例（REQ-009.3 → `implemented`，PR #44）；
+> `archive/*`（REQ-009.4）与三个功能插件（`commands.py` / `companies.py` / `charts.py` /
+> `run_history.py` / `collect.py`）尚未实现。
 > 服务端渲染的 kind（table / timeline / stat / markdown / fallback）**不需要** `static/kinds/` 下的文件，
 > 原因见 §6.1。
 
@@ -524,10 +526,12 @@ scripts/webui/
 
 | 文件 | 覆盖 | 用例预算 | 手法 |
 |------|------|----------|------|
-| `tests/test_webui_framework.py` | REQ-009.3：AC-3.1~AC-3.7 + **AC-9（演示插件 + 核心指纹）** | ≤ 26 | 起真实服务绑 `127.0.0.1:0`（随机端口）；`tmp_path` 造 `output/` 与演示插件；网络用 stub 禁掉；解析器用计数假解析器 |
-| `tests/test_webui_archive.py` | REQ-009.4：AC-4.1~AC-4.7 | ≤ 14 | `tmp_path` 当存档根；**假采集适配器**（返回预设响应或抛权限/频率错误），0 次真实请求；断言批次断点续跑与缺口分类；token 用假值断言"只出现指纹" |
-| `tests/test_webui_server.py` | REQ-009.1：AC-1.1~AC-1.4 | ≤ 12 | `sys.executable -c` 假命令（不跑真实脚本、不联网）；断言不启动子进程的拒绝路径 |
-| `tests/test_webui_views.py` | REQ-009.2：AC-2.1~AC-2.5 | ≤ 12 | `tmp_path` 造假公司目录与 `data_pack_market.md`；XSS 注入用例 |
+| `tests/test_webui_framework.py` | REQ-009.3：AC-3.1~AC-3.7 + **AC-9（演示插件 + 核心指纹）** | ≤ 30（实际 30） | 起真实服务绑 `127.0.0.1:0`（随机端口）；`tmp_path` 造 `output/` 与演示插件；网络用 stub 禁掉；解析器用计数假解析器 |
+| `tests/test_webui_archive.py` | REQ-009.4：AC-4.1~AC-4.7 | ≤ 12 | `tmp_path` 当存档根；**假采集适配器**（返回预设响应或抛权限/频率错误），0 次真实请求；断言批次断点续跑与缺口分类；token 用假值断言"只出现指纹" |
+| `tests/test_webui_server.py` | REQ-009.1：AC-1.1~AC-1.4 | ≤ 11 | `sys.executable -c` 假命令（不跑真实脚本、不联网）；断言不启动子进程的拒绝路径 |
+| `tests/test_webui_views.py` | REQ-009.2：AC-2.1~AC-2.5 | ≤ 11 | `tmp_path` 造假公司目录与 `data_pack_market.md`；XSS 注入用例 |
+
+四项合计 ≤ 64，与 `REQ-009` 的 AC-7 一致（框架那一片实际用掉 30 条，其余三片按 12/11/11 分配）。
 
 预算核算：当前 1522/1800（余量 278；文件 33/48）。预算已于 2026-09-21 **经 owner 批准**由 40 文件 / 1600 用例
 上调为 48 / 1800（理由、代价与留痕见 `scripts/test_scope.py` 的注释、REQ-006 的 AC-7 变更记录与任务 T7、
@@ -539,7 +543,7 @@ scripts/webui/
 
 | 顺序 | 编号 | 交付内容 | 独立验收 |
 |------|------|----------|----------|
-| 1 | `REQ-009.3` | 内核 + 注册表 + 面板协议 + 数据层缓存 + 契约 + 安全 + 演示插件 + 扩展文档 | 报告逐条核对 AC-3.1~3.7 |
+| 1 | `REQ-009.3` | 内核 + 注册表 + 面板协议 + 数据层缓存 + 契约 + 安全 + 演示插件 + 扩展文档 | **`implemented`（PR #44）**；报告逐条核对 AC-3.1~3.7（待独立验收） |
 | 2 | `REQ-009.4` | 采集批次 + 配额档案 + 原始存档层 + 去重与断点续跑 + 权限缺口清单与补齐 + token 留痕 | 报告逐条核对 AC-4.1~4.7；**实跑记录必需**（真实数据源与真实 token 属 mock 测不到的类别） |
 | 3 | `REQ-009.1` | 按键执行器 + 任务生命周期 + 任务历史 | 报告逐条核对 AC-1.1~1.4 |
 | 4 | `REQ-009.2` | 公司/产物/报告/图表/迭代台账视图 | 报告逐条核对 AC-2.1~2.5 |

@@ -11,8 +11,12 @@
    只有真正verify HTTP 边界（信封、404、静态资源 jail）的用例才起服务，且绑定 `127.0.0.1:0`。
 """
 
+import ast
 import hashlib
 import json
+import socket
+import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -23,11 +27,20 @@ from webui import SCHEMA_VERSION, __version__
 from webui.config import Config, ConfigError, is_loopback, load_config
 from webui.core import envelope, models, security
 from webui.core.context import RequestContext
-from webui.core.errors import CODE_SET, InvalidParam, PathOutsideRoot, PortInUse, WebUIError
+from webui.core.errors import (
+    CODE_SET,
+    ArtifactMissing,
+    InvalidParam,
+    ParseColumnsMismatch,
+    PathOutsideRoot,
+    PortInUse,
+    WebUIError,
+)
 from webui.core.registry import build_registry
 from webui.core.router import find_route
 from webui.core.routes import install_core_routes
 from webui.core.server import WebUIServer
+from webui.datastore import DataStore, parsers
 from webui.plugins import PluginLoadError, load_plugins
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -132,6 +145,16 @@ def write_plugin(directory: Path, name: str, source: str) -> Path:
     path = directory / name
     path.write_text(source, encoding="utf-8")
     return path
+
+
+@pytest.fixture(autouse=True)
+def _isolated_parser_registry():
+    """解析器注册表是进程级全局的：每个测试前后重置并恢复内置解析器，避免互相污染。"""
+    parsers.reset_parsers()
+    parsers.register_builtin_parsers()
+    yield
+    parsers.reset_parsers()
+    parsers.register_builtin_parsers()
 
 
 def http_get(server: WebUIServer, path: str):
@@ -545,3 +568,248 @@ def test_request_log_redacts_tokens(tmp_path):
         http_get(server, f"/api/v1/nope?token={token}")
         assert server.logs, "应该有请求日志"
         assert token not in "\n".join(server.logs)
+
+
+# --------------------------------------------------------------- AC-3.4 数据层与缓存
+
+
+SOURCE_TEXT = "## 12. 关键财务指标\n\n| 指标 | 2025 | 2026 |\n| --- | ---: | ---: |\n| ROE (%) | 21.45 | 10.63 |\n"
+
+
+def company_dir(tmp_path: Path, name: str = "600887_伊利") -> Path:
+    directory = tmp_path / "output" / name
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "data_pack_market.md").write_text(SOURCE_TEXT, encoding="utf-8")
+    return directory
+
+
+def register_counting_dataset(registry, counter, *, version=1, name="test.counting"):
+    parsers.register_parser(
+        name,
+        lambda sources, params: counter.append(dict(params)) or {"files": len(sources)},
+        replace=True,   # 同一测试里可能注册两次（例如验证解析器版本升级）
+    )
+    registry.dataset(
+        models.DatasetSpec(
+            name=name, sources=("data_pack_market.md",), parser=name, parser_version=version
+        )
+    )
+    return name
+
+
+def test_datastore_hits_cache_and_records_provenance(tmp_path):
+    """AC-3.4：同一输入第二次读取**不重复解析**，并留下可读的溯源信息。"""
+    config = make_config(tmp_path)
+    registry = make_app(config)
+    base = company_dir(tmp_path)
+    counter: list = []
+    name = register_counting_dataset(registry, counter)
+    store = DataStore(config, spec_lookup=registry.dataset_spec)
+
+    data_first, meta_first = store.get(name, base=base)
+    data_second, meta_second = store.get(name, base=base)
+
+    assert data_first == data_second == {"files": 1}
+    assert len(counter) == 1, "第二次应命中缓存，不再调用解析器"
+    assert meta_first["cached"] is False and meta_second["cached"] is True
+    assert meta_first["fingerprint"].startswith("sha256:")
+    assert meta_first["sources"] == ["data_pack_market.md"]
+    assert meta_first["parser_version"] == 1 and meta_first["generated_at"]
+    assert meta_first["source_digests"]["data_pack_market.md"].startswith("sha256:")
+
+
+def test_cache_invalidates_on_source_change_params_and_parser_version(tmp_path):
+    """AC-3.4：源文件内容变化、参数变化、解析器版本升级——任一都自动失效重算。"""
+    config = make_config(tmp_path)
+    registry = make_app(config)
+    base = company_dir(tmp_path)
+    counter: list = []
+    name = register_counting_dataset(registry, counter)
+    store = DataStore(config, spec_lookup=registry.dataset_spec)
+
+    store.get(name, base=base)
+    store.get(name, base=base)
+    assert len(counter) == 1
+
+    (base / "data_pack_market.md").write_text(SOURCE_TEXT + "\n| 净利率 (%) | 9.96 | 8.59 |\n",
+                                             encoding="utf-8")
+    store.get(name, base=base)
+    assert len(counter) == 2, "源内容变了必须重算"
+
+    store.get(name, params={"numeric": True}, base=base)
+    assert len(counter) == 3, "参数变了必须重算"
+
+    bumped = make_app(config)
+    register_counting_dataset(bumped, counter, version=2, name=name)
+    store_v2 = DataStore(config, spec_lookup=bumped.dataset_spec)
+    store_v2.get(name, base=base)
+    assert len(counter) == 4, "解析器版本 +1 必须让旧缓存作废"
+
+
+def test_cache_writes_atomically_and_concurrent_gets_parse_once(tmp_path):
+    """AC-3.4：原子写（不留 `.tmp`）+ 并发同分片只解析一次。"""
+    config = make_config(tmp_path)
+    registry = make_app(config)
+    base = company_dir(tmp_path)
+    counter: list = []
+    release = threading.Event()
+
+    def slow_parser(sources, params):
+        counter.append(1)
+        release.wait(timeout=5)          # 让其他线程挤在锁上
+        return {"files": len(sources)}
+
+    parsers.register_parser("test.slow", slow_parser)
+    registry.dataset(
+        models.DatasetSpec(name="test.slow", sources=("data_pack_market.md",),
+                           parser="test.slow", parser_version=1)
+    )
+    store = DataStore(config, spec_lookup=registry.dataset_spec)
+
+    results: list = []
+    threads = [
+        threading.Thread(target=lambda: results.append(store.get("test.slow", base=base)))
+        for _ in range(4)
+    ]
+    for thread in threads:
+        thread.start()
+    time.sleep(0.2)
+    release.set()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert len(results) == 4
+    assert len(counter) == 1, "并发同分片只应解析一次"
+    assert not list(config.cache_dir.rglob("*.tmp")), "原子写不该留下 .tmp"
+    assert list(config.cache_dir.rglob("*.meta.json")), "缓存元信息应已落盘"
+
+
+def test_session_memoizes_within_a_request_and_cache_is_clearable(tmp_path):
+    """AC-3.4：请求内存层只解析一次；缓存可清理，清完自动重建（源数据不受影响）。"""
+    config = make_config(tmp_path)
+    registry = make_app(config)
+    base = company_dir(tmp_path)
+    counter: list = []
+    name = register_counting_dataset(registry, counter)
+    store = DataStore(config, spec_lookup=registry.dataset_spec)
+
+    session = store.session()
+    store.get(name, base=base, session=session)
+    _, meta = store.get(name, base=base, session=session)
+    assert len(counter) == 1, "同一次请求内只解析一次"
+    assert meta["from_session"] is True
+
+    removed = store.invalidate()
+    assert removed >= 2, "应删掉数据与元信息两份文件"
+    store.get(name, base=base, session=store.session())
+    assert len(counter) == 2, "清缓存后要能自动重建"
+
+
+def test_cache_dir_defaults_under_output_and_missing_sources_are_typed_errors(tmp_path):
+    """AC-3.4：默认缓存目录位于 `output/` 之下；源文件缺失给**带错误码**的失败而不是堆栈。"""
+    default = Config()
+    assert default.cache_dir.is_relative_to(default.output_root)
+
+    config = make_config(tmp_path, cache_dir=tmp_path / "elsewhere")
+    registry = make_app(config)
+    counter: list = []
+    name = register_counting_dataset(registry, counter)
+    store = DataStore(config, spec_lookup=registry.dataset_spec)
+    assert store.cache.root == tmp_path / "elsewhere"
+
+    with pytest.raises(ArtifactMissing) as excinfo:
+        store.get(name, base=tmp_path / "没有这个目录")
+    assert excinfo.value.code == "ARTIFACT_MISSING"
+    assert not counter, "取不到源文件时不该调用解析器"
+
+
+def test_markdown_tables_parser_parses_and_rejects_ragged_rows():
+    """AC-3.4：通用表格解析器能吃下真实数据包格式；列数不齐**报错而不是补齐**。"""
+    from webui.datastore.parsers import markdown_tables
+
+    body = markdown_tables.find_section(SOURCE_TEXT, "12.")
+    records = markdown_tables.table_as_records(markdown_tables.parse_rows(body), numeric=True)
+    assert records["columns"] == ["指标", "2025", "2026"]
+    assert records["rows"][0] == {"指标": "ROE (%)", "2025": 21.45, "2026": 10.63}
+
+    assert markdown_tables.parse_number("1,234.5") == 1234.5
+    assert markdown_tables.parse_number("12.3%") == 12.3
+    assert markdown_tables.parse_number("—") is None
+    assert markdown_tables.parse_number("文字") == "文字"
+
+    ragged = "| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n"
+    with pytest.raises(ParseColumnsMismatch) as excinfo:
+        markdown_tables.table_as_records(markdown_tables.parse_rows(ragged))
+    assert "3 列" in excinfo.value.message and "2 列" in excinfo.value.message
+
+    with pytest.raises(ArtifactMissing):
+        markdown_tables.find_section(SOURCE_TEXT, "99.")
+
+
+# --------------------------------------------------------------- AC-3.5 浏览路径零远程依赖
+
+
+def test_browsing_works_with_networking_disabled(tmp_path, monkeypatch):
+    """AC-3.5：把网络断掉，浏览类接口（导航/页面/数据面板）仍全部正常。
+
+    这是「浏览不联网」最直接的判据：如果哪条浏览路径偷偷发了请求，这里会立刻炸。
+    """
+
+    def blocked(*args, **kwargs):
+        raise OSError("网络已在本测试中禁用（AC-3.5）")
+
+    monkeypatch.setattr(socket, "create_connection", blocked)
+    monkeypatch.setattr(socket.socket, "connect", blocked)
+
+    config = make_config(tmp_path)
+    registry = make_app(config)
+    base = company_dir(tmp_path)
+    counter: list = []
+    name = register_counting_dataset(registry, counter)
+    registry.dataset(
+        models.DatasetSpec(name="test.table", sources=("data_pack_market.md",),
+                           parser="markdown_tables.named_table", parser_version=1)
+    )
+    store = DataStore(config, spec_lookup=registry.dataset_spec)
+    registry.datastore = store
+
+    def provider(ctx, company):
+        data, meta = ctx.registry.datastore.get(
+            "test.table", base=base, params={"section": "12.", "numeric": True}
+        )
+        return {"columns": [{"key": key, "title": key} for key in data["columns"]],
+                "rows": data["rows"], "meta": meta}
+
+    registry.panel(models.PanelSpec(id="offline.table", kind="table", provider=provider,
+                                    params=(models.Param("company", required=True),)))
+    registry.nav(models.NavItem(id="offline", title="离线页", panels=("offline.table",)))
+
+    assert call_route(registry, "GET", "/api/v1/nav")["ok"] is True
+    page = call_route(registry, "GET", "/api/v1/pages/offline", company="600887")["data"]
+    assert page["panels"][0]["html"].count("<tr>") == 2      # 表头 + 1 行数据
+    assert "ROE" in page["panels"][0]["html"]
+
+
+def test_framework_has_no_network_client_imports():
+    """AC-3.5：框架源码里**存在**网络客户端 import 就算违规。
+
+    内核不给插件任何 HTTP 客户端——远程数据只能由用户显式点按键、跑既有脚本产生。
+    允许 `http.server`（它是服务端）与 `urllib.parse`（只是解析字符串）。
+    """
+    banned = {
+        "requests", "urllib.request", "urllib.error", "urllib3",
+        "http.client", "socket", "ftplib", "smtplib", "telnetlib", "xmlrpc.client",
+    }
+    offenders = []
+    for path in sorted(WEBUI_ROOT.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module]
+            for module in names:
+                if module in banned:
+                    offenders.append(f"{path.relative_to(REPO_ROOT)}: import {module}")
+    assert not offenders, "框架里出现了网络客户端 import：" + "；".join(offenders)

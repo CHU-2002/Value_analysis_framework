@@ -1,5 +1,5 @@
 {
-  "core/registry.py": "a6b0d111203bf28ec1455cfbf2f36631a3faaa450bbbf80855cc5006d5fc869f",
+  "core/registry.py": "e064355e4d80811ec59aa0d9fe3b984e016ab7e4aeca7bb838f477fa578f5009",
   "core/router.py": "98ac55f3c614dec6e1b2767604b7cc07c834bedff5b51b340fecd8dfce33d74f",
   "core/routes.py": "d5886fcd0f9c07192d6b84e94944869a63a9e97f01a1d45e4be1808f436000da",
   "core/server.py": "c724993f82e4492b2c6af795ddde4ad80b34ac3c5ffebaf8d9884f06a350f1ba",

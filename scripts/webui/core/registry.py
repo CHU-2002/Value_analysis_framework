@@ -40,6 +40,9 @@ class Registry:
         # 装配时由 `build_application` 填上（供进程内直接调用 handler 的场景使用；
         # handler 本人拿的是 `ctx.config`）。
         self.config = None
+        # 数据层（AC-3.4）：面板的 provider 通过 `ctx.registry.datastore` 取派生数据，
+        # 这样内核的路由与面板协议**不需要知道数据层存在**。
+        self.datastore = None
 
     # ---------------------------------------------------------------- 来源标记
 

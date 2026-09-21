@@ -19,13 +19,20 @@ from .core.errors import PortInUse
 from .core.registry import build_registry
 from .core.routes import install_core_routes
 from .core.server import WebUIServer
+from .datastore import DataStore
 from .plugins import load_plugins
 
 
 def build_application(config) -> tuple:
-    """装配：空注册表 → 核心路由 → 插件。返回 (registry, 插件加载报告)。"""
+    """装配：空注册表 → 核心路由 → 数据层 → 插件。返回 (registry, 插件加载报告)。
+
+    顺序说明：数据层只依赖注册表的**查询**方法（`dataset_spec`），而数据集是按需惰性解析的，
+    所以插件注册数据集与建数据层谁先谁后都不影响。
+    """
     registry = build_registry()
     install_core_routes(registry, config)
+    registry.config = config
+    registry.datastore = DataStore(config, spec_lookup=registry.dataset_spec)
     report = load_plugins(registry, config.plugins)
     return registry, report
 
@@ -44,6 +51,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--plugins", action="append", default=[], help="额外插件目录（可重复；仓库外扩展）"
     )
     parser.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
+    parser.add_argument(
+        "--clear-cache",
+        action="store_true",
+        help="清空派生缓存后退出（只丢「算出来的」数据，不动源文件，也不联网）",
+    )
     parser.add_argument(
         "--check",
         action="store_true",
@@ -94,6 +106,11 @@ def main(argv=None) -> int:
         if error:
             print(f"⚠️ 插件 {origin} 加载失败（已跳过，不影响其他功能）：{error.splitlines()[0]}")
 
+    if args.clear_cache:
+        removed = registry.datastore.invalidate()
+        print(f"已清空派生缓存：{removed} 个文件（下次访问会自动重建；源数据与原始存档均未受影响）")
+        return 0
+
     if args.check:
         print(
             json.dumps(
@@ -101,11 +118,14 @@ def main(argv=None) -> int:
                     "version": __version__,
                     "host": config.host,
                     "port": config.port,
+                    "output_root": str(config.output_root),
+                    "cache_dir": str(config.cache_dir),
                     "archive_root": str(config.archive_root),
                     "nav": [item.id for item in registry.nav_items()],
                     "panels": sorted(
                         name for (kind, name) in registry.origins().items() if kind == "panel"
                     ),
+                    "datasets": registry.datasets(),
                     "routes": [
                         f"{route.method} {route.template}" for route in registry.routes()
                     ],

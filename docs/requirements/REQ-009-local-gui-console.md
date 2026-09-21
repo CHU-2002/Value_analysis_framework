@@ -99,7 +99,7 @@ supersedes: TBD
 
 | 交付顺序 | 编号 | 切片 | 状态 |
 |----------|------|------|------|
-| **1** | `REQ-009.3` | 可扩展框架与本地数据层（微内核 / 插件注册表 / 面板协议 / 数据缓存 / API 契约 / 安全中间件） | `accepted` |
+| **1** | `REQ-009.3` | 可扩展框架与本地数据层（微内核 / 插件注册表 / 面板协议 / 数据缓存 / API 契约 / 安全中间件） | `implemented` |
 | **2** | `REQ-009.4` | 手动触发的远程采集与长期存档（批次 / 配额档案 / 原始存档 / 断点续跑 / 权限缺口清单） | `accepted` |
 | 3 | `REQ-009.1` | 按键执行器（命令白名单 + 异步任务 + 日志与取消） | `accepted` |
 | 4 | `REQ-009.2` | 报告浏览、图表与迭代台账视图 | `accepted` |
@@ -142,7 +142,9 @@ supersedes: TBD
 
 ### REQ-009.3 可扩展框架与本地数据层
 
-- 状态：`accepted`
+- 状态：`implemented`
+- 交付说明：PR #44。**独立验收未做**——按门② 需换一个没参与实现的评审者逐条核对 AC-3.1~3.7，
+  之后才能推进到 `verified`；在完成独立验收前不得把本切片当作已验收。
 - 目标：立起一个「加功能不用动核心」的微内核框架，并把图表等派生数据的**本地缓存与失效**
   做成框架能力，让所有后续 GUI 需求都只写插件。
 - 验收标准：
@@ -310,7 +312,7 @@ supersedes: TBD
 |----|------|
 | 设计文档 | `docs/GUI_CONSOLE_PLAN.md`（含扩展点清单、面板协议 schema、数据层缓存规则、扩展步骤清单） |
 | 需求总览（导读） | `docs/GUI_CONSOLE_OVERVIEW.md`——给使用者的大白话汇总（需求图景 / 方案 / 工作方式 / 决策点）；**非权威**，与条目或设计文档冲突时以它们为准 |
-| 实现 PR | TBD |
+| 实现 PR | #44（REQ-009.3 框架切片；合并后本需求整体仍待 `REQ-009.4` / `.1` / `.2` 与 AC-8 实跑） |
 | 测试 | `tests/test_webui_framework.py`（REQ-009.3）、`tests/test_webui_archive.py`（REQ-009.4）、`tests/test_webui_server.py`（REQ-009.1）、`tests/test_webui_views.py`（REQ-009.2） |
 | 文档更新 | `README.md`（面板一节）、`Makefile`（`make gui`）、`CHANGELOG.md` |
 
@@ -354,6 +356,9 @@ supersedes: TBD
   据此预算已调整：留痕见 `scripts/test_scope.py` 的注释、REQ-006 的 AC-7 变更记录与任务 T7、
   `docs/TESTING.md` §5、`docs/DEVELOPMENT.md` §14。本需求预计落在 **1586/1800（88%）、37/48**。
   **纪律不变**：不得为了让新测试挤进预算而删断言、加 `skip` 或放宽门禁；下次接近新上限仍先清理。
+- **交付进度**：`REQ-009.3`（框架与数据层）已实现，状态 `implemented`（PR #44），
+  待独立验收后推进 `verified`；`REQ-009.4` / `.1` / `.2` 未开始。父需求在四片全部 `verified`
+  且 AC-8 实跑留档之前不推进。
 - **登记 PR**：#41（`docs(req): register REQ-009 local GUI console`）——本需求条目与子需求在此 PR 登记；
   实现 PR 仍为 TBD，合并后回填台账「实现 PR」列。
 - **Issue**：[#42](https://github.com/CHU-2002/Value_analysis_framework/issues/42)（`[REQ-009]` 功能请求）。
