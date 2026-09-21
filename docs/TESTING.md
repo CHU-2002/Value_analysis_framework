@@ -80,7 +80,7 @@ make scope       # 看整体测试 scope 与预算使用率
 
 CI 每个 PR 都跑全量，所以「测试总量」直接决定 CI 成本。我们不裁剪单次运行范围，
 而是维护**整体 scope**：[`docs/TEST_SCOPE.md`](TEST_SCOPE.md) 是登记表，每支测试文件都要能说清
-它为什么存在、归属哪条需求；预算是**测试文件数 ≤ 40、用例数 ≤ 1600**。
+它为什么存在、归属哪条需求；预算是**测试文件数 ≤ 48、用例数 ≤ 1800**。
 
 ```bash
 make scope         # 看当前 scope 与预算使用率
@@ -94,6 +94,16 @@ make scope-check   # CI 用的校验：登记表是否最新 + 是否超预算
 2. **删除/合并测试必须同步登记表**，不要留下指向不存在文件的登记行；
 3. **涨到接近上限时先清理**：合并重复用例、删掉只复述实现的测试、把过时测试删掉；
    确需上调预算，要在 `scripts/test_scope.py` 与 `docs/TEST_SCOPE.md` 写明理由。
+
+> **预算数值的唯一来源**是 [`scripts/test_scope.py`](../scripts/test_scope.py) 的
+> `MAX_TEST_FILES` / `MAX_COLLECTED_CASES`；本文件与 [`docs/DEVELOPMENT.md`](DEVELOPMENT.md) 的度量表
+> 只是转述，历史需求条目里引用的旧数值不回填（避免为形式重排已验证的需求）。
+>
+> 2026-09-21 经需求 owner **书面批准**，预算由 40 文件 / 1600 用例上调为 **48 文件 / 1800 用例**，
+> 为图形化控制台（REQ-009）及其后续 GUI 需求留出余量。理由、代价（用例上限 +12.5%、CI 墙钟时间随之增加）
+> 与批准留痕见 `scripts/test_scope.py` 的注释、
+> [`REQ-006`](requirements/REQ-006-requirement-test-dev-flow.md) 的 AC-7 变更记录与任务 T7。
+> **「先清理、再谈上调」的纪律不变**，且这是本仓库第一次上调 scope 预算，**不构成先例**。
 
 ## 6. 覆盖率
 

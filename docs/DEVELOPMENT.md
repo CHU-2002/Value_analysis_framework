@@ -180,7 +180,7 @@ python scripts/regression_gate.py --new     # 打印可直接填写的记录草�
 | 指标 | 现行门禁 / 基线 | 出处 |
 |------|------------------|------|
 | 测试覆盖率 | ≥ 74%（基线 76.8%） | CI、`make cov` |
-| 测试 scope | ≤ 40 文件、≤ 1600 用例（当前值见 [`docs/TEST_SCOPE.md`](TEST_SCOPE.md)，自动生成） | `make scope-check` |
+| 测试 scope | ≤ 48 文件、≤ 1800 用例（当前值见 [`docs/TEST_SCOPE.md`](TEST_SCOPE.md)，自动生成；**数值唯一来源**是 `scripts/test_scope.py`；2026-09-21 经 owner 批准由 40/1600 上调，留痕见 REQ-006 的 AC-7 变更记录与任务 T7） | `make scope-check` |
 | 需求追溯 | 台账 ↔ 条目 ↔ 测试引用一致 | `tests/test_requirement_traceability.py` |
 | PR 描述 | 需求编号 + 研发自测（手工）非空 | `scripts/pr_body_guard.py` |
 | 独立验收 | 报告覆盖本批 REQ 且 AC 全打勾 | `scripts/acceptance_gate.py` |
