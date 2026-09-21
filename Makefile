@@ -2,7 +2,7 @@
 PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python)
 COV_MIN ?= 74
 
-.PHONY: help test unit cov lint trace scope scope-write scope-check regression-check gates verify clean-pyc
+.PHONY: help test unit cov lint trace scope scope-write scope-check regression-check gates verify clean-pyc gui gui-check
 
 help:  ## 显示可用目标
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -49,6 +49,12 @@ regression-check:  ## main 批量回归门禁的本地预演（需要 main/origi
 
 verify: lint cov trace scope-check regression-check  ## 提交前必跑（本地可复现的全部门禁）
 	@echo "本地可复现的门禁全部通过；PR 上下文门禁（pr-title / pr-body / acceptance-gate）由 CI 执行。"
+
+gui:  ## 启动本地图形化控制台（只监听 127.0.0.1，不联网）
+	$(PYTHON) -m scripts.webui --port 8765
+
+gui-check:  ## 只装配控制台（配置 + 插件 + 注册表）并打印摘要，不绑定端口
+	$(PYTHON) -m scripts.webui --check
 
 clean-pyc:  ## 清理 __pycache__
 	find scripts tests -name '__pycache__' -type d -prune -exec rm -rf {} +
