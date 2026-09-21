@@ -6,7 +6,7 @@ priority: P1
 owner: CHU-2002
 created: 2026-09-21
 updated: 2026-09-21
-issue: TBD
+issue: "#42"
 design: docs/GUI_CONSOLE_PLAN.md
 milestone: TBD
 pr: TBD
@@ -180,6 +180,11 @@ supersedes: TBD
 - **用例预算**：开工实测 1522/1600（余量 78）。使用者已表示「若确实不够，可按流程申请上调」；
   实现时优先把新增用例压在预算内，需要上调时在 `scripts/test_scope.py` 与 `docs/TEST_SCOPE.md`
   写明理由并经 owner 批准（对应 AC-7）。
-- **Issue 未开**：本地 `gh` 未登录（keyring 登录超时），Issue 编号 TBD；按 DoR 应在编码前补开并回填台账。
+- **登记 PR**：#41（`docs(req): register REQ-009 local GUI console`）——本需求条目与两个子需求在此 PR 登记；
+  实现 PR 仍为 TBD，合并后回填台账「实现 PR」列。
+- **Issue**：[#42](https://github.com/CHU-2002/Value_analysis_framework/issues/42)（`[REQ-009]` 功能请求）。
+  按 `README.md` §9，Issue 在**验收通过后**才关闭，不在 PR 合并时自动关闭。
+- **子需求与交付顺序**：`REQ-009.1` 先交付（骨架与按键执行器），再 `REQ-009.2`（视图）；
+  两者都 `verified` 后才能推进父需求（追溯门禁强制父需求不得超前于最慢的子需求）。
 - **开放问题**：图表是否需要保存为图片导出（本期不做）；是否把面板做成 `git` 状态/门禁状态的展示入口
   （属 REQ-006 领域，若做另开子需求而不是塞进本需求）。
