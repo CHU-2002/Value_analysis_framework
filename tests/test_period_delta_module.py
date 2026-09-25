@@ -300,9 +300,11 @@ class TestPriorAnalysisBudget:
         )
 
         sources = {item["source_id"] for item in bundle["evidence"]}
-        # 6 prior sections + 12 other candidates exceed the limit of 12, so the
-        # limit must be exactly saturated while still covering this period's data.
-        assert len(bundle["evidence"]) == 12
+        # 6 prior sections + 21 other candidates exceed the module's evidence slots,
+        # so the limit must be exactly saturated while still covering this period's data.
+        # 槽位数取模块自己的预算（period_delta 为同时装下必选节与对比基准抬到 16，
+        # REQ-006.2 AC-2.5；其余模块仍走 DEFAULT_MAX_EVIDENCE=12）。
+        assert len(bundle["evidence"]) == MODULE_CONFIG["period_delta"]["max_evidence"]
         assert "prior_analysis" in sources
         assert sources & {"market_data", "pdf_sections"}
 
@@ -314,7 +316,7 @@ class TestPriorAnalysisBudget:
             "period_delta",
             evidence_index_path=index_path,
             max_chars=24000,
-            max_evidence=3,
+            max_evidence=8,
             run_id=RUN_ID,
             subject=SUBJECT,
         )
@@ -322,7 +324,11 @@ class TestPriorAnalysisBudget:
         prior_ids = [
             item["evidence_id"] for item in bundle["evidence"] if item["source_id"] == "prior_analysis"
         ]
-        assert len(prior_ids) == 3
+        # AC-2.5 之后第一遍是「必选节 → prior_analysis → 其余来源」轮转：8 个槽位里
+        # 必选节（§3/§4/§5/§12）先各拿 1 条，prior 拿 1 条，余下 3 条再按档轮转——
+        # 所以 prior 不再是「先拿满」，但至少不会被整档饿死。
+        assert 0 < len(prior_ids) < len(MODULE_CONFIG["period_delta"]["prior_analysis"])
+        assert any(item["source_id"] == "market_data" for item in bundle["evidence"])
         omitted = set(MODULE_CONFIG["period_delta"]["prior_analysis"]) - {
             evidence_id.split(":")[1] for evidence_id in prior_ids
         }

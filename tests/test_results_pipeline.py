@@ -1703,3 +1703,152 @@ def test_prepare_prefers_the_interim_footnote_pack_and_watches_both(tmp_path):
         for entry in bundle["evidence"]
     ), [entry["evidence_id"] for entry in bundle["evidence"]]
     assert any(entry["source_id"] == "pdf_footnotes" for entry in index["entries"])
+
+
+# --- REQ-006.2 AC-2.5：max_evidence 与字符预算下的「先保结构」-------------------
+
+
+def _ac25_layout(root: Path) -> tuple[Path, Path]:
+    """公司目录：10 个市场数据段（含 4 个必选节）+ 6 段上一版结论 + PDF/附注槽位。"""
+
+    root.mkdir(parents=True, exist_ok=True)
+    rows = "".join(f"| 项目{index} | {index} | {index * 2} |\n" for index in range(40))
+    income = (
+        "## 3. 合并利润表\n\n| 项目 (百万元) | 2026H1 | 2025H1 |\n| --- | ---: | ---: |\n"
+        + "| 营业收入 | 64,330.94 | 61,776.75 |\n"
+        + "| 营业成本 | 40,894.08 | 39,509.20 |\n"
+        + "| 财务费用 | -525.54 | -448.91 |\n"
+        + "| 净利润 | 5,523.69 | 7,235.44 |\n"
+        + "| 归母净利润 | 5,758.63 | 7,200.48 |\n"
+        + rows
+    )
+    pack_text = income
+    for prefix, title in (
+        ("1.", "基本信息"), ("3P.", "母公司利润表"), ("4.", "合并资产负债表"),
+        ("4P.", "母公司资产负债表"), ("5.", "现金流量表"), ("6.", "分红历史"),
+        ("12.", "关键财务指标"), ("15.", "股票回购"), ("17.", "衍生指标"),
+    ):
+        pack_text += f"\n## {prefix} {title}\n\n| 项目 | 2026H1 | 2025H1 |\n| --- | ---: | ---: |\n{rows}"
+    pack = root / "data_pack_market.md"
+    pack.write_text(pack_text, encoding="utf-8")
+
+    pdf = root / "pdf_sections.json"
+    pdf.write_text("{}", encoding="utf-8")
+
+    entries = []
+    for section in ("MDA", "MATTERS", "P13", "P3", "P6"):
+        entries.append(
+            {
+                "evidence_id": f"pdf_sections:{section}:001",
+                "source_id": "pdf_sections",
+                "section": section,
+                "chunk_number": 1,
+                "quote": f"PDF {section} 正文摘录" * 10,
+                "locator": {"path": str(pdf), "section": section, "chunk": 1},
+                "content_hash": "hash",
+            }
+        )
+    for section in ("3", "3P", "4", "4P", "5", "6", "12", "17"):
+        entries.append(
+            {
+                "evidence_id": f"market_data:{section}:001",
+                "source_id": "market_data",
+                "section": section,
+                "chunk_number": 1,
+                "quote": f"市场数据 {section} 摘录" * 10,
+                "locator": {"path": str(pack), "section": section, "chunk": 1},
+                "content_hash": "hash",
+            }
+        )
+    for section in ("summary", "parameters", "claims", "risks", "watchlist", "quality"):
+        entries.append(
+            {
+                "evidence_id": f"prior_analysis:{section}:001",
+                "source_id": "prior_analysis",
+                "section": section,
+                "chunk_number": 1,
+                "quote": f"上一版 {section} 结论" * 10,
+                "locator": {"path": "prior.json", "section": section, "chunk": 1},
+                "content_hash": "hash",
+            }
+        )
+    for section in ("P13", "P3", "P6"):
+        entries.append(
+            {
+                "evidence_id": f"pdf_footnotes:{section}:001",
+                "source_id": "pdf_footnotes",
+                "section": section,
+                "chunk_number": 1,
+                "quote": f"附注 {section} 摘录" * 10,
+                "locator": {"path": "notes.md", "section": section, "chunk": 1},
+                "content_hash": "hash",
+            }
+        )
+    index = root / "index.json"
+    index.write_text(
+        json.dumps({"schema": "investment.evidence_index", "schema_version": "1.0", "entries": entries}),
+        encoding="utf-8",
+    )
+    return pack, index
+
+
+def test_required_market_sections_win_evidence_slots_over_prior_analysis(tmp_path):
+    """AC-2.5：必选节（利润表/资产负债表/现金流量表/关键指标）先于 prior_analysis 拿槽位。
+
+    旧分配是 prior_analysis 先拿满 6 条，剩下的才给别的来源 —— 实测真实 run 上
+    `period_delta` 的 8 个 `market_data` 槽位全 `omitted`，D7 四个必填参数只能为 null。
+    """
+
+    pack, index = _ac25_layout(tmp_path / "伊利")
+
+    bundle = build_module_context(
+        "period_delta", data_pack_path=pack, evidence_index_path=str(index)
+    )
+
+    evidence = {
+        (item["source_id"], item["locator"]["section"]) for item in bundle["evidence"]
+    }
+    for section in ("3", "4", "5", "12"):
+        assert ("market_data", section) in evidence, f"必选节 §{section} 没拿到证据槽位：{sorted(evidence)}"
+    # 对比基准也没有被整档饿死
+    assert any(item["source_id"] == "prior_analysis" for item in bundle["evidence"])
+    assert bundle["selection"]["missing_prior_analysis"] == []
+
+
+def test_required_income_rows_survive_a_competing_prior_baseline(tmp_path):
+    """AC-2.5：与 6 段上一版结论争预算时，利润表 5 条必选行仍必须留在 bundle 里。"""
+
+    pack, index = _ac25_layout(tmp_path / "伊利")
+
+    bundle = build_module_context(
+        "period_delta", data_pack_path=pack, evidence_index_path=str(index)
+    )
+
+    text = bundle["context_text"]
+    for row in ("营业收入", "营业成本", "财务费用", "净利润", "归母净利润"):
+        assert row in text, f"必选行 {row} 被预算砍掉"
+    assert bundle["budget"]["actual_chars"] <= bundle["budget"]["max_chars"]
+    # 利润表段落必须比「只装得下表头」宽（表头+分隔行约 168 字）
+    income = next(item for item in bundle["data_sections"] if item["title"].startswith("3."))
+    assert income["selected_chars"] > 700, income
+
+
+def test_period_delta_gets_its_own_evidence_and_char_budget(tmp_path):
+    """AC-2.5：period_delta 的槽位/字符预算显式大于缺省，且只有它被抬高。"""
+
+    from results.context import DEFAULT_MAX_CHARS, DEFAULT_MAX_EVIDENCE, MODULE_CONFIG
+
+    delta = MODULE_CONFIG["period_delta"]
+    assert delta["max_evidence"] > DEFAULT_MAX_EVIDENCE
+    assert delta["max_chars"] > DEFAULT_MAX_CHARS
+    for module, config in MODULE_CONFIG.items():
+        if module != "period_delta":
+            assert config.get("max_evidence", DEFAULT_MAX_EVIDENCE) == DEFAULT_MAX_EVIDENCE
+            assert config.get("max_chars", DEFAULT_MAX_CHARS) == DEFAULT_MAX_CHARS
+
+    pack, index = _ac25_layout(tmp_path / "伊利")
+    bundle = build_module_context(
+        "period_delta", data_pack_path=pack, evidence_index_path=str(index)
+    )
+    assert bundle["budget"]["max_chars"] == delta["max_chars"]
+    assert len(bundle["evidence"]) <= delta["max_evidence"]
