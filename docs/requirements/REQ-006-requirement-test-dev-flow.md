@@ -54,13 +54,19 @@ supersedes: TBD
 | T6 | 大特性拆子需求：`REQ-NNN.S` 编号与 `AC-S.n`、「父需求状态不得先于子需求」不变量、台账「子需求台账」表，并把子需求编号接进验收/追溯/scope 三个门禁；评审改为按子需求收口（AC-3 变更） | 完成 | PR #35；独立验收见 [`2026-09-20-REQ-006.md`](../verification/2026-09-20-REQ-006.md) 的「本次维护验证（T6）」一节。**诚实说明**：该报告在 `d3d769e` 上给出「有条件通过」，提出 3 项条件；实现者随后在 `fix(governance)` 里逐条修复（新增 4 个单测），但**按新的评审粒度没有为这次修复再拉一轮独立复核**——复核安排在下一个子需求/大特性收口时进行 |
 | T4 | 覆盖深度补强：`valuation_engine` 34%→60%、`portfolio_engine` 47%→70%、三个 0% 脚本逐个判定、总覆盖率→80% 并把门禁提到 ≥78% | 不做（2026-09-20 使用者决定：工程化流程到此为止，不补测） | 任务说明见 [`REQ-008`](REQ-008-coverage-debt.md)（该编号已并入本需求，文件保留作规格；覆盖率维持 76.8%、门禁维持 ≥74%） |
 | T7 | 测试 scope 预算上调（40→48 文件、1600→1800 用例），为图形化控制台（REQ-009）及其后续 GUI 需求留出余量；同步 `scripts/test_scope.py`、`docs/TESTING.md` §5、`docs/DEVELOPMENT.md` §14 与本需求 AC-7 的例外通道 | 进行中 | PR #TBD（合入后回填）；本项是**门禁阈值调整**，按 AC-3 的评审粒度在 REQ-006.1 收口时由独立评审者复核，不为它单独拉一轮评审 |
-| T8 | **REQ-006.1 AC-1.5 的收口前置**：`synthesis` 默认预算按真实载荷设定（40,000 → 120,000）与丢弃记账修正（列表条目逐条计数、标签可读）；补真实规模回归测试 | 完成 | 依据 2026-09-25 AC-1.9 复跑实测（完整载荷 **96,496** 字符；旧默认下丢 148 项，含每个模块的 `quality.missing_inputs`）；同预算下丢弃计数 148 → 220。代码见 `scripts/results/synthesis.py`（`DEFAULT_MAX_CHARS`、`_list_item_label`），测试见 `tests/test_results_pipeline.py` 的 `test_default_budget_*` 与 `test_dropped_accounting_counts_every_list_item` |
+| T8 | **REQ-006.1 AC-1.5 的收口前置**：`synthesis` 默认预算按真实载荷设定（40,000 → 120,000）与丢弃记账修正（列表条目逐条计数、标签可读）；补真实规模回归测试 | 完成 | **PR #46**（已合入 `b23270b`）。依据两轮实跑实测（完整载荷 96,496 / 97,359 字符；旧默认下丢 148 项，含每个模块的 `quality.missing_inputs`；同预算下丢弃计数 148 → 220）。代码 `scripts/results/synthesis.py`（`DEFAULT_MAX_CHARS`、`_list_item_label`），测试 `tests/test_results_pipeline.py` 的 `test_default_budget_*` 与 `test_dropped_accounting_counts_every_list_item` |
 
 ## 子需求
 
 ### REQ-006.1 财报分析端到端实跑加固与实跑验收规则
 
-- 状态：`in-progress`
+- 状态：`implemented`
+- 状态说明：`AC-1.1`~`AC-1.10` 全部落地；`AC-1.9` 于 2026-09-25 完成**两轮**真实复跑
+  （第二轮在 `main b23270b` 上**全程默认参数、零覆盖**），命令与观察见
+  [`docs/run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md`](../../run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md)，
+  发现清单见[同目录的发现清单](../../run-records/2026-09-25-REQ-006.1-AC-1.9-实跑发现清单.md)。
+  该次实跑暴露的 `AC-1.5` 缺口已由任务 T8（PR #46）修复；其余发现登记为 `REQ-006.2`。
+  **待独立验收**：`verified` 需由未参与实现者按 AC-3 产出报告后推进。
 - 目标：把「用真实数据完整跑一次财报分析迭代」暴露的问题一次性收干净，并让这类**只有实跑才能发现**的问题在流程里有固定去处（登记 → 修复 → 复跑），不再靠对话里的临时结论或运行时补丁。
 - 背景：2026-09-20 用真实数据（Tushare + CNINFO + 本地 PDF）完整跑了一次迭代，**未改任何代码**、只用运行时补丁绕过，暴露 6 个问题 + 1 个流程观察。全部是 mock 测试发现不了的：
 
@@ -85,7 +91,7 @@ supersedes: TBD
   - **AC-1.8**：**流程闭环**：验收标准里写了「实跑」的编号，其收口报告必须带「## 实跑记录」（含可复制命令、环境与观察），由 `scripts/acceptance_gate.py` 强制；实跑发现的问题当次登记（子需求或任务），不允许只用运行时补丁绕过。
   - **AC-1.10**：`TushareScreener._safe_call` 的重试必须作用在**重建后**的客户端上（原实现把 `pro` 取在循环外，三次尝试都打在同一个坏客户端上，重试等于没做）；有回归测试证明「第一次失败、第二次成功」。
   - **AC-1.9**：在只读 HOME + 真实 token 下**复跑**一次迭代，不使用任何运行时补丁，产出完整 run（台账、manifest、结构化结果、两篇报告），命令与观察写进实跑记录。
-- 追溯：`tests/test_discover_report.py`、`tests/test_tushare_client.py`、`tests/test_screener.py`、`tests/test_runs_ledger.py`、`tests/test_results_pipeline.py`、`tests/test_change_report.py`、`tests/test_update_docs_contract.py`、`tests/test_release_gates.py`；PR #36（登记与规则）、PR #37（6 个实跑问题的修复，`4450863`）
+- 追溯：`tests/test_discover_report.py`、`tests/test_tushare_client.py`、`tests/test_screener.py`、`tests/test_runs_ledger.py`、`tests/test_results_pipeline.py`、`tests/test_change_report.py`、`tests/test_update_docs_contract.py`、`tests/test_release_gates.py`；PR #36（登记与规则）、PR #37（6 个实跑问题的修复，`4450863`）、PR #46（任务 T8）；实跑记录 [`docs/run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md`](../../run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md)
 
 ### REQ-006.2 实跑暴露的数据包与证据层缺陷修复
 
@@ -109,7 +115,8 @@ supersedes: TBD
   | 数据包·风险警示与占位板块 | F17 / F7 | §13.1 的 YOY 异常检测只报 2007→2008 / 2008→2009，本期「资产减值 +627.8%、商誉减值 0→1,546.54」反而没报；§8（行业与竞争）/§10（MD&A）/§13.2 永远是占位符（WebSearch 补充只在 PDF 下载失败时才做），而 D3 的 bundle 正以 §8 为行业证据来源 |
   | PDF 章节抽取 | F12 / 担保表列错位 | `MDA` 章节 `buffer_pages=3` 把前 3 页（非经常性损益）混进正文，`max_chars=8000` 又把真 MD&A 尾部截掉；`MATTERS` 的重大担保明细把「担保逾期金额/反担保/是否逾期」与主债务情况说明混排，担保是否逾期不可判定 |
   | 证据索引与 bundle 预算 | F5 / F13 / F14 / F20 | 索引 195 条里 178 条摘录超过契约的 300 字上限（最长 1,199），模块只能各自裁剪同一段摘录；同一 evidence id 的 `context_text` 与 `evidence[].quote` 覆盖行集不一致；利润表预算截断把「归母净利润」行砍掉（D5 的 `net_profit_mm` 只能为 null，且丢了上一轮尚可推导的单季归母 363.98）；`missing`/`omitted`/`truncated` 三态被混用，产生「不存在」式错误表述 |
-  | 输入接线与元数据一致性 | F4 / F1 / F16 / F18 / F21 / 重试策略 | `pdf_footnotes` 源在**每一轮** report-update run 都是 `exists=false`（`prepare` 找 `inputs/data_pack_report.md`，而规范里的 `--input` 清单从不含它），且 `prepare` 的 `warnings` 为空——**静默**；同一 PDF 重解析只变 `metadata.extract_time` 却让输入指纹变化；模块 `as_of` 口径不一触发 high 级 `DATE-001` 并把整体置信度压到 low；对账器查不出**跨 run 评级被静默改写**（D2/D4 上调 vs D7 声称沿用）；`change_report` 的 `prior_synthesis` 卡片剥掉旧引用后无法区分「已剥离」与「本来无引用」；永久性 `no_permission` 仍走满 5 次重试 |
+  | 输入接线与元数据一致性 | F4 / F1 / F16 / F18 / F21 / F27 / 重试策略 | `pdf_footnotes` 源在**每一轮** report-update run 都是 `exists=false`（`prepare` 找 `inputs/data_pack_report.md`，而规范里的 `--input` 清单从不含它），且 `prepare` 的 `warnings` 为空——**静默**；同一 PDF 重解析只变 `metadata.extract_time` 却让输入指纹变化；模块 `as_of` 口径不一触发 high 级 `DATE-001` 并把整体置信度压到 low；对账器查不出**跨 run 评级被静默改写**（D2/D4 上调 vs D7 声称沿用）；`change_report` 的 `prior_synthesis` 卡片剥掉旧引用后无法区分「已剥离」与「本来无引用」，且 `synthesis` 卡片压缩后仍有 2 个悬空引用（`P4:003` / `P6:001`）；永久性 `no_permission` 仍走满 5 次重试 |
+  | 第二轮重跑新增/加强 | F22 / F23 / F24 / F25 / F26 | **F22**：bundle 每节只给 1 条代表摘录（索引里 MDA 有 8 块、SUB 6、P3 4、§17 4、§4 3），D2 的核心证据（`MDA:006/007/008` 市场份额、`market_data:17` 的 Capex/5年CAGR）**在索引里但引不到**；**F23**：PDF 双栏交叉抽取导致文本串行错乱（「该类别票**据是由信用风险较**低银行出具」被另一栏切断），MATTERS 担保表还无法区分「0」与「未填写」；**F24**：模块规格要求 `unknown` 而 `cycle_position` 枚举没有它 → 「不知道」被迫写成「不适用」；**F25**：同一 `evidence_id` 被多模块以不同 `quote_index` 引用，而 sidecar 要求 id 唯一 → 同块内不同数值无法各自取得摘录；**F26**：模块 `run.status` 与 `business_trend`/`change_significance` 是 LLM 判断，**同一 `selection`** 下两轮分别给出 `complete`→`partial`、`恶化/重大`→`稳定/一般` |
 
 - 验收标准：
   - **AC-2.1**：数据包的分部与关键指标可用——`§9 主营业务构成`不出现重复行、不出现字面 `nan`，
@@ -118,23 +125,35 @@ supersedes: TBD
     （夹具取自真实响应，不做网络调用）。
   - **AC-2.2**：数据包的单位与量级自洽——`§16` 的总股本与质押股数用正确单位输出，
     且存在一条一致性校验：用 `§1` 的总市值 ÷ 当前价反推的股数必须与 `§16` 的总股本一致（相对误差 <1%）。
+    > 修法与依据（实跑已做判定性验证）：`pledge_stat` 返回的 `unrest_pledge=39775.1`、`rest_pledge=0.0`、
+    > `total_share=632536.07`、`pledge_ratio=6.29`，而用 §1「17,015,220.01 万元 ÷ 26.90 元」反推为
+    > **632,536.06 万股** —— 与接口 `total_share` 完全吻合，即**接口单位就是万股**；
+    > 因此修法是**去掉 `other_data.py:436-438` 的 `divider=1e4`**（而不是改标签），
+    > 并加一条用市值/价格反推股数的一致性测试。
   - **AC-2.3**：风险警示与占位板块不再误报/漏报——`§13.1` 的异常检测期次必须**包含本期**
     （不得使用最早可用列）；`§8`/`§10`/`§13.2` 的填充策略在需求与文档里明确到「增量更新流程到底填不填」，
     且 D3 的证据来源与该策略一致（不得再以占位符作为行业证据槽位）。
   - **AC-2.4**：PDF 章节抽取可用于结论——`MDA` 章节里「前置上下文」与「章节正文」可区分
-    （或前置部分不占用正文预算）；`MATTERS` 的重大担保明细列与值一一对应，`担保逾期` 信息可判定。
+    （或前置部分不占用正文预算），且**代表块不得落在前置上下文上**（实测 `MDA:001` 整块是
+    非经常性损益表，却被选为 D5 的唯一 MD&A 证据）；`MATTERS` 的重大担保明细列与值一一对应，
+    `担保逾期` 信息可判定；双栏文本不得以串行错乱的形式进入证据索引（**F23**）。
   - **AC-2.5**：证据索引与 bundle 预算不丢关键行、语义不含糊——索引摘录不超出契约上限
     （或契约显式允许「索引摘录 + 子段范围」）；同一 evidence id 在 `context_text` 与 `evidence[].quote`
     的覆盖范围一致；利润表的**必选行**（营业收入、营业成本、财务费用、净利润、归母净利润）
-    必须在 bundle 内（先保必选行再按预算填其余行）；`missing`/`omitted`/`truncated` 三态在 bundle 里
-    被翻译成「对本模块结论的可用性」说明。
+    与**必选节**（资产负债表、现金流量表、关键财务指标）必须在 bundle 内
+    （先保必选行/节再按预算填其余，实测 `period_delta` 有 7 个整节被 `omitted` 却仍要求必填指标）；
+    同一节不得只给 1 条代表摘录就切断其余可用证据（**F22**）；`missing`/`omitted`/`truncated`
+    三态在 bundle 里被翻译成「对本模块结论的可用性」说明；同一 `evidence_id` 的多段具名子段可被引用（**F25**）。
   - **AC-2.6**：输入接线与降级不得静默——附注证据源（`data_pack_report.md`，中报用
     `data_pack_report_interim.md`）要么被接进 run 的输入、要么被显式声明为不适用；源缺失时
     `prepare` 必须给出 warning，而不是让模块只在 `evidence_coverage` 里看到一个 `missing`。
   - **AC-2.7**：跨 run 一致性与元数据可信——`as_of` 有明确取值规则并被校验（不得晚于生成日、
-    不得早于最近财报期末）；`reconcile_results` 对**评级类参数**（护城河/进入壁垒/管理层/诚信/飞轮）
-    做跨 run 一致性检查，不一致时必须产出 conflict；同一份 PDF 重解析不得改变 run 的输入指纹；
-    永久性权限类错误不得重试。
+    不得早于最近财报期末；实测六个模块给出 3 种不同 `as_of` 触发 high 级 `DATE-001`）；
+    `reconcile_results` 对**评级类参数**（护城河/进入壁垒/管理层/诚信/飞轮）做跨 run 一致性检查，
+    不一致时必须产出 conflict；同一份 PDF 重解析不得改变 run 的输入指纹；永久性权限类错误不得重试；
+    规格与 schema 的枚举必须一致（**F24**：规格要求 `unknown` 而 `cycle_position` 没有该值）；
+    卡片压缩后不得留下悬空引用、被剥离的引用必须显式标注（**F21/F27**）；
+    对「同一输入应得同一判断」的字段（`run.status`、`business_trend` 等）应给出可机器判定的伴随字段（**F26**）。
   - **AC-2.8**（实跑）：修完后用**真实数据**复跑一次增量更新，逐条复核 `AC-2.1`~`AC-2.7` 在真实产物上的
     表现（命令 + 环境 + 观察），报告里带「## 实跑记录」；本次实跑发现的问题当次登记，不得只用运行时补丁绕过。
 - 追溯：`tests/test_tushare_pack_sections.py`（待建，AC-2.1~AC-2.3）、
