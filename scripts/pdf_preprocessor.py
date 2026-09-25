@@ -194,11 +194,16 @@ SECTION_KEYWORDS: Dict[str, List[str]] = {
 
 # Per-section extraction parameters (overrides defaults)
 SECTION_EXTRACT_CONFIG: Dict[str, Dict[str, int]] = {
-    "MDA": {"buffer_pages": 3, "max_chars": 8000},
-    "GOV": {"buffer_pages": 3, "max_chars": 8000},
-    "MATTERS": {"buffer_pages": 3, "max_chars": 8000},
+    # max_chars 按真实中报的章节长度设定：旧值 8000 会把 MD&A 正文尾部截掉
+    # （2026-09-25 实跑 F12）。前置上下文不再占用正文预算，见 extract_section_context。
+    "MDA": {"buffer_pages": 3, "max_chars": 20000},
+    "GOV": {"buffer_pages": 3, "max_chars": 20000},
+    "MATTERS": {"buffer_pages": 3, "max_chars": 20000},
     "SUB": {"buffer_pages": 2, "max_chars": 6000},
 }
+
+#: 前置上下文至少要能放这么多字才附在正文后面（否则直接丢掉，不占预算）。
+PREFIX_MIN_CHARS = 200
 DEFAULT_BUFFER_PAGES = 1
 DEFAULT_MAX_CHARS = 4000
 
@@ -287,6 +292,59 @@ def _tables_to_markdown(tables: list) -> str:
     return "\n".join(parts)
 
 
+def reflow_two_column_words(words: List[Dict], page_width: float) -> Optional[str]:
+    """把 pdfplumber 的 words 按**栏**重排：左栏读完整栏再读右栏。
+
+    2026-09-25 实跑（F23）：双栏页用 ``extract_text()`` 线性化会把左右栏交错拼接
+    （「该类别票**据是由信用风险较**低银行出具」），这种串行错乱一旦进证据索引就无法引用。
+    只在页面明显是两栏（中缝无跨栏词）时才重排，其余情况返回 None 交回 ``extract_text()``。
+    """
+
+    if not words or page_width <= 0:
+        return None
+    word_list = [item for item in words if isinstance(item, dict) and "x0" in item and "x1" in item]
+    if len(word_list) < 40:
+        return None
+    mid = page_width / 2
+    center_lo, center_hi = page_width * 0.45, page_width * 0.55
+    near_center = [
+        item for item in word_list
+        if center_lo <= (float(item["x0"]) + float(item["x1"])) / 2 <= center_hi
+    ]
+    if len(near_center) > max(2, int(len(word_list) * 0.02)):
+        return None
+    left = [item for item in word_list if (float(item["x0"]) + float(item["x1"])) / 2 < mid]
+    right = [item for item in word_list if (float(item["x0"]) + float(item["x1"])) / 2 >= mid]
+    if not left or not right:
+        return None
+
+    def _lines(column: List[Dict]) -> List[str]:
+        lines: List[List[Dict]] = []
+        for item in sorted(column, key=lambda w: (float(w.get("top", 0)), float(w["x0"]))):
+            if lines and abs(float(item.get("top", 0)) - float(lines[-1][0].get("top", 0))) <= 3:
+                lines[-1].append(item)
+            else:
+                lines.append([item])
+        return ["".join(str(w.get("text", "")) for w in sorted(line, key=lambda w: float(w["x0"])))
+                for line in lines]
+
+    return "\n".join([*_lines(left), *_lines(right)])
+
+
+def _extract_page_text(page) -> str:
+    """优先按栏重排双栏页；失败或不适用时退回 pdfplumber 的线性文本。"""
+
+    plain = page.extract_text() or ""
+    try:
+        words = page.extract_words()
+    except Exception:  # pragma: no cover - pdfplumber 内部异常时退回线性文本
+        return plain
+    if not isinstance(words, list):
+        return plain
+    reflowed = reflow_two_column_words(words, float(getattr(page, "width", 0) or 0))
+    return reflowed or plain
+
+
 def extract_all_pages(pdf_path: str, verbose: bool = False) -> List[Tuple[int, str]]:
     """Extract text from all pages of a PDF using pdfplumber.
 
@@ -317,7 +375,7 @@ def extract_all_pages(pdf_path: str, verbose: bool = False) -> List[Tuple[int, s
 
             for i, page in enumerate(pdf.pages):
                 page_num = i + 1
-                text = page.extract_text() or ""
+                text = _extract_page_text(page)
 
                 # Feature #45: table-aware extraction
                 tables = page.extract_tables()
@@ -617,21 +675,36 @@ def extract_section_context(
         # Use the best-scored page (first in list)
         best_page = matched_pages[0]
 
-        # Collect text from (best - buffer) to (best + buffer)
-        parts = []
+        # 章节正文 = best_page 起；best_page 之前的 buffer 页是**前置上下文**，
+        # 不属于本节正文。旧实现按页码升序拼接，前置页排在正文前面，于是
+        # MDA:001 整块是上一节的非经常性损益表（2026-09-25 实跑 F12 / REQ-006.2 AC-2.4）。
+        body_parts: List[str] = []
+        prefix_parts: List[str] = []
         for offset in range(-sect_buffer, sect_buffer + 1):
             target = best_page + offset
-            if target in page_lookup:
-                text = page_lookup[target]
-                if text:
-                    parts.append(f"--- p.{target} ---\n{text}")
+            if target not in page_lookup:
+                continue
+            text = page_lookup[target]
+            if not text:
+                continue
+            block = f"--- p.{target} ---\n{text}"
+            (prefix_parts if offset < 0 else body_parts).append(block)
 
-        combined = "\n\n".join(parts)
+        body = "\n\n".join(body_parts)
+        # 截断只在**正文**里做：代表块必须落在正文上。
+        if body and len(body) > sect_max:
+            body = _center_truncate(body, section_keywords.get(section_id, []), sect_max)
 
-        # If too long, try to center around the keyword match
-        if len(combined) > sect_max:
-            keywords = section_keywords.get(section_id, [])
-            combined = _center_truncate(combined, keywords, sect_max)
+        combined = body
+        prefix = "\n\n".join(prefix_parts)
+        if prefix:
+            label = "--- 前置上下文（上一节的页，非本节正文）---"
+            remaining = max(0, sect_max - len(combined) - len(label) - 2)
+            if remaining >= PREFIX_MIN_CHARS:
+                combined = f"{combined}\n\n{label}\n{_truncate_at_boundary(prefix, remaining)}"
+            elif not combined:
+                # 只有前置页可用（best_page 没有文本）时不能把整节丢空。
+                combined = prefix
 
         contexts[section_id] = combined
 

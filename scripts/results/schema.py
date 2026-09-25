@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -56,9 +57,11 @@ RESULT_TYPE_CONTRACTS: dict[str, dict[str, Any]] = {
     "qualitative.environment": {
         "scope": ["D3"],
         "parameters": {
-            "cyclicality": {"强周期", "弱周期", "非周期"},
-            "cycle_position": {"底部", "中段", "顶部", "不适用"},
-            "regulatory_risk": {"低", "中", "高"},
+            # REQ-006.2 AC-2.7 / F24：模块规格允许「不知道」，枚举必须能表达它，
+            # 否则 agent 只能把「未知」写成「不适用」（语义不同）。
+            "cyclicality": {"强周期", "弱周期", "非周期", "unknown"},
+            "cycle_position": {"底部", "中段", "顶部", "不适用", "unknown"},
+            "regulatory_risk": {"低", "中", "高", "unknown"},
             "industry_keywords": "list",
         },
     },
@@ -160,6 +163,37 @@ def _valid_parameter_value(value: Any, rule: Any) -> bool:
     return False
 
 
+def _validate_as_of(run: dict[str, Any]) -> list[str]:
+    """`run.as_of` 的取值规则（REQ-006.2 AC-2.7）。
+
+    规则：`as_of` 是「本模块结论的观察时点」，必须是 ``YYYY-MM-DD``，且**不得晚于**
+    `generated_at` 的日期（不能拿未来的日期当结论时点）。实测反例：六个模块给出
+    ``2026-07`` / ``2026-09-18`` / ``2026-06-30`` 三种口径并触发 high 级 DATE-001。
+    """
+
+    errors: list[str] = []
+    as_of = run.get("as_of")
+    if not isinstance(as_of, str) or not as_of.strip():
+        return errors
+    value = as_of.strip()
+    try:
+        observed = datetime.strptime(value[:10], "%Y-%m-%d")
+    except ValueError:
+        errors.append(f"run.as_of must be YYYY-MM-DD, got {as_of!r}")
+        return errors
+    generated_at = run.get("generated_at")
+    if isinstance(generated_at, str) and generated_at.strip():
+        try:
+            generated = datetime.strptime(generated_at.strip()[:10], "%Y-%m-%d")
+        except ValueError:
+            return errors
+        if observed > generated:
+            errors.append(
+                f"run.as_of {value} is later than run.generated_at {generated_at!r}"
+            )
+    return errors
+
+
 def validate_result(result: dict[str, Any], *, strict: bool = True) -> list[str]:
     """Return validation errors for a module result.
 
@@ -192,6 +226,7 @@ def validate_result(result: dict[str, Any], *, strict: bool = True) -> list[str]
         _require_string(run, "as_of", errors)
         if not isinstance(run.get("status"), str) or run["status"] not in VALID_STATUSES:
             errors.append(f"run.status must be one of {sorted(VALID_STATUSES)}")
+        errors.extend(_validate_as_of(run))
 
     if _is_mapping(result.get("subject")):
         _require_string(subject, "ticker", errors)

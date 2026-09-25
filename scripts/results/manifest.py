@@ -19,6 +19,43 @@ def sha256_file(path: str | Path) -> str:
     return digest.hexdigest()
 
 
+#: JSON 输入里「每次重算都会变、但与内容无关」的字段。2026-09-25 实跑（F1）：同一份 PDF
+#: 重解析只改了 `metadata.extract_time`，输入指纹却变了，旧 run 的 manifest 立刻校验失败。
+VOLATILE_INPUT_KEYS: tuple[str, ...] = ("extract_time", "generated_at")
+
+
+def _scrub_volatile(node: Any) -> Any:
+    if isinstance(node, dict):
+        return {
+            key: _scrub_volatile(value)
+            for key, value in node.items()
+            if key not in VOLATILE_INPUT_KEYS
+        }
+    if isinstance(node, list):
+        return [_scrub_volatile(value) for value in node]
+    return node
+
+
+def input_content_sha256(path: str | Path) -> str:
+    """输入内容指纹（JSON 去掉易变字段后再哈希）。
+
+    F1：同一份 PDF 重解析只改 `metadata.extract_time`，不该让 run 的输入指纹变化；
+    其它文件仍按原始字节哈希，手工替换表格这类真实改动必须能被检出。
+    """
+
+    input_path = Path(path)
+    if input_path.suffix.lower() != ".json":
+        return sha256_file(input_path)
+    try:
+        payload = json.loads(input_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return sha256_file(input_path)
+    encoded = json.dumps(
+        _scrub_volatile(payload), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def describe_input(path: str | Path, *, source_id: str | None = None) -> dict[str, Any]:
     input_path = Path(path).resolve()
     item: dict[str, Any] = {
@@ -32,7 +69,7 @@ def describe_input(path: str | Path, *, source_id: str | None = None) -> dict[st
             {
                 "size_bytes": stat.st_size,
                 "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-                "sha256": sha256_file(input_path),
+                "sha256": input_content_sha256(input_path),
             }
         )
     return item

@@ -14,8 +14,8 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 
 | 项 | 当前 | 上限 | 使用率 |
 |----|------|------|--------|
-| 测试文件数 | 34 | 48 | 71% |
-| 收集到的用例数 | 1564 | 1800 | 87% |
+| 测试文件数 | 35 | 48 | 73% |
+| 收集到的用例数 | 1597 | 1800 | 89% |
 
 （用例数含 `parametrize` 展开，由 `pytest --collect-only` 统计；函数数见下表末列，仅作参考。）
 
@@ -35,7 +35,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_format_utils.py` | 基线 | `unit` | `scripts/format_utils.py` | 21 |
 | `tests/test_integration.py` | 基线 | `integration` | — | 3 |
 | `tests/test_output_format.py` | 基线 | `unit` | — | 22 |
-| `tests/test_pdf_preprocessor.py` | 基线 | `unit` | `scripts/pdf_preprocessor.py` | 85 |
+| `tests/test_pdf_preprocessor.py` | REQ-006.2 | `unit` | `scripts/pdf_preprocessor.py` | 90 |
 | `tests/test_period_delta_module.py` | REQ-004 | `unit` | — | 20 |
 | `tests/test_periods.py` | REQ-001 | `unit` | `scripts/periods.py` | 24 |
 | `tests/test_phase1b_prompt.py` | 基线 | `unit` | — | 23 |
@@ -48,11 +48,12 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_refresh_market.py` | 基线 | `unit` | — | 23 |
 | `tests/test_release_gates.py` | REQ-003, REQ-005, REQ-006, REQ-006.1 | `unit` | — | 37 |
 | `tests/test_requirement_traceability.py` | 基线 | `unit` | — | 17 |
-| `tests/test_results_pipeline.py` | REQ-006.1 | `e2e` | — | 61 |
+| `tests/test_results_pipeline.py` | REQ-006.1, REQ-006.2 | `e2e` | — | 74 |
 | `tests/test_runs_ledger.py` | REQ-003, REQ-006.1 | `unit` | — | 38 |
 | `tests/test_screener.py` | REQ-006.1 | `unit` | — | 99 |
 | `tests/test_test_scope.py` | REQ-003, REQ-006 | `unit` | `scripts/test_scope.py` | 16 |
-| `tests/test_tushare_client.py` | REQ-006.1 | `unit` | — | 210 |
+| `tests/test_tushare_client.py` | REQ-006.1, REQ-006.2 | `unit` | — | 212 |
+| `tests/test_tushare_pack_sections.py` | REQ-006.2 | `unit` | — | 13 |
 | `tests/test_two_layout_e2e.py` | REQ-005, REQ-006 | `unit` | — | 5 |
 | `tests/test_update_docs_contract.py` | REQ-005, REQ-006, REQ-006.1 | `unit` | — | 20 |
 | `tests/test_version.py` | REQ-003 | `unit` | `scripts/version.py` | 14 |

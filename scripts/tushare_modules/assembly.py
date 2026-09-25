@@ -10,8 +10,54 @@ import pandas as pd
 from format_utils import format_number, format_table, format_header
 
 
+def _yoy_period_label(end_date: str) -> str:
+    """把 ``YYYYMMDD`` 变成可读期次标签：``20121231``→``2012``、``20260630``→``2026H1``。"""
+
+    text = str(end_date)
+    if len(text) < 8:
+        return text
+    year, mmdd = text[:4], text[4:8]
+    return {"1231": year, "0630": f"{year}H1", "0331": f"{year}Q1", "0930": f"{year}Q3"}.get(
+        mmdd, f"{year}{mmdd}"
+    )
+
+
 class AssemblyMixin:
     """Mixin providing data pack assembly for TushareClient."""
+
+    def _yoy_period_pairs(self, df: pd.DataFrame) -> list[tuple[str, str]]:
+        """返回要检测的 ``(本期, 上年同期)`` 组合，**保证包含最新财报期**。
+
+        REQ-006.2 AC-2.3：§13.1 的异常检测不得拿整段历史逐对比较、更不得只落在最早
+        可用列上（2026-09-25 实跑实测：输出只剩 2007→2008 / 2008→2009，本期异常没报）。
+        现在只比较两组：最新一期 vs 上年同期（中期对中期、年报对年报），以及最新年报
+        vs 上一年报（当最新一期是中期时，年报口径也要看一眼）。
+        """
+
+        if df is None or df.empty or "end_date" not in df.columns:
+            return []
+        dated = df.copy()
+        dated["end_date"] = dated["end_date"].astype(str)
+        dated = dated.drop_duplicates(subset=["end_date"], keep="first")
+        dated = dated.sort_values("end_date", ascending=False)
+        available = set(dated["end_date"])
+        if not available:
+            return []
+
+        def _prior_year(date: str) -> str:
+            return f"{int(date[:4]) - 1:04d}{date[4:]}"
+
+        candidates = [dated["end_date"].iloc[0]]
+        annual = dated[dated["end_date"].str.endswith("1231")]
+        if not annual.empty:
+            candidates.append(annual["end_date"].iloc[0])
+
+        pairs: list[tuple[str, str]] = []
+        for latest in candidates:
+            prior = _prior_year(latest)
+            if prior in available and (latest, prior) not in pairs:
+                pairs.append((latest, prior))
+        return pairs
 
     def compute_derived_metrics(self, ts_code: str) -> str:
         """Compute §17: Derived metrics from stored DataFrames.
@@ -351,21 +397,33 @@ class AssemblyMixin:
             else:
                 # A-share: Check missing data + YoY anomaly for core financial statements
                 for label, api, fields in [
-                    ("合并利润表", "income", "ts_code,end_date,revenue,n_income_attr_p"),
+                    ("合并利润表", "income",
+                     "ts_code,end_date,revenue,n_income_attr_p,assets_impair_loss"),
                     ("合并资产负债表", "balancesheet", "ts_code,end_date,total_assets"),
                     ("现金流量表", "cashflow", "ts_code,end_date,n_cashflow_act"),
                 ]:
                     df = self._safe_call(api, ts_code=ts_code, fields=fields)
                     wc.check_missing_data(label, df)
                     if not df.empty and "end_date" in df.columns:
-                        # Filter to annual reports only (end_date ending in "1231")
-                        annual = df[df["end_date"].astype(str).str.endswith("1231")].copy()
-                        annual = annual.sort_values("end_date", ascending=False)
-                        if not annual.empty:
-                            dates = annual["end_date"].astype(str).str[:4].tolist()
+                        # 只比较「最新财报期 vs 上年同期」与「最新年报 vs 上一年报」。
+                        # 旧实现把整段历史逐对比较，实测输出只剩 2007→2008 / 2008→2009
+                        # 的噪声，本期（2026H1）异常反而没报（REQ-006.2 AC-2.3 / 发现 F17）。
+                        by_date = {
+                            str(row["end_date"]): row
+                            for _, row in df.drop_duplicates(subset=["end_date"], keep="first").iterrows()
+                        }
+                        for latest_date, prior_date in self._yoy_period_pairs(df):
                             for col in fields.split(",")[2:]:  # skip ts_code, end_date
-                                if col in annual.columns:
-                                    wc.check_yoy_change(label, col, annual[col].tolist(), dates=dates)
+                                if col in df.columns:
+                                    wc.check_yoy_change(
+                                        label,
+                                        col,
+                                        [by_date[latest_date].get(col), by_date[prior_date].get(col)],
+                                        dates=[
+                                            _yoy_period_label(latest_date),
+                                            _yoy_period_label(prior_date),
+                                        ],
+                                    )
 
                 # Audit risk check
                 audit_df = self._safe_call("fina_audit", ts_code=ts_code,

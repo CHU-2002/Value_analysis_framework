@@ -104,6 +104,94 @@ supersedes: TBD
   写成 `in-progress` 而非 `accepted` 是**追溯门禁的强制结果**：父需求 REQ-006 已是 `in-progress`，
   而门禁要求「父需求不得比它最慢的子需求更靠前」，所以新登记的子需求不能停在 `accepted`。
   实际完成度以 `AC-2.1`~`AC-2.8` 的证据与 PR 为准。
+- 进度（2026-09-25，**未收口**，全量门禁 `1594 passed, 3 skipped`、覆盖率 78.65%）：
+  - `AC-2.2` 已实现：`scripts/tushare_modules/other_data.py:get_pledge_stat` 去掉三个股数字段的
+    `divider=1e4`（接口本就是万股），并新增「§1 总市值 ÷ 现价 反推股数 ≈ §16 总股本（相对误差 <1%）」
+    与「质押比例 == 质押股数 / 总股本」两条一致性校验；`pledge_stat.json` 夹具换成 2026-09-18 真实响应。
+  - `AC-2.1` 已实现：`§12 营收同比增长率` 改请求真实字段 `or_yoy`（`tr_yoy` 兜底），
+    此前请求的 `revenue_yoy` 不是 `fina_indicator` 字段、被静默丢弃导致整行永远为「—」；
+    `§9 主营业务构成` 合并同值重复行（实测「冷饮产品系列」≡「冷饮产品」、「其他主营业务」≡「其他」）、
+    成本缺失时毛利率写「—」而不是字面 `nan`，并在表后给出「各分部合计 + 合计特别调整 = 产品」
+    的口径说明（`other_data.py:_segment_reconciliation_note`）。
+  - `AC-2.3` 已实现：`§13.1` 的异常检测窗口改为「最新财报期 vs 上年同期」+「最新年报 vs 上一年报」
+    （`assembly.py:_yoy_period_pairs`，并把 `assets_impair_loss` 纳入被检字段），不再拿 2007 年的
+    历史逐对比较；占位段落的填充策略按 owner 决定落成**「只由全量分析填、增量 run 不填」**
+    （需求内 AC-2.3 的策略引用块 + [`docs/PERIODIC_UPDATE_PLAN.md` §7.1.1](../../PERIODIC_UPDATE_PLAN.md)），
+    并由 `evidence.py`（占位符段落进 `unfilled_sections`、不进 `entries`；混合段落只删占位符行）与
+    `context.py`（`evidence_coverage: unavailable` + `unavailable_inputs`，原始上下文也不塞占位符）落地。
+  - `AC-2.6` 已实现：附注源两个文件名都认（`data_pack_report.md` / 中报
+    `data_pack_report_interim.md`）；都不在 `inputs/` 快照里时 `prepare` 给出**显式 warning**
+    并在 `run_manifest.unavailable_inputs` 里登记 `pdf_footnotes / not_applicable`（不再是
+    模块里一个无原因的 `missing`）；`update-analysis.md` 的 Step 3 与 `PERIODIC_UPDATE_PLAN.md`
+    §7.1 第 1 步把附注源写进 `--input` 清单（`.claude` 与 `.opencode` 两份镜像同步）。
+  - `AC-2.5` 已实现（**`F25` 除外，见下**）：① 摘录长度契约显式化——索引条目自带
+    `quote_contract`（`index_window_chars` / `module_quote_max_chars`），写明「索引窗口是检索单位、
+    模块引文是窗口内 ≤300 字逐字子段」，`context.py` 保证同一 evidence id 的引文**逐字落在
+    `context_text` 展示的范围内**（F5/F13）；② 利润表**必选行**（营业收入/营业成本/财务费用/净利润/
+    归母净利润）在截断时先保（F14），`section_states` 逐段给出 `full/truncated/omitted`；
+    ③ bundle 增 `coverage_states`，把五态翻译成对本模块的可用性说明（F20）；
+    ④ 同一段落可给最多 2 条摘录（`MAX_EVIDENCE_PER_SECTION`），采用**两遍分配**——先保证每个
+    段落各 1 条（维持「大表不能饿死其他段落」的不变量），剩余预算再补第二块；真实数据包实测
+    `environment` 由 7 条增至 9 条，MDA/P13/§3/§12 各拿到 2 块（F22）。
+    未做：**`F25`（同一 `evidence_id` 的多段具名子段可被分别引用）**——它要改结果 schema 的
+    引用形态（窗口 + 具名子段），留待与 AC-2.7 的引用一致性一起做。
+  - `AC-2.4` **部分实现**：① `MDA` 的前置 buffer 页不再排在正文前面——`extract_section_context`
+    改成「正文（best_page 起）在前、前置页作为带标注的『前置上下文』附在后面」，且截断只在正文里做，
+    代表块必然落在正文（F12）；`SECTION_EXTRACT_CONFIG` 的 MDA/GOV/MATTERS `max_chars` 由 8,000 提到
+    20,000。**真实 PDF 实测**（`output/600887_伊利/sources/pdf/600887_2026_中报.pdf`，本地文件、不联网）：
+    `MDA` 由 7,999 字（开头是上一节的非经常性损益表）变为 9,376 字、开头即 p.10 的真实 MD&A 正文。
+    ② 双栏串行：新增 `reflow_two_column_words`（按中缝判定，只对明显两栏页重排；否则交回
+    `extract_text()`），带合成单测；**实测该中报未触发**（输出与改动前逐字节一致），所以真实数据上
+    未获验证。③ **未做到**：`MATTERS` 重大担保表的「列与值一一对应、担保逾期可判定」——
+    用真实 PDF 定位了根因：pdfplumber 默认 `extract_tables()` 对这一页把多行列头堆叠在一起，
+    换 `vertical_strategy=text / horizontal_strategy=lines` 也只能把「担保逾期金额 / 是否逾期 /
+    反担保」并进同一个 cell（值 `是 4,811.72` 无法自动拆开），需要版面层或人工处理，
+    留作后续切片。
+  - `AC-2.7` **部分实现**：① `run.as_of` 有了明确规则并由 `validate_result` 校验——
+    必须是 `YYYY-MM-DD` 且不得晚于 `run.generated_at`（`schema.py:_validate_as_of`）；
+    ② 输入指纹不再受重解析的易变字段影响：`describe_input` 对 JSON 输入按「去掉
+    `extract_time` / `generated_at` 后」的规范化内容哈希（`manifest.py:input_content_sha256`），
+    非 JSON 仍按原始字节（F1）；③ 永久性权限类错误不再走满重试——`is_permanent_api_error`
+    命中「没有接口/无权限/permission denied」等标志词时立即放弃，采集器与选股器的
+    `_safe_call` 都已接入（F3）；④ 规格与 schema 的枚举一致：environment 的
+    `cyclicality` / `cycle_position` / `regulatory_risk` 增加 `unknown`，
+    `shared/qualitative/references/output_schema.md` 同步（契约测试逐字比较）（F24）。
+    **未做**：`reconcile_results` 的跨 run 评级类参数一致性检查、卡片压缩后的悬空引用与
+    被剥离引用的显式标注（F21/F27）、F26 的「同输入同判断」伴随字段、
+    **F28（`code_fingerprint` = HEAD sha → 纯文档提交也让 run 变 `framework_changed`，
+    需改为与 `DIRTY_TRACKED_PATHS` 同源的内容摘要）**。
+  - 测试：新增 `tests/test_tushare_pack_sections.py`（13 例，夹具取真实响应、不做网络调用）；
+    `tests/test_results_pipeline.py` 增 2 例（AC-2.6）+ 4 例（AC-2.5）+ 3 例（AC-2.7：
+    指纹不受 extract_time 影响、非 JSON 仍按字节、as_of 规则）；`tests/test_tushare_client.py`
+    增 2 例（权限错误只调一次 / 普通错误仍重试）；`tests/test_pdf_preprocessor.py` 增 5 例；
+    `tests/test_prepare_primary_period.py` / `tests/test_prepare_prior_analysis.py`
+    的夹具补上附注源，让「干净 run 无 warning」的断言继续成立。
+  - **AC-2.8 实跑（确定性半程，2026-09-25，owner 授权「可以真跑」）**：真实 token 重新采集
+    （`tushare_collector.py --code 600887.SH`，exit 0，日志首行即
+    `yc_cb: permanent error …; not retrying`）→ 新数据包实测修复：
+    §16 `总股本 632,536.07` / `无限售质押 39,775.10` 万股（原 63.25 / 3.98）；
+    §12 营收同比增长率逐列有值（原整行 `—`）；§9 重复行消失、`合计特别调整` 毛利率为 `—`、
+    口径说明带真实数字；§13.1 唯一告警是**本期** `2025H1→2026H1 资产减值 +628%`（原 2007/2008 噪声）。
+    真实 PDF 重解析 → run `20260925T091012981574Z`（`runs.py new` + `prepare`，四个输入齐全）：
+    `warnings` 空、`unavailable_inputs` 空（附注源按新清单传入）；证据索引 `unfilled_sections`
+    只含 §8/§10、`quote_contract` 就位、最长摘录 1,199 ≤ 1,200 窗口；四个模块 bundle 都带
+    `coverage_states`/`section_states`，`market_data:8/10` 为 `unavailable`。另用同一 PDF 两次解析
+    验证 F1：原始字节不同（`extract_time`）、内容指纹完全相同。
+    **未跑**：LLM 模块 / `reconcile` / `synthesis` / `resolve_qualitative` / `change_report`
+    （需要独立 agent 会话，不在本轮伪造），故 `AC-2.8` 尚未满足。
+    **产物处置（2026-09-25 owner 决定）**：正式半程 run `20260925T091012981574Z`
+    **保留在 `output/600887_伊利/runs/` 作为 `AC-2.8` 的半程实跑证据**（不写台账、不影响
+    `latest.json`，因为它是未完成的 run，写台账会误导）；另一个演示用 run
+    `20260925T091003039909Z`（故意用错误章节包文件名，用于验证「缺失输入被登记」的披露路径）
+    已**移出仓库**到 `/tmp/req0062-run/removed/`（未删除，按护栏不擅自删数据）。
+    两轮真跑都写到 `/tmp/req0062-run/`，**公司级 `data_pack_market.md` 未被覆盖**，
+    `latest.json` / `history.jsonl` 未变。
+  - **本轮真跑同时暴露并已修的缺口**：`F13` 的「引文可在 context_text 里核对」在
+    附注源与「同一段落第 2+ 块」上并不成立（真跑实测 environment 2 条、business_moat 5 条、
+    mda_quality 4 条、governance 8 条）。现在每条 evidence 带 `in_context` 布尔与
+    `selection.quotes_not_in_context` 清单——不可核对的引文**显式标出**（回索引核对），
+    不再含糊；完全包含需要重构 context_text，留作后续。
+  - PR #TBD（合入后回填）。
 - 目标：把 2026-09-25 的 AC-1.9 复跑（run `20260925T042255414048Z`）暴露的**数据包生成、PDF 抽取、
   证据索引与 bundle 预算、输入接线、跨 run 一致性**五类缺陷一次性收干净，并让每一类都留下**可判定**的回归判据
   ——这些缺陷全部是 mock 测试看不见的（真实载荷规模、真实接口字段、真实表格脏值、真实权限错误）。
@@ -138,6 +226,15 @@ supersedes: TBD
   - **AC-2.3**：风险警示与占位板块不再误报/漏报——`§13.1` 的异常检测期次必须**包含本期**
     （不得使用最早可用列）；`§8`/`§10`/`§13.2` 的填充策略在需求与文档里明确到「增量更新流程到底填不填」，
     且 D3 的证据来源与该策略一致（不得再以占位符作为行业证据槽位）。
+    > **策略（需求 owner 2026-09-25 决定，与 §7 的同类占位符一并适用）**：Agent 专属段落
+    > （§7 定性治理信息 / §8 行业与竞争 / §10 MD&A / §13.2 风险补充）**只由全量分析填充**；
+    > **增量更新流程不填**，占位符不得作为任何模块的证据槽位。落地方式：
+    > `evidence.py` 把「只含占位符」的段落记入 `evidence_index.unfilled_sections` 并从 `entries` 剔除；
+    > 模块 bundle 对这些槽位给 `evidence_coverage: unavailable` + `unavailable_inputs`（带原因）。
+    > 文档见 [`docs/PERIODIC_UPDATE_PLAN.md` §7.1.1](../../PERIODIC_UPDATE_PLAN.md)；
+    > 理由：增量更新的目标是快与可复现，行业信息变化慢，每次联网搜索会让同一份财报跑出不同结论
+    > （参见 F26 的教训）；若行业/政策出现实质变化，走既有的 `stale:framework` 全量重跑。
+    > 本条只把**既有判据**落到实现与文档，未改动 AC 文字。
   - **AC-2.4**：PDF 章节抽取可用于结论——`MDA` 章节里「前置上下文」与「章节正文」可区分
     （或前置部分不占用正文预算），且**代表块不得落在前置上下文上**（实测 `MDA:001` 整块是
     非经常性损益表，却被选为 D5 的唯一 MD&A 证据）；`MATTERS` 的重大担保明细列与值一一对应，

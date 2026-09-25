@@ -24,6 +24,7 @@ from typing import Any
 import pandas as pd
 
 from config import get_token
+from tushare_modules.infrastructure import is_permanent_api_error
 from screener_config import ScreenerConfig
 
 # Lazy import to avoid circular dependency at module level
@@ -211,6 +212,10 @@ class TushareScreener:
                 return api_func(**kwargs)
             except Exception as e:
                 last_err = e
+                if is_permanent_api_error(e):
+                    # 权限类错误重试无意义（F3）。
+                    print(f"{api_name}: permanent error ({e}); not retrying", file=sys.stderr)
+                    break
                 if attempt < 3:
                     self._pro = self._new_pro_api()
                     api_url = os.environ.get("TUSHARE_API_URL", "")

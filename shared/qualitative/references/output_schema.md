@@ -75,9 +75,9 @@
 
 | 参数 | 类型 | 值域 | 说明 |
 |------|------|------|------|
-| cyclicality | enum | 强周期 / 弱周期 / 非周期 | 收入和盈利波动幅度 |
-| cycle_position | enum | 底部 / 中段 / 顶部 / 不适用 | 当前周期位置（仅强周期适用） |
-| regulatory_risk | enum | 低 / 中 / 高 | 监管与政策风险 |
+| cyclicality | enum | 强周期 / 弱周期 / 非周期 / unknown | 收入和盈利波动幅度（不确定写 `unknown`，不要写「不适用」） |
+| cycle_position | enum | 底部 / 中段 / 顶部 / 不适用 / unknown | 当前周期位置（仅强周期适用；不确定写 `unknown`） |
+| regulatory_risk | enum | 低 / 中 / 高 / unknown | 监管与政策风险（不确定写 `unknown`） |
 | industry_keywords | list | [string] | 行业监控关键词 |
 
 ### D4：管理层与治理

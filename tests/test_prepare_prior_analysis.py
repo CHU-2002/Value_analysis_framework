@@ -14,6 +14,7 @@ from results.context import build_module_context
 from results.prepare import prepare_run
 
 TICKER = "600887.SH"
+FOOTNOTES = "## P13 非经常性损益\n附注证据\n"
 SUBJECT = {"ticker": TICKER, "company": "伊利股份", "market": "CN"}
 
 
@@ -49,6 +50,7 @@ def _company_dir(tmp_path):
     root = tmp_path / "600887_伊利"
     root.mkdir()
     (root / "data_pack_market.md").write_text("# pack\n", encoding="utf-8")
+    (root / "data_pack_report.md").write_text(FOOTNOTES, encoding="utf-8")
     return root
 
 

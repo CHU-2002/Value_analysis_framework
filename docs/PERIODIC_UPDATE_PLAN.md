@@ -204,6 +204,10 @@ python3 scripts/download_report.py --stock-code 600887 --report-type auto --sinc
   │    └─ up_to_date        → 明确告知，不重复消耗
   └─ 增量 run 步骤（脚本 + Agent）
        1. runs.py new：归档指针、签发 run_id、创建 runs/{run_id}/inputs/
+          （`--input` 必须含 `data_pack_market.md`、主期次章节包与报告 PDF，**以及附注源**
+          `data_pack_report.md`——中报是 `data_pack_report_interim.md`。漏了它 `prepare`
+          会给出显式 warning，并在 `run_manifest.unavailable_inputs` 里登记
+          `pdf_footnotes / not_applicable`，不再静默；REQ-006.2 AC-2.6）
        2. 拉最新期次（PR1）+ 章节解析 + 脚注抽取
        3. 刷新 data_pack_market.md 并快照进 inputs/
        4. prepare --run-id {run_id} --primary-period：生成 evidence / contexts
@@ -216,6 +220,47 @@ python3 scripts/download_report.py --stock-code 600887 --report-type auto --sinc
        9. runs.py finish：写 history.jsonl、latest.json、record.json，刷新 published/
       10. 标记下游 stale（value_computed / buy_sell_basis），不自动改买卖计划
 ```
+
+#### 7.1.1 Agent 专属段落（§7 / §8 / §10 / §13.2）的填充策略
+
+`data_pack_market.md` 里有一类段落**采集侧拿不到**、只能由 Agent 补充，采集时只写占位符
+`*[§N 待Agent WebSearch补充]*`：
+
+| 段落 | 内容 | 证据来源 |
+|------|------|----------|
+| §7（部分） | 控股股东、管理层变更、违规记录等定性信息 | D4 `governance` |
+| §8 | 行业与竞争格局 | D3 `environment` |
+| §10 | 管理层讨论与分析（外部视角） | D3 `environment` / D5 `mda_quality` |
+| §13.2 | 风险警示的网络补充 | D4 `governance` |
+
+**策略（2026-09-25 owner 决定，REQ-006.2 AC-2.3）：**
+
+1. **只有全量分析填**（首建基线、`stale:framework` 全量重跑、`/business-analysis`）。
+2. **增量更新流程不填**：增量 run 的 Step 1~10 **不含** WebSearch 补段，这三节保持占位符。
+   理由：行业/政策信息变化慢，而增量更新的目标是快与可复现；每次联网搜索会让同一份财报
+   跑出不同的行业结论。
+3. **占位符不得当证据**：`build_evidence_index` 会把「只含占位符」的段落记进
+   `evidence_index.unfilled_sections` 并从 `entries` 里剔除；模块 bundle 对这些槽位给出
+   `evidence_coverage: unavailable` 与 `unavailable_inputs`（带原因），而不是一段假的 quote。
+4. **证据时点要写清楚**：增量 run 里行业/治理类判断若沿用上一轮，必须在报告里标明
+   「沿用 <日期> 那轮的行业证据」，不得写成本期新证据。
+5. 增量 run 若发现行业/政策出现**实质变化**，按既有升级规则走 `stale:framework` 全量重跑，
+   而不是在增量流程里临时补段。
+
+#### 7.1.2 证据引文与 bundle 预算的契约（REQ-006.2 AC-2.5）
+
+- **「索引窗口 + 引文子段」**：`evidence/index.json` 的每条摘录是**检索窗口**
+  （≤ `chunk_chars`，默认 1,200 字）；模块结果里的 `evidence[].quote` 必须是该窗口内
+  **≤300 字的逐字子段**（由 `results/schema.py` 校验，`validate_result_evidence` 保证
+  子段确实包含在窗口里）。索引自带 `quote_contract` 字段把这个关系写死，别再拿 300 去要求索引。
+- **必选行/必选节先保**：`contexts/{module}.json` 的预算按「先保必选行，再按预算填其余」
+  分配——利润表的**营业收入 / 营业成本 / 财务费用 / 净利润 / 归母净利润**不会因为从尾部
+  截断而消失（实测曾把「归母净利润」砍掉，D5 只能写 `null`）。
+- **同一 evidence id 的引文必须能在 `context_text` 里逐字核对**（同一段落的首块引文取
+  context 展示窗口内的子段，不再用另一个关键词窗口）。
+- **三态语义要翻译**：bundle 的 `coverage_states` 给出 `full / truncated / omitted /
+  missing / unavailable` 对本模块的含义（`omitted` 是预算不足，不是数据不存在；
+  `unavailable` 是 Agent 专属占位段本 run 不填），`section_states` 逐段给出实际状态。
 
 ### 7.2 新模块 `period_delta`
 

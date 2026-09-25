@@ -33,6 +33,30 @@ except ImportError:  # Support importing the package with scripts/ on sys.path.
     from version import framework_block
 
 
+#: 附注证据源的文件名：年报用 ``data_pack_report.md``，中报用 ``data_pack_report_interim.md``
+#: （2026-09-25 实跑里 ``--input`` 清单从不含它 → 每一轮 run 都是 ``exists=false`` 且没有任何
+#: 提示，模块只在 evidence_coverage 里看到一个 ``missing``；REQ-006.2 AC-2.6）。
+FOOTNOTE_SOURCE_NAMES = ("data_pack_report.md", "data_pack_report_interim.md")
+
+
+def _resolve_footnote_source(inputs_root: Path) -> tuple[Path, list[str]]:
+    """解析附注证据源；两个文件名都认，都不存在时给出**显式 warning**。"""
+
+    for name in FOOTNOTE_SOURCE_NAMES:
+        candidate = inputs_root / name
+        if candidate.is_file():
+            return candidate, []
+    return (
+        inputs_root / FOOTNOTE_SOURCE_NAMES[0],
+        [
+            "附注证据源缺失（not_applicable）：在 "
+            f"{inputs_root} 下找不到 {' 或 '.join(FOOTNOTE_SOURCE_NAMES)}；"
+            "本 run 的证据链没有附注来源（pdf_footnotes 在 evidence_coverage 里会是 missing）。"
+            "请把它加进 `runs.py new --input`，或确认本期不需要附注证据。"
+        ],
+    )
+
+
 def _period_arg(value: str) -> str:
     """Argparse type for ``--primary-period``: normalize and reject unknowns."""
 
@@ -141,9 +165,10 @@ def prepare_run(
     inputs_root = inputs_dir if inputs_dir.is_dir() else root
 
     data_pack = inputs_root / "data_pack_market.md"
-    footnote_report = inputs_root / "data_pack_report.md"
     annual_reports = sorted(inputs_root.glob("*.pdf"))
     pdf_sections, warnings = _select_pdf_sections(inputs_root, normalized_primary)
+    footnote_report, footnote_warnings = _resolve_footnote_source(inputs_root)
+    warnings.extend(footnote_warnings)
 
     prior_analysis_path = Path(prior_analysis) if prior_analysis else None
     if prior_analysis_path is not None and not prior_analysis_path.is_file():
@@ -260,6 +285,24 @@ def prepare_run(
         manifest["primary_period"] = normalized_primary
     if warnings:
         manifest["warnings"] = warnings
+    # 缺失的输入必须**机器可读地**登记原因，而不是只让模块在 evidence_coverage
+    # 里看到一个 `missing`（REQ-006.2 AC-2.6）。
+    missing_reasons = {
+        "pdf_footnotes": (
+            "附注证据源缺失：把 data_pack_report.md（中报 data_pack_report_interim.md）"
+            "加进 `runs.py new --input`，或确认本期不需要附注证据"
+        ),
+    }
+    unavailable_inputs = [
+        {
+            "source_id": item.get("source_id"),
+            "path": item.get("path"),
+            "reason": missing_reasons.get(item.get("source_id"), "输入文件不存在"),
+        }
+        for item in input_paths
+        if not item.get("exists")
+    ]
+    manifest["unavailable_inputs"] = unavailable_inputs
     manifest_path = root / "run_manifest.json"
     write_manifest(manifest, manifest_path)
     return {
@@ -271,6 +314,7 @@ def prepare_run(
         "contexts": context_paths,
         "primary_period": normalized_primary,
         "prior_analysis": str(prior_analysis_path.resolve()) if prior_analysis_path else "",
+        "unavailable_inputs": unavailable_inputs,
         "warnings": warnings,
     }
 

@@ -1,6 +1,6 @@
 """Tests for the structured result and bounded-context pipeline."""
 
-# 覆盖需求：REQ-006.1（财报分析端到端实跑加固）—— AC-1.3 prepare 的 run_id 一致性、
+# 覆盖需求：REQ-006.2 —— AC-2.6 prepare 对缺失的附注源给出 warning 与 not_applicable 登记\n# 覆盖需求：REQ-006.1（财报分析端到端实跑加固）—— AC-1.3 prepare 的 run_id 一致性、
 # AC-1.4 period_delta 作为可选模块参与 digest、AC-1.5 上下文预算与丢卡可见性、
 # AC-1.7 证据边界检查器
 
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from results.context import build_module_context
+from results.context import COVERAGE_STATE_MEANINGS, build_module_context
 from results.evidence import (
     build_evidence_index,
     bundle_evidence_ids,
@@ -19,7 +19,7 @@ from results.evidence import (
     validate_bundle_evidence,
     validate_result_evidence,
 )
-from results.manifest import build_manifest, describe_input
+from results.manifest import build_manifest, describe_input, input_set_digest
 from results.prepare import prepare_run
 from results.resolve_qualitative import main as resolve_main, resolve_qualitative_input
 from results.synthesis import build_synthesis_context
@@ -479,6 +479,48 @@ def test_prepare_run_creates_standard_workspace(tmp_path):
     assert context["subject"]["ticker"] == "600000.SH"
     manifest = json.loads((output_dir / "run_manifest.json").read_text(encoding="utf-8"))
     assert all(len(artifact["sha256"]) == 64 for artifact in manifest["artifacts"])
+
+
+# --- REQ-006.2 AC-2.6：缺失的附注源必须显式，不得静默 ----------------------
+
+
+def test_prepare_warns_and_records_when_the_footnote_source_is_missing(tmp_path):
+    """AC-2.6：附注源缺失时 `prepare` 必须 warning + 在 manifest 里登记原因。"""
+    output_dir = tmp_path / "stock"
+    output_dir.mkdir()
+    (output_dir / "data_pack_market.md").write_text("## 1. Basic\nBA\n", encoding="utf-8")
+
+    result = prepare_run(output_dir, ticker="600000.SH", company="Example Co")
+
+    assert any("附注证据源缺失" in warning for warning in result["warnings"]), result["warnings"]
+    manifest = json.loads((output_dir / "run_manifest.json").read_text(encoding="utf-8"))
+    entry = next(
+        item for item in manifest["unavailable_inputs"] if item["source_id"] == "pdf_footnotes"
+    )
+    assert entry["reason"], entry
+    footnote_input = next(
+        item for item in manifest["inputs"] if item["source_id"] == "pdf_footnotes"
+    )
+    assert footnote_input["exists"] is False
+
+
+def test_prepare_accepts_the_interim_footnote_source(tmp_path):
+    """AC-2.6：中报的 `data_pack_report_interim.md` 也是合法附注源。"""
+    output_dir = tmp_path / "stock"
+    output_dir.mkdir()
+    (output_dir / "data_pack_market.md").write_text("## 1. Basic\nBA\n", encoding="utf-8")
+    (output_dir / "data_pack_report_interim.md").write_text(
+        "## P1 附注\nFOOTNOTE\n", encoding="utf-8"
+    )
+
+    result = prepare_run(output_dir, ticker="600000.SH", company="Example Co")
+
+    assert not any("附注证据源缺失" in warning for warning in result["warnings"])
+    assert all(item["source_id"] != "pdf_footnotes" for item in result["unavailable_inputs"])
+    index = json.loads((output_dir / "evidence" / "index.json").read_text(encoding="utf-8"))
+    footnote = next(item for item in index["sources"] if item["source_id"] == "pdf_footnotes")
+    assert footnote["exists"] is True
+    assert any(entry["source_id"] == "pdf_footnotes" for entry in index["entries"])
 
 
 def test_prepare_run_generates_unique_default_run_ids(tmp_path):
@@ -1298,3 +1340,181 @@ def test_validate_result_cli_checks_the_bundle(tmp_path, capsys):
         validate_main()
     assert excinfo.value.code == 1
     assert "outside this module's context bundle" in capsys.readouterr().err
+
+
+# --- REQ-006.2 AC-2.5：索引窗口/引文子段、必选行、三态语义、窗口一致性 ---
+
+
+def test_evidence_index_declares_window_and_subrange_quote_contract(tmp_path):
+    """AC-2.5：索引摘录与模块引文的长度关系必须显式声明（窗口 + 子段范围）。"""
+    source = tmp_path / "pack.md"
+    source.write_text("## 3. 合并利润表\n" + "x" * 4000, encoding="utf-8")
+
+    index = build_evidence_index(
+        [{"source_id": "market_data", "path": str(source)}], chunk_chars=1200
+    )
+
+    contract = index["quote_contract"]
+    assert contract["index_window_chars"] == 1200
+    assert contract["module_quote_max_chars"] == 300
+    assert all(len(entry["quote"]) <= 1200 for entry in index["entries"])
+    assert any(len(entry["quote"]) > 300 for entry in index["entries"]), "检索窗口可以超过 300"
+
+
+def test_bundle_keeps_required_income_rows_under_a_tight_budget(tmp_path):
+    """AC-2.5：预算再紧也要保住利润表必选行（F14：「归母净利润」曾被截掉）。"""
+    rows = "".join(f"| 附带行{index} | {index} | {index} |\n" for index in range(300))
+    required = (
+        "| 营业收入 | 64,330.94 | 61,776.75 |\n"
+        "| 营业成本 | 40,894.00 | 39,507.00 |\n"
+        "| 财务费用 | -100.00 | -90.00 |\n"
+        "| 净利润 | 6,000.00 | 7,500.00 |\n"
+        "| 归母净利润 | 6,172.79 | 7,720.36 |\n"
+    )
+    pack = tmp_path / "data_pack.md"
+    pack.write_text(
+        "## 3. 合并利润表\n\n| 项目 | 2026H1 | 2025H1 |\n| --- | ---: | ---: |\n"
+        + rows
+        + required,
+        encoding="utf-8",
+    )
+
+    bundle = build_module_context("mda_quality", data_pack_path=pack, max_chars=6000)
+
+    for row in ("营业收入", "营业成本", "财务费用", "净利润", "归母净利润"):
+        assert row in bundle["context_text"], f"{row} 被预算砍掉了"
+    assert bundle["budget"]["actual_chars"] <= 6000
+    assert any(item["state"] == "truncated" for item in bundle["section_states"])
+
+
+def test_evidence_quote_stays_inside_the_shown_context_excerpt(tmp_path):
+    """AC-2.5：同一 evidence id 的引文必须落在 context_text 展示的范围内（F13）。"""
+    pack = tmp_path / "data_pack.md"
+    pack.write_text(
+        "## 3. 合并利润表\n" + "".join(f"| 行{index} | {index} |\n" for index in range(160)),
+        encoding="utf-8",
+    )
+    index = build_evidence_index([{"source_id": "market_data", "path": str(pack)}])
+    index_path = tmp_path / "index.json"
+    index_path.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+
+    bundle = build_module_context(
+        "mda_quality", data_pack_path=pack, evidence_index_path=str(index_path), max_chars=6000
+    )
+
+    marker = "[Market data: 3. 合并利润表]\n"
+    assert marker in bundle["context_text"]
+    shown = bundle["context_text"].split(marker, 1)[1].split("\n\n[", 1)[0]
+    quotes = [
+        item["quote"]
+        for item in bundle["evidence"]
+        if item["source_id"] == "market_data"
+        and item.get("locator", {}).get("section") == "3"
+    ]
+    assert quotes, bundle["selection"]["evidence_coverage"]
+    assert all(quote in shown for quote in quotes), "引文必须能在 context_text 里逐字核对"
+
+
+def test_bundle_translates_coverage_states_for_the_module(tmp_path):
+    """AC-2.5：missing / omitted / truncated / unavailable 在 bundle 里必须有可用性说明。"""
+    pack = tmp_path / "data_pack.md"
+    pack.write_text(
+        "## 3. 合并利润表\n" + "x" * 3000 + "\n\n## 8. 行业与竞争\n*[§8 待Agent WebSearch补充]*\n",
+        encoding="utf-8",
+    )
+    index = build_evidence_index([{"source_id": "market_data", "path": str(pack)}])
+    index_path = tmp_path / "index.json"
+    index_path.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+
+    bundle = build_module_context(
+        "environment", data_pack_path=pack, evidence_index_path=str(index_path), max_chars=8000
+    )
+
+    states = bundle["coverage_states"]
+    assert "不填" in states["unavailable"]
+    assert "索引里没有" in states["missing"]
+    # 图例覆盖全部五态；bundle 只带上本模块实际出现的那几态（省预算）。
+    assert set(COVERAGE_STATE_MEANINGS) >= {"full", "truncated", "omitted", "missing", "unavailable"}
+    assert "预算" in COVERAGE_STATE_MEANINGS["omitted"]
+    assert set(states) <= set(COVERAGE_STATE_MEANINGS)
+    assert all(states.values()), states
+
+
+# --- REQ-006.2 AC-2.7：输入指纹不受重解析易变字段影响 ------------------------
+
+
+def test_json_input_fingerprint_ignores_extract_time(tmp_path):
+    """AC-2.7 / F1：同一份 PDF 重解析只改 metadata.extract_time，输入指纹必须不变。"""
+    sections = tmp_path / "pdf_sections_2026H1.json"
+    payload = {"metadata": {"extract_time": "2026-09-25T04:00:00Z", "total_pages": 215},
+               "MDA": "管理层讨论与分析"}
+    sections.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    first = describe_input(sections, source_id="pdf_sections")
+
+    payload["metadata"]["extract_time"] = "2026-09-25T06:00:00Z"
+    sections.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    second = describe_input(sections, source_id="pdf_sections")
+
+    assert first["sha256"] == second["sha256"], "易变字段不该改变输入指纹"
+    assert input_set_digest([first]) == input_set_digest([second])
+
+    payload["MDA"] = "改过的正文"
+    sections.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    third = describe_input(sections, source_id="pdf_sections")
+    assert third["sha256"] != first["sha256"], "真实内容变化必须被检出"
+
+
+def test_non_json_input_fingerprint_stays_byte_exact(tmp_path):
+    """非 JSON 输入仍按原始字节哈希（手工替换表格这类改动必须能被检出）。"""
+    data = tmp_path / "data_pack_market.md"
+    data.write_text("## 3. 合并利润表\nA\n", encoding="utf-8")
+    first = describe_input(data, source_id="market_data")
+    data.write_text("## 3. 合并利润表\nB\n", encoding="utf-8")
+    second = describe_input(data, source_id="market_data")
+    assert first["sha256"] != second["sha256"]
+
+
+# --- REQ-006.2 AC-2.7：run.as_of 的取值规则 --------------------------------
+
+
+def test_as_of_must_be_a_date_and_not_in_the_future():
+    """AC-2.7：`as_of` 必须是 YYYY-MM-DD，且不得晚于 `generated_at`。"""
+    result = make_result("qualitative.environment")
+    result["run"]["generated_at"] = "2026-09-25T05:00:00Z"
+
+    result["run"]["as_of"] = "2026-10-01"
+    assert any("as_of" in error for error in validate_result(result))
+
+    result["run"]["as_of"] = "2026-06-30"
+    assert not any("as_of" in error for error in validate_result(result))
+
+    result["run"]["as_of"] = "2026/06/30"
+    assert any("YYYY-MM-DD" in error for error in validate_result(result))
+
+
+def test_bundle_marks_quotes_that_cannot_be_verified_in_context_text(tmp_path):
+    """AC-2.5 / F13：不能在 context_text 里核对的引文必须被显式标出。"""
+    pack = tmp_path / "data_pack.md"
+    pack.write_text("## 3. 合并利润表\n" + "".join(f"| 行{i} | {i} |\n" for i in range(160)), encoding="utf-8")
+    notes = tmp_path / "data_pack_report.md"
+    notes.write_text("## P6. Guarantees\n担保逾期金额 47.5624 百万元\n", encoding="utf-8")
+    index = build_evidence_index([
+        {"source_id": "market_data", "path": str(pack)},
+        {"source_id": "pdf_footnotes", "path": str(notes)},
+    ])
+    index_path = tmp_path / "index.json"
+    index_path.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+
+    bundle = build_module_context(
+        "governance", data_pack_path=pack, evidence_index_path=str(index_path), max_chars=6000
+    )
+
+    marked = {item["evidence_id"]: item["in_context"] for item in bundle["evidence"]}
+    assert marked, bundle["selection"]["evidence_coverage"]
+    assert bundle["selection"]["quotes_not_in_context"] == sorted(
+        evidence_id for evidence_id, ok in marked.items() if not ok
+    )
+    # 附注源本来就不在 context_text 里，必须出现在披露清单里
+    footnote_ids = [eid for eid in marked if eid.startswith("pdf_footnotes:")]
+    if footnote_ids:
+        assert all(eid in bundle["selection"]["quotes_not_in_context"] for eid in footnote_ids)

@@ -15,6 +15,53 @@ def _yf():
     return sys.modules["tushare_collector"].yf
 
 
+def _as_float(value):
+    """float 化；None / NaN / 非数字一律返回 None。"""
+
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if number != number else number
+
+
+def _segment_reconciliation_note(records: list) -> str:
+    """分部表与利润表的口径差说明（REQ-006.2 AC-2.1）。
+
+    数据包里的「产品」行是**分部披露口径**的合计，和利润表 §3「营业收入」不是一个口径；
+    差额由「合计特别调整」行承担（2026-09-25 实跑实测：去重后分部合计 64,330.95、
+    调整 158.78、产品合计 64,489.72）。不写清楚，读者会以为少了 158.78 百万元。
+    """
+
+    total = next((rec for rec in records if rec["name"].strip() == "产品"), None)
+    if total is None or total["revenue"] is None:
+        return ""
+    adjustment = next((rec for rec in records if "调整" in rec["name"]), None)
+    segments = [
+        rec["revenue"]
+        for rec in records
+        if rec is not total and rec is not adjustment and rec["revenue"] is not None
+    ]
+    # fina_mainbz 的 bz_sales 是**元**，表头是百万元（format_number 默认除 1e6）。
+    parts = [f"各分部营业收入合计 {sum(segments) / 1e6:,.2f} 百万元"]
+    adjustment_known = adjustment is not None and adjustment["revenue"] is not None
+    if adjustment_known:
+        parts.append(f"「{adjustment['name']}」{adjustment['revenue'] / 1e6:,.2f} 百万元")
+    parts.append(f"「{total['name']}」行 {total['revenue'] / 1e6:,.2f} 百万元")
+    tail = (
+        "它与利润表「营业收入」的口径差由「合计特别调整」行承担，**不是数据缺失**；"
+        if adjustment_known
+        else "它与利润表「营业收入」可能存在口径差（分部披露口径 vs 利润表口径），**不是数据缺失**；"
+    )
+    return (
+        "> 口径说明：上表按分部披露口径列示（" + "，".join(parts) + "）。"
+        + tail
+        + "引用分部数据时不要按行朴素相加。"
+    )
+
+
 class OtherDataMixin:
     """Mixin providing other data methods for TushareClient."""
 
@@ -43,29 +90,49 @@ class OtherDataMixin:
             df = df[df["end_date"] == latest_period]
 
         headers = ["业务名称", "营业收入 (百万元)", "营业利润 (百万元)", "毛利率 (%)"]
-        rows = []
+        records = []
+        seen_values: set = set()
         for _, r in df.iterrows():
-            name = r.get("bz_item", "—")
-            rev = r.get("bz_sales", None)
-            profit = r.get("bz_profit", None)
-            margin = r.get("bz_cost", None)
-            # Compute gross margin if both revenue and cost available
+            name = str(r.get("bz_item", "—"))
+            rev = _as_float(r.get("bz_sales"))
+            profit = _as_float(r.get("bz_profit"))
+            cost = _as_float(r.get("bz_cost"))
+            # fina_mainbz 会同时给出同值的两套名字（实测：「冷饮产品系列」≡「冷饮产品」、
+            # 「其他主营业务」≡「其他」）。同值重复行只保留第一条，否则按行相加会高估
+            # 16%（2026-09-25 实跑实测：朴素汇总 74,829.08 vs 真实合计 64,489.72）
+            # —— REQ-006.2 AC-2.1 / 发现 F8。
+            fingerprint = (
+                None if rev is None else round(rev, 2),
+                None if profit is None else round(profit, 2),
+            )
+            if fingerprint in seen_values:
+                continue
+            seen_values.add(fingerprint)
+            records.append({"name": name, "revenue": rev, "profit": profit, "cost": cost})
+
+        rows = []
+        for record in records:
+            rev = record["revenue"]
+            cost = record["cost"]
+            # 成本缺失（NaN/None）时毛利率是「—」而不是字面 `nan`：旧的
+            # ``if rev and margin`` 对 NaN 判真，会输出 `nan`（F8）。
             gm = "—"
-            if rev and margin:
-                try:
-                    gm = f"{(1 - float(margin)/float(rev)) * 100:.1f}"
-                except (ValueError, ZeroDivisionError):
-                    gm = "—"
+            if rev and cost is not None:
+                gm = f"{(1 - cost / rev) * 100:.1f}"
             rows.append([
-                str(name),
+                record["name"],
                 format_number(rev),
-                format_number(profit),
+                format_number(record["profit"]),
                 gm,
             ])
 
         table = format_table(headers, rows,
                              alignments=["l", "r", "r", "r"])
         lines.append(table)
+        note = _segment_reconciliation_note(records)
+        if note:
+            lines.append("")
+            lines.append(note)
         return "\n".join(lines)
 
     # --- Feature #25: Section 7 (partial) — Top 10 holders + audit ---
@@ -428,14 +495,19 @@ class OtherDataMixin:
         df = df.sort_values("end_date", ascending=False)
         latest = df.iloc[0]
 
+        # pledge_stat 的 unrest_pledge / rest_pledge / total_share **本来就是万股**
+        # （2026-09-25 实跑判定性反算：§1 总市值 17,015,220.01 万元 ÷ 26.90 元 =
+        # 632,536.06 万股，与接口返回的 total_share=632,536.07 完全吻合；同时
+        # pledge_ratio 6.29% == (39,775.1 + 0) / 632,536.07），再除一次 1e4 会差 10,001 倍
+        # （REQ-006.2 AC-2.2）。divider 显式传 1 而不是省略：format_number 的默认值是 1e6。
         table = format_table(
             ["项目", "数值"],
             [
                 ["统计日期", str(latest.get("end_date", "—"))],
                 ["质押笔数", f"{int(latest.get('pledge_count', 0))}"],
-                ["无限售质押 (万股)", format_number(latest.get("unrest_pledge"), divider=1e4, decimals=2)],
-                ["有限售质押 (万股)", format_number(latest.get("rest_pledge"), divider=1e4, decimals=2)],
-                ["总股本 (万股)", format_number(latest.get("total_share"), divider=1e4, decimals=2)],
+                ["无限售质押 (万股)", format_number(latest.get("unrest_pledge"), divider=1, decimals=2)],
+                ["有限售质押 (万股)", format_number(latest.get("rest_pledge"), divider=1, decimals=2)],
+                ["总股本 (万股)", format_number(latest.get("total_share"), divider=1, decimals=2)],
                 ["质押比例 (%)", f"{latest.get('pledge_ratio', 0):.2f}"],
             ],
             alignments=["l", "r"],

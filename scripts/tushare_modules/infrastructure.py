@@ -10,6 +10,29 @@ import pandas as pd
 from format_utils import format_number
 
 
+#: 永久性错误（无权限/未授权）的标志词。2026-09-25 实跑（F3）：`yc_cb` 连续 5 次返回
+#: 「抱歉，您没有接口(yc_cb)访问权限」，而重试对权限类错误没有任何意义——只会白等与刷屏。
+#: 命中这些标志词时立即放弃重试（REQ-006.2 AC-2.7）。
+PERMANENT_ERROR_MARKERS: tuple[str, ...] = (
+    "没有接口",
+    "无权限",
+    "权限不足",
+    "积分不足",
+    "no permission",
+    "permission denied",
+    "not authorized",
+    "unauthorized",
+    "access denied",
+)
+
+
+def is_permanent_api_error(error: BaseException) -> bool:
+    """权限/授权类错误是否属于「重试也没用」。"""
+
+    message = str(error).lower()
+    return any(marker.lower() in message for marker in PERMANENT_ERROR_MARKERS)
+
+
 class InfrastructureMixin:
     """Mixin providing infrastructure utilities for TushareClient."""
 
