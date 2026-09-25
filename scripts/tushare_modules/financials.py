@@ -21,6 +21,9 @@ from tushare_modules.constants import (
     US_INCOME_MAP, US_BALANCE_MAP, US_CASHFLOW_MAP,
 )
 
+#: fina_indicator 里「营收同比」的候选列，按优先级排列（REQ-006.2 AC-2.1）。
+REVENUE_YOY_ALIASES: tuple[str, ...] = ("or_yoy", "tr_yoy")
+
 
 class FinancialsMixin:
     """Mixin providing financial statement methods for TushareClient."""
@@ -1434,12 +1437,16 @@ class FinancialsMixin:
         if self._is_us(ts_code):
             return self._get_fina_indicators_us(ts_code)
 
+        # 营收同比在 fina_indicator 里的字段是 ``or_yoy``（营业收入同比增长率，
+        # 部分主体只有 ``tr_yoy`` 营业总收入同比增长率）。此前请求的 ``revenue_yoy``
+        # 不是该接口字段，Tushare 会静默丢弃 → 整行永远是「—」（REQ-006.2 AC-2.1，
+        # 2026-09-25 实跑实测：or_yoy/tr_yoy 回 4.1345 / 4.1285）。
         df = self._safe_call("fina_indicator", ts_code=ts_code,
                              fields="ts_code,end_date,roe,roe_waa,"
                                     "grossprofit_margin,netprofit_margin,"
                                     "rd_exp,current_ratio,quick_ratio,"
                                     "assets_turn,debt_to_assets,"
-                                    "revenue_yoy,netprofit_yoy,"
+                                    "or_yoy,tr_yoy,netprofit_yoy,"
                                     "ocfps,bps,profit_dedt,"
                                     "ebitda,fcff,netdebt,interestdebt,"
                                     "npl_ratio,prov_cov_ratio,cap_adequacy_ratio,"
@@ -1473,7 +1480,7 @@ class FinancialsMixin:
             ("总资产周转率", "assets_turn"),
         ]
         growth_fields = [
-            ("营收同比增长率 (%)", "revenue_yoy"),
+            ("营收同比增长率 (%)", "or_yoy"),
             ("净利润同比增长率 (%)", "netprofit_yoy"),
         ]
         per_share_fields = [
@@ -1497,9 +1504,16 @@ class FinancialsMixin:
             rows.append(row)
         for label, col in growth_fields:
             row = [label]
+            # 营收同比优先取 ``or_yoy``；该列为空时用 ``tr_yoy`` 兜底（AC-2.1）。
+            aliases = REVENUE_YOY_ALIASES if col == "or_yoy" else (col,)
             for _, r in df.iterrows():
-                val = r.get(col)
-                row.append(f"{val:.2f}" if val is not None and val == val else "—")
+                val = None
+                for alias in aliases:
+                    candidate = r.get(alias)
+                    if candidate is not None and candidate == candidate:
+                        val = candidate
+                        break
+                row.append(f"{val:.2f}" if val is not None else "—")
             rows.append(row)
         for label, col in per_share_fields:
             row = [label]

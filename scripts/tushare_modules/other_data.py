@@ -428,14 +428,19 @@ class OtherDataMixin:
         df = df.sort_values("end_date", ascending=False)
         latest = df.iloc[0]
 
+        # pledge_stat 的 unrest_pledge / rest_pledge / total_share **本来就是万股**
+        # （2026-09-25 实跑判定性反算：§1 总市值 17,015,220.01 万元 ÷ 26.90 元 =
+        # 632,536.06 万股，与接口返回的 total_share=632,536.07 完全吻合；同时
+        # pledge_ratio 6.29% == (39,775.1 + 0) / 632,536.07），再除一次 1e4 会差 10,001 倍
+        # （REQ-006.2 AC-2.2）。divider 显式传 1 而不是省略：format_number 的默认值是 1e6。
         table = format_table(
             ["项目", "数值"],
             [
                 ["统计日期", str(latest.get("end_date", "—"))],
                 ["质押笔数", f"{int(latest.get('pledge_count', 0))}"],
-                ["无限售质押 (万股)", format_number(latest.get("unrest_pledge"), divider=1e4, decimals=2)],
-                ["有限售质押 (万股)", format_number(latest.get("rest_pledge"), divider=1e4, decimals=2)],
-                ["总股本 (万股)", format_number(latest.get("total_share"), divider=1e4, decimals=2)],
+                ["无限售质押 (万股)", format_number(latest.get("unrest_pledge"), divider=1, decimals=2)],
+                ["有限售质押 (万股)", format_number(latest.get("rest_pledge"), divider=1, decimals=2)],
+                ["总股本 (万股)", format_number(latest.get("total_share"), divider=1, decimals=2)],
                 ["质押比例 (%)", f"{latest.get('pledge_ratio', 0):.2f}"],
             ],
             alignments=["l", "r"],

@@ -1077,7 +1077,7 @@ class TestFinaIndicatorsExpanded:
             client._safe_call = MagicMock(return_value=mock_df)
             result = client.get_fina_indicators("600887.SH")
 
-        # revenue_yoy 2024: 7.12
+        # or_yoy 2024: 7.12（fina_indicator 的营收同比字段；REQ-006.2 AC-2.1）
         assert "7.12" in result
         # ocfps 2024: 2.65
         assert "2.65" in result
@@ -1332,7 +1332,7 @@ class TestPledgeStat:
         assert "无限售质押" in result
         assert "有限售质押" in result
         assert "质押比例" in result
-        assert "5.19" in result  # pledge_ratio
+        assert "6.29" in result  # pledge_ratio（夹具为 2026-09-18 的真实响应）
 
     def test_pledge_stat_empty(self):
         """Verify graceful handling of empty pledge data."""
