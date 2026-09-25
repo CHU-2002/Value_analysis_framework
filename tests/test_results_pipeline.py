@@ -2136,3 +2136,305 @@ def test_bundle_metadata_overhead_does_not_starve_required_structure(tmp_path):
     total = bundle["budget"]["actual_chars"]
     content = len(bundle["context_text"]) + sum(len(item["quote"]) for item in bundle["evidence"])
     assert content >= total * 0.4, (content, total)
+
+
+# --- REQ-006.2 AC-2.5 / F25：同一 evidence_id 的具名子段可分别引用 ---------------
+
+
+def test_sub_excerpt_reference_helpers_parse_only_numeric_suffixes():
+    """`base#n` 的解析规则：只有末尾纯数字才算子段名，其余按块 id 处理。"""
+
+    from results.evidence_ref import (
+        evidence_reference_base,
+        format_evidence_reference,
+        split_evidence_reference,
+    )
+
+    assert split_evidence_reference("market_data:12:001") == ("market_data:12:001", None)
+    assert split_evidence_reference("market_data:12:001#2") == ("market_data:12:001", 2)
+    assert split_evidence_reference("market_data:12:001#0") == ("market_data:12:001", 0)
+    # `#` 后不是数字、或 `#` 前为空：整串就是块 id（不误拆索引里本来就有的 `#`）
+    assert split_evidence_reference("chunk#abc") == ("chunk#abc", None)
+    assert split_evidence_reference("#1") == ("#1", None)
+    assert evidence_reference_base("market_data:12:001#3") == "market_data:12:001"
+    assert format_evidence_reference("market_data:12:001", 0) == "market_data:12:001"
+    assert format_evidence_reference("market_data:12:001", 1) == "market_data:12:001#1"
+
+
+def _sub_excerpt_index() -> dict:
+    return {
+        "schema": "investment.evidence_index",
+        "schema_version": "1.0",
+        "entries": [
+            {
+                "evidence_id": "market_data:12:001",
+                "source_id": "market_data",
+                "section": "12",
+                "chunk_number": 1,
+                "quote": "ROE 18.5%",
+                "alternative_quotes": ["净利率 8.6%"],
+                "locator": {"path": "pack.md", "section": "12", "chunk": 1},
+                "content_hash": "h",
+            }
+        ],
+    }
+
+
+def _sub_excerpt_result(evidence: list[dict], *, claim_refs: list[str]) -> dict:
+    return {
+        "schema": "investment.result",
+        "schema_version": "1.0",
+        "result_type": "qualitative.synthesis",
+        "run": {"run_id": "r", "generated_at": "2026-09-25T00:00:00Z", "as_of": "2026-06-30", "status": "complete"},
+        "subject": {"ticker": "600887.SH", "company": "伊利股份", "market": "CN"},
+        "scope": ["D1", "D2", "D3", "D4", "D5", "D6", "D7"],
+        "summary": {"thesis": "t", "confidence": "medium"},
+        "parameters": {"moat_rating": "强"},
+        "metrics": {},
+        "claims": [
+            {
+                "claim_id": "c1",
+                "statement": "ROE 与净利率同时下滑。",
+                "type": "fact",
+                "confidence": "medium",
+                "evidence_ids": claim_refs,
+            }
+        ],
+        "risks": [],
+        "watchlist": [],
+        "evidence": evidence,
+        "upstream_digest": "d",
+        "quality": {"completeness": 0.9, "missing_inputs": [], "warnings": [], "unresolved_questions": []},
+    }
+
+
+def test_two_sub_excerpts_of_one_chunk_are_separately_citable():
+    """F25 正向：同一块的两个数值可以各占一条具名子段引用，校验通过。"""
+
+    index = _sub_excerpt_index()
+    result = _sub_excerpt_result(
+        [
+            {
+                "evidence_id": "market_data:12:001",
+                "source_id": "market_data",
+                "locator": {"path": "pack.md", "section": "12", "chunk": 1},
+                "quote": "ROE 18.5%",
+            },
+            {
+                "evidence_id": "market_data:12:001#1",
+                "source_id": "market_data",
+                "locator": {"path": "pack.md", "section": "12", "chunk": 1},
+                "quote": "净利率 8.6%",
+            },
+        ],
+        claim_refs=["market_data:12:001", "market_data:12:001#1"],
+    )
+
+    assert validate_result(result) == []
+    assert validate_result_evidence(result, index) == []
+
+
+def test_out_of_range_sub_excerpt_is_rejected():
+    """F25 反向：`#n` 超出该块实际摘录条数必须报错，不能靠编造子段名过校验。"""
+
+    index = _sub_excerpt_index()
+    result = _sub_excerpt_result(
+        [
+            {
+                "evidence_id": "market_data:12:001#7",
+                "source_id": "market_data",
+                "locator": {"path": "pack.md", "section": "12", "chunk": 1},
+                "quote": "净利率 8.6%",
+            }
+        ],
+        claim_refs=["market_data:12:001#7"],
+    )
+
+    errors = validate_result_evidence(result, index)
+    assert any("out of range" in error for error in errors), errors
+
+
+def test_sub_excerpt_reference_must_still_name_a_known_chunk():
+    """F25：`#n` 不能把一个不存在的块 id 变成合法引用。"""
+
+    index = _sub_excerpt_index()
+    result = _sub_excerpt_result(
+        [
+            {
+                "evidence_id": "market_data:99:001#1",
+                "source_id": "market_data",
+                "locator": {"path": "pack.md", "section": "99", "chunk": 1},
+                "quote": "x",
+            }
+        ],
+        claim_refs=["market_data:99:001#1"],
+    )
+
+    # 索引校验抓「块不存在」；结构校验只判块 id 是否在本次结果里被声明过，
+    # 所以这里换成正向断言：`#1` 形式的引用在其 base 已声明时不得被判 unknown。
+    assert any("absent from the evidence index" in error for error in validate_result_evidence(result, index))
+    declared = _sub_excerpt_result(
+        [
+            {
+                "evidence_id": "market_data:12:001",
+                "source_id": "market_data",
+                "locator": {"path": "pack.md", "section": "12", "chunk": 1},
+                "quote": "ROE 18.5%",
+            },
+            {
+                "evidence_id": "market_data:12:001#1",
+                "source_id": "market_data",
+                "locator": {"path": "pack.md", "section": "12", "chunk": 1},
+                "quote": "净利率 8.6%",
+            },
+        ],
+        claim_refs=["market_data:12:001#1"],
+    )
+    assert validate_result(declared) == []
+
+
+def test_bare_reference_accepts_any_excerpt_of_the_chunk(tmp_path):
+    """F25：裸块引用命中该块的**任意一条**摘录即可（不同模块摘同一块的不同数值）。"""
+
+    index = _sub_excerpt_index()
+    result = _sub_excerpt_result(
+        [
+            {
+                "evidence_id": "market_data:12:001",
+                "source_id": "market_data",
+                "locator": {"path": "pack.md", "section": "12", "chunk": 1},
+                "quote": "净利率 8.6%",
+            }
+        ],
+        claim_refs=["market_data:12:001"],
+    )
+
+    assert validate_result_evidence(result, index) == []
+
+
+def test_synthesis_context_declares_the_sub_excerpt_rule(tmp_path):
+    """F25：合成上下文的 instructions 必须把 `base#n` 规则交给最终汇总 Agent。"""
+
+    from results.synthesis import build_synthesis_context
+
+    args = _synthesis_fixture(tmp_path, [make_result("qualitative.business_moat")])
+    payload = build_synthesis_context(**args)
+    instructions = payload["instructions"]
+    assert "sub_excerpts" in instructions, sorted(instructions)
+    assert "#" in instructions["sub_excerpts"]
+
+
+def test_shared_evidence_exposes_every_excerpt_of_a_chunk_for_separate_citation(tmp_path):
+    """F25 端到端：合成上下文给出一个块的多条摘录，最终 sidecar 能把两个数值分别引用。
+
+    旧契约下「块 id 唯一 + 每条只带一段连续摘录」意味着同一块里的第二个数值无法被引用
+    （只能写成「同一索引块内、超窗口、未附摘录」）。现在两条都能进 sidecar 并通过校验。
+    """
+
+    from results.synthesis import build_synthesis_context
+
+    capex_quote = "资本支出 3,120.55 百万元，同比 +18.2%。"
+    cashflow_quote = "经营活动现金流量净额 6,480.11 百万元，同比 -9.4%。"
+    locator = {"section": "12"}
+    entry = {
+        "evidence_id": "E-001",
+        "source_id": "market_data",
+        "section": "12",
+        "chunk_number": 1,
+        "quote": capex_quote,
+        "locator": locator,
+        "content_hash": "h",
+    }
+    first = make_result("qualitative.business_moat")
+    second = make_result("qualitative.governance")
+    # 模块侧：两个模块各自从**同一块**摘到不同的数值（F25 的原始形态）
+    first["evidence"][0] = {**entry, "quote": capex_quote}
+    second["evidence"][0] = {**entry, "quote": cashflow_quote}
+    # 同一块的另一条摘录在索引里是 alternative（synthesis 再把两个模块各自的引用合并）
+    args = _synthesis_fixture(
+        tmp_path, [first, second], entries=[{**entry, "alternative_quotes": [cashflow_quote]}]
+    )
+
+    context = build_synthesis_context(**args)
+    shared = next(item for item in context["evidence"] if item["evidence_id"] == "E-001")
+    # 两条摘录都交给最终汇总 Agent（一条主摘录 + 一条 alternative）
+    assert shared["quote"] == capex_quote
+    assert shared["alternative_quotes"] == [cashflow_quote]
+
+    index = {
+        "schema": "investment.evidence_index",
+        "schema_version": "1.0",
+        "entries": [{**entry, "alternative_quotes": [cashflow_quote]}],
+    }
+    final = make_result("qualitative.synthesis")
+    final["evidence"] = [
+        {
+            "evidence_id": "E-001",
+            "source_id": "market_data",
+            "locator": dict(locator),
+            "quote": capex_quote,
+        },
+        {
+            "evidence_id": "E-001#1",
+            "source_id": "market_data",
+            "locator": dict(locator),
+            "quote": cashflow_quote,
+        },
+    ]
+    final["claims"] = [
+        {
+            "claim_id": "c-sub",
+            "statement": "资本支出上升而经营现金流下滑。",
+            "type": "fact",
+            "confidence": "medium",
+            "evidence_ids": ["E-001", "E-001#1"],
+        }
+    ]
+
+    assert validate_result(final) == []
+    assert validate_result_evidence(final, index) == []
+
+    # 反例：引用名与引文不一致（`#1` 却抄了第一段）必须被抓出
+    mismatched = json.loads(json.dumps(final))
+    mismatched["evidence"][1]["quote"] = capex_quote
+    assert any(
+        "does not match sub-excerpt #1" in error
+        for error in validate_result_evidence(mismatched, index)
+    )
+
+
+def test_budget_eviction_labels_every_dropped_item(tmp_path):
+    """AC-1.5 / F25 副产物：预算收尾阶段让出的条目也必须**逐条**记账。
+
+    收尾循环（加上丢弃披露后仍超预算时继续让出）原先只写一个笼统标签
+    `budget:disclosure`，多条内容被让出时会被去重成 1，于是 `dropped_count` 可能**小于**
+    各卡片 `omitted` 之和。AC-2.5 的 `sub_excerpts` 说明文字把某次装载推过阈值后暴露了它。
+    """
+
+    result = make_result()
+    result["claims"] = [
+        {
+            "claim_id": f"C-{index:03d}",
+            "statement": "Verified claim; " * 30,
+            "type": "fact",
+            "confidence": "medium",
+            "evidence_ids": ["E-001"],
+        }
+        for index in range(25)
+    ]
+    result["risks"] = [
+        {"risk": f"Risk {index}", "severity": "medium", "evidence_ids": ["E-001"]}
+        for index in range(10)
+    ]
+    result["watchlist"] = [f"Watch item {index}" for index in range(10)]
+    args = _synthesis_fixture(tmp_path, [result])
+
+    # 从宽松到极紧扫一遍：任何预算下都必须满足「丢弃计数 ≥ 省略之和」且标签不含笼统项
+    for max_chars in (12000, 11000, 10000, 9000):
+        context = build_synthesis_context(**args, max_chars=max_chars)
+        omitted = context["modules"][0]["omitted"]
+        dropped_labels = context["budget"]["dropped"].get("qualitative.business_moat", [])
+        assert context["budget"]["dropped_count"] >= (
+            omitted["claims"] + omitted["risks"] + omitted["watchlist"]
+        ), (max_chars, context["budget"]["dropped_count"], omitted)
+        assert all(label != "budget:disclosure" for label in dropped_labels), dropped_labels

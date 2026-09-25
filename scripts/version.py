@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 #: Next semantic version after the current ``[Unreleased]`` CHANGELOG section.
-FRAMEWORK_VERSION = "0.2.0"
+FRAMEWORK_VERSION = "0.3.0"
 
 #: Root-relative directories whose file contents define the prompt fingerprint.
 PROMPT_ROOTS: tuple[str, ...] = (

@@ -152,6 +152,13 @@ output/{code}_{company}/modules/{module}/result.json
 
 每个重要判断必须通过 `evidence_ids` 引用 `evidence/index.json` 中的证据。最终汇总 Agent 读取模块结果卡片和冲突报告，由大模型重新生成投资叙事，不得把模块正文直接拼接为最终报告。
 
+**同一索引块的多条摘录**（REQ-006.2 AC-2.5 / 发现 F25）：一个块的 `quote` 与
+`alternative_quotes` 是它的多条摘录。需要同时引用同一块里的**不同数值**时，用
+`<evidence_id>#<n>` 分别引用（`n` 即该摘录的 `quote_index`，裸 id 等价于 `#0`），
+每条各自带一段连续摘录；因此最终 sidecar 里同一块 id 允许出现多次（**唯一性判在引用上，
+不判在块 id 上**）。`n` 不得超出现有摘录条数（校验器会报 out of range），也不得把
+多条摘录拼成一条。
+
 ### 版本兼容
 - Schema 版本号：v1.2
 - v1.1 → v1.2 变更：D4 新增 integrity_rating, promise_delivery, valuation_confidence_impact，用于表达治理/诚信风险对下游估值的直接影响

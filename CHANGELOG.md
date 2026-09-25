@@ -146,6 +146,42 @@
 
 - 移除龟龟策略模块：`strategies/turtle/`、`/turtle-analysis` 命令与 skill；其能力由价值分析覆盖，上游项目仍保留在致谢中
 
+## [Unreleased]
+
+## [0.3.0] - 2026-09-25
+
+### Changed
+
+- **框架标识语义变更**（REQ-006.2 `AC-2.7` / 发现 F28）：`code_fingerprint` 由「git HEAD sha
+  （脏工作树加 `-dirty` 后缀）」改为对 `DIRTY_TRACKED_PATHS` 下文件**内容**的 sha256 摘要
+  （`sha256:` 前缀），并忽略 `__pycache__` / `*.pyc` / `.DS_Store` 这类随运行出现或消失的产物。
+  `git_commit` 与 `dirty` 仍是独立的溯源字段。影响：**只改 `docs/**` 的提交不再让已记录的 run
+  变成 `framework_changed`**（旧实现下，记录实跑的那次文档提交本身就令该 run 失效）；
+  已记录 run 的旧形态指纹会被判 `framework_changed` 一次，属预期。
+
+### Fixed
+
+- 增量更新实跑暴露的一批缺陷（REQ-006.2，来源为 `REQ-006.1` 的 AC-1.9 实跑，共 28 条发现）：
+  - **附注源期次混用**（F29）：附注包头部新增机器可读的 `> 报告期：YYYYH1 / YYYYFY` 契约，
+    `prepare` 登记 `pdf_footnotes` 的期次（声明优先、文件名 + 资料截止日兜底）并与
+    `--primary_period` 比对，不一致时给 `period mismatch` 告警并写入
+    `run_manifest.period_mismatches` 与 `evidence/index.json`；中报附注包优先于年报包，
+    未选中的候选仍作为「输入变更」监测项登记；模块 bundle 新增 `source_periods`
+    与 `selection.period_mismatches`，让模块看见「这份证据属于哪一期」。
+  - **证据预算饿死必选结构**（AC-2.5）：证据槽位改为「必选节 → 上一版结论 → 其余来源」
+    三档轮转，含必选行的段落在字符预算里有下限，`period_delta` 显式声明
+    `max_evidence=16` / `max_chars=32000`——真实载荷下利润表 5 条必选行与 8 个市场数据段
+    不再被挤空（D7 的四个必填参数从全 `null` 变为可计算）。
+  - **重大担保表列值错位**（AC-2.4）：删除与结构化表格重复的原文复述（含折行后的多行列头
+    与错位数值），索引窗口不再把表头与首个数据行劈开，bundle 按证据槽位分配预算并保证
+    `evidence_coverage` 指向**已交付**的块——`MATTERS` 现在给模块同时提供列值一一对应的
+    16 列担保明细表与「担保总额（A+B）」汇总块（`担保是否逾期=是`、`担保逾期金额=4,811.72`）。
+  - **`business_trend` 基准未定义**（F30）：规格与 schema 参考同时写明它比较的是
+    「本期 vs 上年同期」（`report_period` vs `comparable_period`），不是与上一次 run 的相对变化。
+  - 另含 `AC-2.1`（分部表去重 / `or_yoy`）、`AC-2.2`（股数单位与一致性校验）、
+    `AC-2.3`（异常检测期次含本期、占位段落策略）、`AC-2.7` 的其余部分（输入指纹不受重解析
+    易变字段影响、as_of 规则、权限类错误不再重试、枚举与规格一致）。
+
 ## [0.1.0] - 2026-09-13
 
 ### Added

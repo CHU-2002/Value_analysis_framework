@@ -18,6 +18,7 @@ from results.manifest import (
     validate_manifest_inputs,
     write_manifest,
 )
+from version import FRAMEWORK_VERSION
 
 
 def _company_dir(tmp_path: Path) -> Path:
@@ -69,7 +70,7 @@ def test_new_snapshots_inputs_with_immutable_copies(tmp_path):
     assert run_meta["primary_period"] == "2025FY"
     assert run_meta["supersedes"] is None
     assert run_meta["subject"] == {"ticker": "600887.SH", "company": "伊利股份", "market": "CN"}
-    assert run_meta["framework"]["version"] == "0.2.0"
+    assert run_meta["framework"]["version"] == FRAMEWORK_VERSION
 
     manifest = json.loads((run_path / "inputs" / "sources_manifest.json").read_text(encoding="utf-8"))
     entries = {Path(item["source_path"]).name: item for item in manifest["sources"]}
@@ -263,7 +264,7 @@ def test_finish_writes_history_pointer_and_record(tmp_path):
     assert entry["subject"] == {"ticker": "600887.SH", "company": "伊利股份", "market": "CN"}
     assert entry["report_periods"] == ["2023FY", "2024FY", "2026H1"]
     assert entry["primary_period"] == "2026H1"
-    assert entry["framework"]["version"] == "0.2.0"
+    assert entry["framework"]["version"] == FRAMEWORK_VERSION
     assert entry["framework"]["schema_versions"]["manifest"] == "1.0"
     assert entry["conclusions_changed"] == ["moat_rating 强→较强"]
     assert entry["artifacts"]["report"] == str((run_path / "qualitative_report.md").resolve())
