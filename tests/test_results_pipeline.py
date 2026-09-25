@@ -19,7 +19,7 @@ from results.evidence import (
     validate_bundle_evidence,
     validate_result_evidence,
 )
-from results.manifest import build_manifest, describe_input
+from results.manifest import build_manifest, describe_input, input_set_digest
 from results.prepare import prepare_run
 from results.resolve_qualitative import main as resolve_main, resolve_qualitative_input
 from results.synthesis import build_synthesis_context
@@ -1438,3 +1438,55 @@ def test_bundle_translates_coverage_states_for_the_module(tmp_path):
     assert "预算" in COVERAGE_STATE_MEANINGS["omitted"]
     assert set(states) <= set(COVERAGE_STATE_MEANINGS)
     assert all(states.values()), states
+
+
+# --- REQ-006.2 AC-2.7：输入指纹不受重解析易变字段影响 ------------------------
+
+
+def test_json_input_fingerprint_ignores_extract_time(tmp_path):
+    """AC-2.7 / F1：同一份 PDF 重解析只改 metadata.extract_time，输入指纹必须不变。"""
+    sections = tmp_path / "pdf_sections_2026H1.json"
+    payload = {"metadata": {"extract_time": "2026-09-25T04:00:00Z", "total_pages": 215},
+               "MDA": "管理层讨论与分析"}
+    sections.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    first = describe_input(sections, source_id="pdf_sections")
+
+    payload["metadata"]["extract_time"] = "2026-09-25T06:00:00Z"
+    sections.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    second = describe_input(sections, source_id="pdf_sections")
+
+    assert first["sha256"] == second["sha256"], "易变字段不该改变输入指纹"
+    assert input_set_digest([first]) == input_set_digest([second])
+
+    payload["MDA"] = "改过的正文"
+    sections.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    third = describe_input(sections, source_id="pdf_sections")
+    assert third["sha256"] != first["sha256"], "真实内容变化必须被检出"
+
+
+def test_non_json_input_fingerprint_stays_byte_exact(tmp_path):
+    """非 JSON 输入仍按原始字节哈希（手工替换表格这类改动必须能被检出）。"""
+    data = tmp_path / "data_pack_market.md"
+    data.write_text("## 3. 合并利润表\nA\n", encoding="utf-8")
+    first = describe_input(data, source_id="market_data")
+    data.write_text("## 3. 合并利润表\nB\n", encoding="utf-8")
+    second = describe_input(data, source_id="market_data")
+    assert first["sha256"] != second["sha256"]
+
+
+# --- REQ-006.2 AC-2.7：run.as_of 的取值规则 --------------------------------
+
+
+def test_as_of_must_be_a_date_and_not_in_the_future():
+    """AC-2.7：`as_of` 必须是 YYYY-MM-DD，且不得晚于 `generated_at`。"""
+    result = make_result("qualitative.environment")
+    result["run"]["generated_at"] = "2026-09-25T05:00:00Z"
+
+    result["run"]["as_of"] = "2026-10-01"
+    assert any("as_of" in error for error in validate_result(result))
+
+    result["run"]["as_of"] = "2026-06-30"
+    assert not any("as_of" in error for error in validate_result(result))
+
+    result["run"]["as_of"] = "2026/06/30"
+    assert any("YYYY-MM-DD" in error for error in validate_result(result))

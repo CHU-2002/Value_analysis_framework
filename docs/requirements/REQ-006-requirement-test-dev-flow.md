@@ -104,7 +104,7 @@ supersedes: TBD
   写成 `in-progress` 而非 `accepted` 是**追溯门禁的强制结果**：父需求 REQ-006 已是 `in-progress`，
   而门禁要求「父需求不得比它最慢的子需求更靠前」，所以新登记的子需求不能停在 `accepted`。
   实际完成度以 `AC-2.1`~`AC-2.8` 的证据与 PR 为准。
-- 进度（2026-09-25，**未收口**，全量门禁 `1588 passed, 3 skipped`、覆盖率 78.60%）：
+- 进度（2026-09-25，**未收口**，全量门禁 `1593 passed, 3 skipped`、覆盖率 78.64%）：
   - `AC-2.2` 已实现：`scripts/tushare_modules/other_data.py:get_pledge_stat` 去掉三个股数字段的
     `divider=1e4`（接口本就是万股），并新增「§1 总市值 ÷ 现价 反推股数 ≈ §16 总股本（相对误差 <1%）」
     与「质押比例 == 质押股数 / 总股本」两条一致性校验；`pledge_stat.json` 夹具换成 2026-09-18 真实响应。
@@ -147,10 +147,22 @@ supersedes: TBD
     换 `vertical_strategy=text / horizontal_strategy=lines` 也只能把「担保逾期金额 / 是否逾期 /
     反担保」并进同一个 cell（值 `是 4,811.72` 无法自动拆开），需要版面层或人工处理，
     留作后续切片。
+  - `AC-2.7` **部分实现**：① `run.as_of` 有了明确规则并由 `validate_result` 校验——
+    必须是 `YYYY-MM-DD` 且不得晚于 `run.generated_at`（`schema.py:_validate_as_of`）；
+    ② 输入指纹不再受重解析的易变字段影响：`describe_input` 对 JSON 输入按「去掉
+    `extract_time` / `generated_at` 后」的规范化内容哈希（`manifest.py:input_content_sha256`），
+    非 JSON 仍按原始字节（F1）；③ 永久性权限类错误不再走满重试——`is_permanent_api_error`
+    命中「没有接口/无权限/permission denied」等标志词时立即放弃，采集器与选股器的
+    `_safe_call` 都已接入（F3）；④ 规格与 schema 的枚举一致：environment 的
+    `cyclicality` / `cycle_position` / `regulatory_risk` 增加 `unknown`，
+    `shared/qualitative/references/output_schema.md` 同步（契约测试逐字比较）（F24）。
+    **未做**：`reconcile_results` 的跨 run 评级类参数一致性检查、卡片压缩后的悬空引用与
+    被剥离引用的显式标注（F21/F27）、F26 的「同输入同判断」伴随字段。
   - 测试：新增 `tests/test_tushare_pack_sections.py`（13 例，夹具取真实响应、不做网络调用）；
-    `tests/test_results_pipeline.py` 增 2 例（AC-2.6）+ 4 例（AC-2.5：契约、必选行、
-    引文窗口一致、三态图例）；`tests/test_pdf_preprocessor.py` 增 5 例（正文在前的代表块、
-    双栏重排判定）；`tests/test_prepare_primary_period.py` / `tests/test_prepare_prior_analysis.py`
+    `tests/test_results_pipeline.py` 增 2 例（AC-2.6）+ 4 例（AC-2.5）+ 3 例（AC-2.7：
+    指纹不受 extract_time 影响、非 JSON 仍按字节、as_of 规则）；`tests/test_tushare_client.py`
+    增 2 例（权限错误只调一次 / 普通错误仍重试）；`tests/test_pdf_preprocessor.py` 增 5 例；
+    `tests/test_prepare_primary_period.py` / `tests/test_prepare_prior_analysis.py`
     的夹具补上附注源，让「干净 run 无 warning」的断言继续成立。
   - PR #TBD（合入后回填）。
 - 目标：把 2026-09-25 的 AC-1.9 复跑（run `20260925T042255414048Z`）暴露的**数据包生成、PDF 抽取、

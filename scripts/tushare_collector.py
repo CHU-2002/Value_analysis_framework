@@ -35,6 +35,7 @@ from format_utils import format_number, format_table, format_header
 # Tests and external code import these from tushare_collector directly:
 #   from tushare_collector import TushareClient, WarningsCollector, rate_limit
 #   from tushare_collector import _VIP_MAP, HK_INCOME_MAP, US_INCOME_MAP
+from tushare_modules.infrastructure import is_permanent_api_error
 from tushare_modules import (
     _VIP_MAP,
     HK_INCOME_MAP, HK_BALANCE_MAP, HK_CASHFLOW_MAP,
@@ -135,6 +136,13 @@ class TushareClient(
                 return df
             except Exception as e:
                 last_err = e
+                if is_permanent_api_error(e):
+                    # 权限类错误重试无意义（F3）：立即放弃，不占用 5 次重试。
+                    print(
+                        f"{effective_name}: permanent error ({e}); not retrying",
+                        file=sys.stderr,
+                    )
+                    break
                 if attempt < self.MAX_RETRIES:
                     is_conn_err = isinstance(e, (ConnectionError, OSError)) or \
                         "RemoteDisconnected" in type(e).__name__ or \

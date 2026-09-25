@@ -3010,3 +3010,30 @@ class TestUSFYDetectionBeforeYFFill:
         assert yf_used
         # 20240928 should have been matched to 2024-09-30 via fallback
         assert filled.iloc[0]["operate_profit"] == 120000.0
+
+
+class TestPermanentErrorsDoNotRetry:
+    """REQ-006.2 AC-2.7 / F3：权限类错误重试没有意义，不得走满 5 次。"""
+
+    def test_permission_error_calls_the_api_once(self):
+        client = _make_client()
+        client.pro.yc_cb.side_effect = RuntimeError(
+            "抱歉，您没有接口(yc_cb)访问权限"
+        )
+
+        with patch("tushare_collector.time.sleep"):
+            with pytest.raises(RuntimeError):
+                client._safe_call("yc_cb", ts_code="600887.SH")
+
+        assert client.pro.yc_cb.call_count == 1, "权限错误不该被重试"
+
+    def test_transient_error_still_retries(self):
+        """对照：普通错误仍走满重试（不要把这条一起关掉）。"""
+        client = _make_client()
+        client.pro.daily.side_effect = ValueError("boom")
+
+        with patch("tushare_collector.time.sleep"):
+            with pytest.raises(RuntimeError):
+                client._safe_call("daily", ts_code="600887.SH")
+
+        assert client.pro.daily.call_count == client.MAX_RETRIES
