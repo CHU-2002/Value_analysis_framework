@@ -38,6 +38,7 @@ from scripts.pdf_preprocessor import (
     is_garbled,
     _score_match,
     _tables_to_markdown,
+    _drop_raw_duplicates_of_tables,
     _truncate_at_boundary,
     _load_hints,
     parse_args,
@@ -257,6 +258,65 @@ class TestTableExtraction:
 
         assert "[TABLE]" in result[0][1]
         assert "| Col1 | Col2 |" in result[0][1]
+
+    def test_multi_row_header_table_dedup_keeps_only_aligned_table(self):
+        """AC-2.4：多行列头表格的**原文复述**必须被删掉，只留列值一一对应的表格版本。
+
+        真实 PDF（600887_2026_中报.pdf p.37 重大担保表）的原文把 16 列列头折成多行、
+        数值与列名错位；结构化表格才是列对齐的那一份。旧实现只删「整行等于某个单元格」
+        的行，折行后的列头片段（``担保方 担保金额``）与错位的数值行都留了下来，
+        关键词打分就会挑中原文那份。
+        """
+
+        header = "| 担保方 | 被担保方 | 担保金额 | 担保是否逾期 | 担保逾期金额 |"
+        table = "\n".join([
+            header,
+            "| --- | --- | --- | --- | --- |",
+            "| 惠商融资担保 | 供应商 | 198,026.04 | 是 | 4,811.72 |",
+        ])
+        raw = "\n".join([
+            "内蒙古伊利实业集团股份有限公司2026年半年度报告",
+            "(二)报告期内履行的及尚未履行完毕的重大担保情况",
+            "√适用 □不适用",
+            "担保方 担保金额",
+            "被担保方 担保是否逾期",
+            "担保逾期金额",
+            "惠商融 供应商",
+            "198,026.04 是",
+            "4,811.72",
+            "为促进产业链金融服务，公司为上下游合作伙伴提供融资担保。",
+            "34/ 215",
+        ])
+        result = _drop_raw_duplicates_of_tables(f"{raw}\n\n[TABLE]\n{table}\n")
+
+        # 结构化表格完整保留：列头 + 数据行一一对应
+        assert header in result
+        assert "| 惠商融资担保 | 供应商 | 198,026.04 | 是 | 4,811.72 |" in result
+        # 原文那份未对齐的复述被删掉（列头片段、错位数值、孤立金额）
+        assert "担保方 担保金额" not in result
+        assert "被担保方 担保是否逾期" not in result
+        assert "\n4,811.72\n" not in result
+        # 表格未覆盖的正文与页码照旧保留
+        assert "为促进产业链金融服务" in result
+        assert "34/ 215" in result
+
+    def test_table_dedup_keeps_prose_that_only_looks_like_a_cell(self):
+        """去重不能伤及表格没覆盖的正文：只有整行内容都在表格里时才删。"""
+
+        table = "\n".join([
+            "| 项目 | 金额 |",
+            "| --- | --- |",
+            "| 担保总额 | 100 |",
+        ])
+        raw = "\n".join([
+            "本节说明担保总额的统计口径与合并范围。",
+            "担保总额 100",
+            "公司认为担保规模处于可控水平。",
+        ])
+        result = _drop_raw_duplicates_of_tables(f"{raw}\n\n[TABLE]\n{table}\n")
+        assert "本节说明担保总额的统计口径与合并范围。" in result
+        assert "公司认为担保规模处于可控水平。" in result
+        assert "担保总额 100" not in result
 
 
 # ============================================================

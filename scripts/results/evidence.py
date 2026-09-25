@@ -49,6 +49,15 @@ def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+def _window_ends_inside_markdown_table(text: str, end: int) -> bool:
+    """``text[:end]`` 的最后一段非空内容是否还落在 markdown 表格里（行首是 ``|``）。"""
+
+    tail = text[:end].rstrip()
+    if not tail:
+        return False
+    return tail.rsplit("\n", 1)[-1].lstrip().startswith("|")
+
+
 def chunk_text(text: str, *, max_chars: int = DEFAULT_CHUNK_CHARS, overlap: int = DEFAULT_OVERLAP_CHARS) -> list[str]:
     """Split text without silently dropping content."""
 
@@ -72,6 +81,16 @@ def chunk_text(text: str, *, max_chars: int = DEFAULT_CHUNK_CHARS, overlap: int 
             )
             if boundary > start + max_chars // 2:
                 end = boundary + 1
+            # 「表头 + 首个数据行」不能劈到两个窗口里：多行列头的大表（重大担保表 16 列）
+            # 若窗口正好停在表头行之后，前一个窗口只有列名、后一个窗口只有数值，任何一条
+            # 摘录都无法核对「列与值一一对应」（REQ-006.2 AC-2.4）。当窗口尾部还在表格里
+            # 且表格起点在本窗口后半段时，把边界提前到表格起点，让表格自己开一个窗口，
+            # 表头与紧随其后的数据行就落在同一窗口（表格比窗口长时仍会在行边界续窗）。
+            table_start = normalized.rfind("[TABLE]", start, end)
+            if table_start > start + max_chars // 2 and _window_ends_inside_markdown_table(
+                normalized, end,
+            ):
+                end = table_start
         chunks.append(normalized[start:end].strip())
         if end >= len(normalized):
             break

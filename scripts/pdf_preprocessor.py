@@ -383,6 +383,10 @@ def extract_all_pages(pdf_path: str, verbose: bool = False) -> List[Tuple[int, s
                     table_md = _tables_to_markdown(tables)
                     if table_md:
                         text = text + "\n\n[TABLE]\n" + table_md
+                # 同一页的原文与 markup 表格是两份表达：多行列头的大表（重大担保表）
+                # 原文那份列值对不上，必须让结构化表格版本成为唯一进入索引的一份
+                # （REQ-006.2 AC-2.4）。
+                text = _drop_raw_duplicates_of_tables(text)
 
                 if is_garbled(text) and len(text) > 50:
                     garbled_count += 1
@@ -709,6 +713,192 @@ def extract_section_context(
         contexts[section_id] = combined
 
     return contexts
+
+
+def _normalize_for_table_match(line: str) -> str:
+    """把一行压成「去空白、去表格竖线」的形式，用于判断原文行是否与表格行重复。"""
+
+    return "".join(ch for ch in line if not ch.isspace() and ch != "|")
+
+
+def _table_content_tokens(table_lines: list[str]) -> tuple[set[str], dict[str, int], str]:
+    """表格里出现过的内容标记、每个标记**出现在多少行**，以及整张表的规范化全文。
+
+    返回 ``(全部标记, 标记 -> 出现行数, 规范化全文)``。前两项识别「整行 / 整格」与
+    「被折行拆碎的单元格」；第三项用于判断一行原文是否**只由表格里已有的片段**组成
+    （多行列头的原文复述就是这样：每个片段都能在表格里找到，但拼起来不属于任何整行）。
+    """
+
+    seen: set[str] = set()
+    row_counts: dict[str, int] = {}
+    normalized_parts: list[str] = []
+    for table_line in table_lines:
+        normalized_line = _normalize_for_table_match(table_line)
+        if normalized_line:
+            seen.add(normalized_line)
+            normalized_parts.append(normalized_line)
+        row_tokens: set[str] = set()
+        for cell in table_line.split("|"):
+            normalized_cell = _normalize_for_table_match(cell)
+            if normalized_cell:
+                seen.add(normalized_cell)
+                row_tokens.add(normalized_cell)
+        for token in row_tokens:
+            row_counts[token] = row_counts.get(token, 0) + 1
+    return seen, row_counts, "".join(normalized_parts)
+
+
+def _raw_line_duplicates_table(
+    line: str, table_seen: set[str], table_text: str = "",
+) -> bool:
+    """这一行原文是否只是表格内容的复述（是则不进索引，交给表格版本表达）。
+
+    判据从强到弱：
+    1. 整行（规范化后）就是表格的某一行 / 某个单元格——单格汇总行属这一类；
+    2. 整行是表格文本的一段**连续子串**——表格把这句放进了一个 cell，原文单独起行；
+    3. 按空白切分的**每个片段**都能在表格文本里找到——多行列头 / 折行单元格的原文
+       复述就是这样：``担保发生日 担保是否 担保 是否为`` 四个片段分别来自表头的四个
+       单元格，拼起来却不属于任何整行（pdfplumber 的列顺序与 markup 表格不同）。
+       这一层只在**这一行没有引入表格之外的内容**时命中，所以原文里的正文（本节结论、
+       表格未覆盖的句子）不会命中。
+    """
+
+    stripped = line.strip()
+    if not stripped:
+        return False
+    # 页码 / 页标记 / 页眉：不是表格内容。
+    if stripped.startswith("---") or stripped.startswith("内蒙古伊利实业集团股份有限公司"):
+        return False
+    normalized = _normalize_for_table_match(stripped)
+    if not normalized:
+        return False
+    if normalized in table_seen:
+        return True
+    if table_text and normalized in table_text:
+        return True
+    if not table_text:
+        return False
+    tokens = [
+        token
+        for token in (_normalize_for_table_match(part) for part in stripped.split())
+        if token
+    ]
+    # 至少两个片段、至少一个多字片段：避免把「√适用」「否」这类短标记误判成表格复述。
+    if len(tokens) < 2 or not any(len(token) >= 2 for token in tokens):
+        return False
+    return all(token in table_text for token in tokens)
+
+
+def _duplicate_raw_line_numbers(
+    raw_lines: list[str], table_seen: set[str], token_row_counts: dict[str, int],
+    table_text: str = "",
+) -> set[int]:
+    """找出原文段里「只是表格复述」的行号。
+
+    四种形态都算重复：
+    1. 整行文本就是表格里的某个 cell / 整行；
+    2. 整行是表格文本的连续子串（表格把整句放进了一个 cell）；
+    3. 整行按空白切成的每个片段都能在表格里找到（多行列头的未对齐复述）；
+    4. 原文把表格的一行拆成多行，**连续**片段拼起来正好等于表格里的一行内容，
+       或某个片段在表格的**多行**里都出现（被折行拆碎的金额 / 日期）。
+    表格未覆盖的句子（如担保存续说明）四条都不命中，照旧保留。
+    """
+
+    duplicates = {
+        index
+        for index, line in enumerate(raw_lines)
+        if _raw_line_duplicates_table(line, table_seen, table_text)
+    }
+    index = 0
+    while index < len(raw_lines):
+        if index in duplicates or not raw_lines[index].strip():
+            index += 1
+            continue
+        merged = _normalize_for_table_match(raw_lines[index])
+        cursor = index + 1
+        while cursor < len(raw_lines) and raw_lines[cursor].strip() and cursor not in duplicates:
+            candidate = merged + _normalize_for_table_match(raw_lines[cursor])
+            if candidate not in table_seen:
+                break
+            merged = candidate
+            duplicates.add(cursor)
+            cursor += 1
+        index += 1
+    for index, line in enumerate(raw_lines):
+        if index in duplicates:
+            continue
+        normalized = _normalize_for_table_match(line.strip())
+        if normalized and token_row_counts.get(normalized, 0) >= 2:
+            duplicates.add(index)
+    return duplicates
+
+
+def _drop_raw_duplicates_of_tables(text: str) -> str:
+    """去掉与 `[TABLE]` 块内容重复的**原文行**，只留下结构化表格版本。
+
+    同一页会先进一次原文（``extract_text()`` 的线性化结果），再进一次 markup 表格。对
+    多行列头的大表（重大担保表：16 列）原文那一份的列与值对不上——「担保逾期金额」被
+    压在别的表头下面、值 ``4,811.72`` 落在孤立的行里，而结构化表格是**列值一一对应**的。
+    两份都进索引时，关键词打分很容易挑中原文那份（REQ-006.2 AC-2.4 实测：
+    `pdf_sections:MATTERS:003` 被 `governance`/`period_delta` 当成担保证据，而列对齐的
+    表格版 `MATTERS:004` 反而没被引用）。
+
+    实现：把文本切成「原文段 / [TABLE] 表格段」，每个表格用它前一段原文来判定——表格
+    开始**之前**的原文行凡是「只由表格里已有的内容组成」就删掉（见
+    :func:`_raw_line_duplicates_table` 的四条判据：整行 / 连续子串 / 片段全覆盖 /
+    折行拼接）；表格之后的原文（如本节结论、表格没覆盖的句子）与**第一个表格之前**的
+    正文一律保留。表格行、表头、分隔行本身从不删。
+    """
+
+    if "[TABLE]" not in text:
+        return text
+    lines = text.splitlines()
+    # 切成 [(kind, lines)]，kind ∈ {"raw", "table"}。
+    segments: list[tuple[str, list[str]]] = []
+    buffer: list[str] = []
+    index = 0
+    while index < len(lines):
+        if lines[index].strip() == "[TABLE]":
+            if buffer:
+                segments.append(("raw", buffer))
+                buffer = []
+            table_lines = []
+            index += 1
+            while index < len(lines) and (not lines[index].strip() or lines[index].lstrip().startswith("|")):
+                if lines[index].lstrip().startswith("|"):
+                    table_lines.append(lines[index])
+                index += 1
+            segments.append(("table", table_lines))
+            continue
+        buffer.append(lines[index])
+        index += 1
+    if buffer:
+        segments.append(("raw", buffer))
+    if not any(kind == "table" for kind, _ in segments):
+        return text
+
+    # 每个表格只看它**前面**那一段原文：那里的重复就是同一页线性化的复述。
+    # 表格之后的原文可能是本节结论或表格未覆盖的文字，保守保留。
+    to_drop: set[int] = set()
+    line_cursor = 0  # 当前段在 lines 里的起始行号
+    for position, (kind, segment_lines) in enumerate(segments):
+        if kind == "raw":
+            segment_start = line_cursor
+            line_cursor += len(segment_lines)
+            continue
+        # table 段：先跳过 [TABLE] 标记本身，再看它前一段原文。
+        line_cursor += 1
+        if position > 0 and segments[position - 1][0] == "raw":
+            table_seen, token_row_counts, table_text = _table_content_tokens(segment_lines)
+            raw_lines, raw_segment_start = segments[position - 1][1], segment_start
+            for line_no in _duplicate_raw_line_numbers(
+                raw_lines, table_seen, token_row_counts, table_text,
+            ):
+                to_drop.add(raw_segment_start + line_no)
+        line_cursor += len(segment_lines)
+    if not to_drop:
+        return text
+    return "\n".join(line for line_no, line in enumerate(lines) if line_no not in to_drop)
 
 
 def _center_truncate(text: str, keywords: list, max_chars: int) -> str:
