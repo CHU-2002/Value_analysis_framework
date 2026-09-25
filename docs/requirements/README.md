@@ -96,8 +96,10 @@ REQ-NNN                 ARCHITECTURE / *_PLAN          issue → feat/* → PR
 - **常设需求**：某些领域是持续维护的（如「工程化开发流程」），做法是**一条需求 + 一张任务清单**：
   需求本身保留该领域的能力判据（AC），具体工作包写成任务（带状态与证据），不各占一个编号。
   参见 [`REQ-006`](REQ-006-requirement-test-dev-flow.md) 的「## 任务清单」。
-  （反面教材：2026-09-20 我先后为这块开了 REQ-007、REQ-008、REQ-006.1，被使用者纠正后
-  全部并入 REQ-006 的任务，编号置 `superseded`。）
+  （反面教材：2026-09-20 我为这块先后开了 `REQ-007` 与 `REQ-008`，被使用者纠正后并入 REQ-006 的任务，
+  两个编号置 `superseded`。**但判据是 §6.1 的「能不能被独立验收」，不是「属不属于这个领域」**：
+  「实跑暴露的修复 + 它自己的实跑验收」既改变用户可见产物、又需要一份带实跑记录的验收报告，
+  所以 `REQ-006.1` 保留为子需求；`REQ-006.2`（2026-09-25 受理）同理。两者都不另立文件。）
 
 ### 6.1 大特性怎么拆：子需求（`REQ-NNN.S`）
 
@@ -220,13 +222,14 @@ Issue 在**验收通过后**才关闭（`verified`），不在 PR 合并时自�
 | [REQ-003](REQ-003-run-history-ledger.md) | 分析迭代台账（run-store） | `verified` |
 | [REQ-004](REQ-004-period-delta-analysis.md) | 定期报告增量更新分析与变化报告 | `verified` |
 | [REQ-005](REQ-005-periodic-update-docs.md) | 增量更新文档与下游接线 | `verified` |
-| [REQ-006](REQ-006-requirement-test-dev-flow.md) | 工程化开发流程（建立与持续维护） | `in-progress`（子需求 `REQ-006.1` 未收口） |
+| [REQ-006](REQ-006-requirement-test-dev-flow.md) | 工程化开发流程（建立与持续维护） | `in-progress`（子需求 `REQ-006.1` / `REQ-006.2` 均未收口） |
 | [REQ-009](REQ-009-local-gui-console.md) | 本地图形化控制台（可扩展框架 + 按键执行 + 股票图表 + 报告与迭代记录浏览） | `accepted` |
 | ~~REQ-007~~ | 门禁与治理工具加固 → 并入 REQ-006 的 T2 | `superseded` |
 | ~~REQ-008~~ | 覆盖率洼地补测 → 并入 REQ-006 的 T4 | `superseded` |
 
-子需求（`REQ-NNN.S`）见 [`ledger.md`](ledger.md) 的「子需求台账」表；当前有 `REQ-006.1`（`in-progress`）
-与 `REQ-009.1` / `REQ-009.2` / `REQ-009.3` / `REQ-009.4`（`accepted`）。`REQ-001`…`REQ-006` 在子需求机制建立前登记，按 §6.1 不回填。
+子需求（`REQ-NNN.S`）见 [`ledger.md`](ledger.md) 的「子需求台账」表；当前有 `REQ-006.1`（`in-progress`）、
+`REQ-006.2`（`in-progress`，2026-09-25 受理）、`REQ-009.1` / `REQ-009.2` / `REQ-009.4`（`accepted`）
+与 `REQ-009.3`（`verified`）。`REQ-001`…`REQ-006` 在子需求机制建立前登记，按 §6.1 不回填。
 
 > **编号顺序 ≠ 交付顺序**：`REQ-009` 的交付顺序是 `REQ-009.3`（可扩展框架，先）→ `REQ-009.4`
 > （手动采集与长期存档）→ `REQ-009.1`（按键执行器）→ `REQ-009.2`（视图）；编号仍按登记顺序分配、永不复用。
