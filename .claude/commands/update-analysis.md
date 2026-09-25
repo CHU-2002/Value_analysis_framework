@@ -55,9 +55,18 @@ python3 scripts/pdf_preprocessor.py \
 
 ### Step 3: Open a new run
 ```bash
-python3 scripts/runs.py new --company-dir "{company_dir}" --ticker "{ticker}" --company "{company_name}" --market "{market}" --kind report-update --primary-period "<period>" --supersedes "<previous run_id>" --input ...
+python3 scripts/runs.py new --company-dir "{company_dir}" --ticker "{ticker}" --company "{company_name}" --market "{market}" --kind report-update --primary-period "<period>" --supersedes "<previous run_id>" \
+  --input "{company_dir}/data_pack_market.md" \
+  --input "{company_dir}/sources/pdf/<period report>.pdf" \
+  --input "{company_dir}/sources/pdf/pdf_sections_{period}.json" \
+  --input "{company_dir}/data_pack_report.md"
 ```
 Capture the printed run directory as `{run_dir}`. Keep the previous run untouched.
+
+`--input` 一个都不能少：附注源是 `data_pack_report.md`（中报用 `data_pack_report_interim.md`）；
+本期确实不披露附注时删掉那一行即可——`prepare` 会给出显式 warning 并把
+`pdf_footnotes` 登记成 `not_applicable`（`run_manifest.unavailable_inputs`），
+不要让它静默变成模块里的一个 `missing`（REQ-006.2 AC-2.6）。
 
 ### Step 4: Prepare evidence and module contexts
 ```bash

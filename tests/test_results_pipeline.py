@@ -1,6 +1,6 @@
 """Tests for the structured result and bounded-context pipeline."""
 
-# 覆盖需求：REQ-006.1（财报分析端到端实跑加固）—— AC-1.3 prepare 的 run_id 一致性、
+# 覆盖需求：REQ-006.2 —— AC-2.6 prepare 对缺失的附注源给出 warning 与 not_applicable 登记\n# 覆盖需求：REQ-006.1（财报分析端到端实跑加固）—— AC-1.3 prepare 的 run_id 一致性、
 # AC-1.4 period_delta 作为可选模块参与 digest、AC-1.5 上下文预算与丢卡可见性、
 # AC-1.7 证据边界检查器
 
@@ -479,6 +479,48 @@ def test_prepare_run_creates_standard_workspace(tmp_path):
     assert context["subject"]["ticker"] == "600000.SH"
     manifest = json.loads((output_dir / "run_manifest.json").read_text(encoding="utf-8"))
     assert all(len(artifact["sha256"]) == 64 for artifact in manifest["artifacts"])
+
+
+# --- REQ-006.2 AC-2.6：缺失的附注源必须显式，不得静默 ----------------------
+
+
+def test_prepare_warns_and_records_when_the_footnote_source_is_missing(tmp_path):
+    """AC-2.6：附注源缺失时 `prepare` 必须 warning + 在 manifest 里登记原因。"""
+    output_dir = tmp_path / "stock"
+    output_dir.mkdir()
+    (output_dir / "data_pack_market.md").write_text("## 1. Basic\nBA\n", encoding="utf-8")
+
+    result = prepare_run(output_dir, ticker="600000.SH", company="Example Co")
+
+    assert any("附注证据源缺失" in warning for warning in result["warnings"]), result["warnings"]
+    manifest = json.loads((output_dir / "run_manifest.json").read_text(encoding="utf-8"))
+    entry = next(
+        item for item in manifest["unavailable_inputs"] if item["source_id"] == "pdf_footnotes"
+    )
+    assert entry["reason"], entry
+    footnote_input = next(
+        item for item in manifest["inputs"] if item["source_id"] == "pdf_footnotes"
+    )
+    assert footnote_input["exists"] is False
+
+
+def test_prepare_accepts_the_interim_footnote_source(tmp_path):
+    """AC-2.6：中报的 `data_pack_report_interim.md` 也是合法附注源。"""
+    output_dir = tmp_path / "stock"
+    output_dir.mkdir()
+    (output_dir / "data_pack_market.md").write_text("## 1. Basic\nBA\n", encoding="utf-8")
+    (output_dir / "data_pack_report_interim.md").write_text(
+        "## P1 附注\nFOOTNOTE\n", encoding="utf-8"
+    )
+
+    result = prepare_run(output_dir, ticker="600000.SH", company="Example Co")
+
+    assert not any("附注证据源缺失" in warning for warning in result["warnings"])
+    assert all(item["source_id"] != "pdf_footnotes" for item in result["unavailable_inputs"])
+    index = json.loads((output_dir / "evidence" / "index.json").read_text(encoding="utf-8"))
+    footnote = next(item for item in index["sources"] if item["source_id"] == "pdf_footnotes")
+    assert footnote["exists"] is True
+    assert any(entry["source_id"] == "pdf_footnotes" for entry in index["entries"])
 
 
 def test_prepare_run_generates_unique_default_run_ids(tmp_path):

@@ -28,6 +28,7 @@ from results.prepare import _normalize_primary_period, _period_arg, prepare_run
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 DATA_PACK = "## 1. Basic information\n普通运营公司\n## 12. Metrics\nStable\n"
+FOOTNOTES = "## P13 非经常性损益\n附注证据\n"
 
 
 def _write_pdf(path: Path) -> None:
@@ -86,6 +87,7 @@ class TestPdfSourcePeriodMetadata:
         root = tmp_path / "600887_伊利"
         root.mkdir()
         (root / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+        (root / "data_pack_report.md").write_text(FOOTNOTES, encoding="utf-8")
         _write_pdf(root / "600887_2025_年报.pdf")
 
         result = _prepare(root)
@@ -111,6 +113,7 @@ class TestPdfSourcePeriodMetadata:
         root = tmp_path / "600887_伊利"
         root.mkdir()
         (root / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+        (root / "data_pack_report.md").write_text(FOOTNOTES, encoding="utf-8")
         _write_pdf(root / "600887_2026_一季报.pdf")
 
         _prepare(root)
@@ -123,6 +126,7 @@ class TestPdfSourcePeriodMetadata:
         root = tmp_path / "600887_伊利"
         root.mkdir()
         (root / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+        (root / "data_pack_report.md").write_text(FOOTNOTES, encoding="utf-8")
         _write_pdf(root / "扫描件.pdf")
 
         _prepare(root)
@@ -142,6 +146,7 @@ class TestPdfSourcePeriodMetadata:
         root = tmp_path / "600887_伊利"
         root.mkdir()
         (root / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+        (root / "data_pack_report.md").write_text(FOOTNOTES, encoding="utf-8")
         _write_pdf(root / "600887_2025_年报.pdf")
 
         _prepare(root)
@@ -204,6 +209,7 @@ class TestInputsSnapshotDirectory:
         inputs = snapshot / "inputs"
         inputs.mkdir(parents=True)
         (inputs / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+        (inputs / "data_pack_report.md").write_text(FOOTNOTES, encoding="utf-8")
         (inputs / "data_pack_report.md").write_text("## P13\nfootnotes\n", encoding="utf-8")
         _write_sections(inputs / "pdf_sections.json", period="2025FY", marker="SAME")
         _write_pdf(inputs / "600887_2025_年报.pdf")
@@ -254,6 +260,7 @@ class TestPrimaryPeriodSections:
         inputs = root / "inputs"
         inputs.mkdir(parents=True)
         (inputs / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+        (inputs / "data_pack_report.md").write_text(FOOTNOTES, encoding="utf-8")
         _write_sections(inputs / "pdf_sections_2026H1.json", period="2026H1", marker="PERIOD-H1")
         _write_sections(inputs / "pdf_sections.json", period="2025FY", marker="LEGACY-FY")
 
@@ -276,6 +283,7 @@ class TestPrimaryPeriodSections:
         inputs = root / "inputs"
         inputs.mkdir(parents=True)
         (inputs / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+        (inputs / "data_pack_report.md").write_text(FOOTNOTES, encoding="utf-8")
         _write_sections(inputs / "pdf_sections_2026H1.json", period="2026H1", marker="PERIOD-H1")
         _write_sections(inputs / "pdf_sections.json", period="2025FY", marker="LEGACY-FY")
 
@@ -290,6 +298,7 @@ class TestPrimaryPeriodSections:
         root = tmp_path / "600887_伊利"
         root.mkdir()
         (root / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+        (root / "data_pack_report.md").write_text(FOOTNOTES, encoding="utf-8")
         _write_sections(root / "pdf_sections_2026H1.json", period="2026H1", marker="PERIOD-H1")
         _write_sections(root / "pdf_sections.json", period="2025FY", marker="LEGACY-FY")
 
@@ -309,6 +318,7 @@ class TestPrimaryPeriodSections:
         inputs = root / "inputs"
         inputs.mkdir(parents=True)
         (inputs / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+        (inputs / "data_pack_report.md").write_text(FOOTNOTES, encoding="utf-8")
         _write_sections(inputs / "pdf_sections.json", period="2025FY", marker="LEGACY-FY")
 
         result = _prepare(root, primary_period="2026H1")
@@ -331,6 +341,7 @@ class TestPrimaryPeriodSections:
         inputs = root / "inputs"
         inputs.mkdir(parents=True)
         (inputs / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+        (inputs / "data_pack_report.md").write_text(FOOTNOTES, encoding="utf-8")
         _write_sections(inputs / "pdf_sections.json", period="2026H1", marker="MATCH")
 
         result = _prepare(root, primary_period="2026H1")
@@ -347,6 +358,7 @@ class TestPrimaryPeriodSections:
         inputs = root / "inputs"
         inputs.mkdir(parents=True)
         (inputs / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+        (inputs / "data_pack_report.md").write_text(FOOTNOTES, encoding="utf-8")
         _write_sections(inputs / "pdf_sections.json", period=None, marker="NOPERIOD")
 
         result = _prepare(root, primary_period="2026H1")
@@ -363,6 +375,7 @@ class TestPrimaryPeriodSections:
         inputs = root / "inputs"
         inputs.mkdir(parents=True)
         (inputs / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+        (inputs / "data_pack_report.md").write_text(FOOTNOTES, encoding="utf-8")
         _write_sections(inputs / "pdf_sections_2026H1.json", period="2025FY", marker="WRONG")
 
         result = _prepare(root, primary_period="2026H1")
@@ -378,6 +391,7 @@ class TestPrimaryPeriodSections:
         root = tmp_path / "runs" / "test-run"
         (root / "inputs").mkdir(parents=True)
         (root / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+        (root / "data_pack_report.md").write_text(FOOTNOTES, encoding="utf-8")
 
         _prepare(root)
 
@@ -392,6 +406,7 @@ class TestPrimaryPeriodSections:
         inputs = root / "inputs"
         inputs.mkdir(parents=True)
         (inputs / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+        (inputs / "data_pack_report.md").write_text(FOOTNOTES, encoding="utf-8")
 
         result = _prepare(root, primary_period="2026FY")
 
@@ -406,6 +421,7 @@ class TestPrimaryPeriodSections:
         root = tmp_path / "600887_伊利"
         root.mkdir()
         (root / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+        (root / "data_pack_report.md").write_text(FOOTNOTES, encoding="utf-8")
         _write_sections(root / "pdf_sections_2026H1.json", period="2026H1", marker="PERIOD-H1")
         _write_sections(root / "pdf_sections.json", period="2025FY", marker="LEGACY-FY")
 
@@ -430,6 +446,7 @@ class TestManifestCompatibility:
         def build(base: Path, **kwargs):
             base.mkdir()
             (base / "data_pack_market.md").write_text(DATA_PACK, encoding="utf-8")
+            (base / "data_pack_report.md").write_text(FOOTNOTES, encoding="utf-8")
             _write_sections(base / "pdf_sections.json", period="2026H1", marker="X")
             return _prepare(base, **kwargs)
 

@@ -104,7 +104,7 @@ supersedes: TBD
   写成 `in-progress` 而非 `accepted` 是**追溯门禁的强制结果**：父需求 REQ-006 已是 `in-progress`，
   而门禁要求「父需求不得比它最慢的子需求更靠前」，所以新登记的子需求不能停在 `accepted`。
   实际完成度以 `AC-2.1`~`AC-2.8` 的证据与 PR 为准。
-- 进度（2026-09-25，**未收口**，全量门禁 `1577 passed, 3 skipped`、覆盖率 78.32%）：
+- 进度（2026-09-25，**未收口**，全量门禁 `1579 passed, 3 skipped`、覆盖率 78.32%）：
   - `AC-2.2` 已实现：`scripts/tushare_modules/other_data.py:get_pledge_stat` 去掉三个股数字段的
     `divider=1e4`（接口本就是万股），并新增「§1 总市值 ÷ 现价 反推股数 ≈ §16 总股本（相对误差 <1%）」
     与「质押比例 == 质押股数 / 总股本」两条一致性校验；`pledge_stat.json` 夹具换成 2026-09-18 真实响应。
@@ -119,7 +119,15 @@ supersedes: TBD
     （需求内 AC-2.3 的策略引用块 + [`docs/PERIODIC_UPDATE_PLAN.md` §7.1.1](../../PERIODIC_UPDATE_PLAN.md)），
     并由 `evidence.py`（占位符段落进 `unfilled_sections`、不进 `entries`；混合段落只删占位符行）与
     `context.py`（`evidence_coverage: unavailable` + `unavailable_inputs`，原始上下文也不塞占位符）落地。
-  - 测试：新增 `tests/test_tushare_pack_sections.py`（13 例，夹具取真实响应、不做网络调用）。
+  - `AC-2.6` 已实现：附注源两个文件名都认（`data_pack_report.md` / 中报
+    `data_pack_report_interim.md`）；都不在 `inputs/` 快照里时 `prepare` 给出**显式 warning**
+    并在 `run_manifest.unavailable_inputs` 里登记 `pdf_footnotes / not_applicable`（不再是
+    模块里一个无原因的 `missing`）；`update-analysis.md` 的 Step 3 与 `PERIODIC_UPDATE_PLAN.md`
+    §7.1 第 1 步把附注源写进 `--input` 清单（`.claude` 与 `.opencode` 两份镜像同步）。
+  - 测试：新增 `tests/test_tushare_pack_sections.py`（13 例，夹具取真实响应、不做网络调用）；
+    `tests/test_results_pipeline.py` 增 2 例（附注源缺失的 warning + manifest 登记、中报源被接受）；
+    `tests/test_prepare_primary_period.py` / `tests/test_prepare_prior_analysis.py` 的夹具补上附注源，
+    让「干净 run 无 warning」的断言继续成立。
   - PR #TBD（合入后回填）。
 - 目标：把 2026-09-25 的 AC-1.9 复跑（run `20260925T042255414048Z`）暴露的**数据包生成、PDF 抽取、
   证据索引与 bundle 预算、输入接线、跨 run 一致性**五类缺陷一次性收干净，并让每一类都留下**可判定**的回归判据

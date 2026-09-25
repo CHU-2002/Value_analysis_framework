@@ -204,6 +204,10 @@ python3 scripts/download_report.py --stock-code 600887 --report-type auto --sinc
   │    └─ up_to_date        → 明确告知，不重复消耗
   └─ 增量 run 步骤（脚本 + Agent）
        1. runs.py new：归档指针、签发 run_id、创建 runs/{run_id}/inputs/
+          （`--input` 必须含 `data_pack_market.md`、主期次章节包与报告 PDF，**以及附注源**
+          `data_pack_report.md`——中报是 `data_pack_report_interim.md`。漏了它 `prepare`
+          会给出显式 warning，并在 `run_manifest.unavailable_inputs` 里登记
+          `pdf_footnotes / not_applicable`，不再静默；REQ-006.2 AC-2.6）
        2. 拉最新期次（PR1）+ 章节解析 + 脚注抽取
        3. 刷新 data_pack_market.md 并快照进 inputs/
        4. prepare --run-id {run_id} --primary-period：生成 evidence / contexts
