@@ -37,6 +37,10 @@ MODULE_CONFIG: dict[str, dict[str, Any]] = {
         "keywords": ["审计", "治理", "关联交易", "质押", "诉讼", "承诺", "重大事项", "担保", "逾期"],
         "market_evidence": ["7", "15", "16"],
         "footnote_evidence": ["P6", "P4", "P2"],
+        # 不抬高字符预算：MATTERS 的担保明细块与「担保总额（A+B）」汇总块各占一个证据
+        # 槽位（见 ``_module_evidence`` 的 ``guarantee`` 槽位），缺省 24,000 下两块都能
+        # 交付（实测 actual_chars=23,999）。抬高预算会破坏 AC-2.5 的「只有 period_delta
+        # 显式抬高」不变量，所以这里保持缺省。
     },
     "mda_quality": {
         "scope": ["D5"],
@@ -136,6 +140,9 @@ REQUIRED_INCOME_ROW_RE = re.compile(
 DEFAULT_MAX_EVIDENCE = 12
 #: 模块没有显式声明字符预算时的缺省值。
 DEFAULT_MAX_CHARS = 24000
+#: 证据引文的最小渲染额度：低于这个值的额度直接放弃（``_render`` 的 160 字门槛），
+#: 所以分配时要先按它给每个「第一块」留位。
+MIN_QUOTE_BUDGET = 160
 
 #: 同一段落最多给模块几条索引摘录（F22：只给 1 条会让索引里其余可用摘录引不到；
 #: 超过这个数就会挤占别的段落，预算兜底由 evidence 池的均分截断负责）。
@@ -226,6 +233,33 @@ def _fair_limits(lengths: list[int], budget: int) -> list[int]:
     return limits
 
 
+def _minimum_then_fair(lengths: list[int], budget: int, minimum: int) -> list[int]:
+    """先给每一项留 ``minimum`` 字（或它自身的长度），再把剩余预算均分。
+
+    与 :func:`_fair_limits` 的区别：这是「保证每一项都能被渲染出来」的分配——`_render`
+    对低于 ``MIN_QUOTE_BUDGET`` 的额度直接放弃，均分到边角时最后一项会归零。池子连
+    最小额度都付不起时按比例缩，仍可能放弃部分项（此时「装得进」优先）。
+    """
+
+    if not lengths:
+        return []
+    limits = [0] * len(lengths)
+    pending = list(range(len(lengths)))
+    for position, length in enumerate(lengths):
+        take = min(minimum, length, budget)
+        limits[position] = take
+        budget -= take
+    pending = [position for position in pending if limits[position] < lengths[position]]
+    while pending and budget > 0:
+        share = max(1, budget // len(pending))
+        for position in pending:
+            amount = min(share, lengths[position] - limits[position], budget)
+            limits[position] += amount
+            budget -= amount
+        pending = [position for position in pending if limits[position] < lengths[position]]
+    return limits
+
+
 def _raise_income_section_limits(
     sections: list[tuple[str, str]], limits: list[int],
 ) -> list[int]:
@@ -272,6 +306,18 @@ def _raise_income_section_limits(
     return limits
 
 
+#: PDF 章节的证据优先级：排在前面的先占 `max_evidence` 槽位。MATTERS 承载重大担保 /
+#: 诉讼（AC-2.4 的硬判据）、MDA 是经营讨论，二者优先；其余按配置顺序。
+PDF_SECTION_PRIORITY: tuple[str, ...] = ("MATTERS", "MDA")
+
+
+def _prioritized_pdf_sections(sections: Iterable[str]) -> list[str]:
+    """按 :data:`PDF_SECTION_PRIORITY` 排序 PDF 章节，未列出的保持在配置里的相对顺序。"""
+
+    order = {name: position for position, name in enumerate(PDF_SECTION_PRIORITY)}
+    return sorted(sections, key=lambda name: order.get(name, len(order)))
+
+
 def _module_evidence(
     index: dict[str, Any], config: dict[str, Any], limit: int,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
@@ -306,7 +352,9 @@ def _module_evidence(
 
     for source, sections in (
         ("market_data", config["market_evidence"]),
-        ("pdf_sections", config["pdf_sections"]),
+        # PDF 章节按**证据优先级**排：MATTERS（重大担保/诉讼，AC-2.4 的硬判据）与 MDA
+        # 先占槽位，再是其余章节。槽位不够时被挤掉的应该是 P2/P4 这类次要章节。
+        ("pdf_sections", _prioritized_pdf_sections(config["pdf_sections"])),
         ("pdf_footnotes", config["footnote_evidence"]),
         ("prior_analysis", config.get("prior_analysis", [])),
     ):
@@ -326,6 +374,10 @@ def _module_evidence(
 
     #: 每个「组」排好序的候选块（最多 MAX_EVIDENCE_PER_SECTION 条）。
     ranked_by_group: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    #: 担保类「汇总块」的专属槽位键：重大担保表（列值一一对应）与紧随其后的
+    #: 「担保总额（A+B）/ 占净资产比例 / 违规担保」汇总段在**相邻两个块**里，
+    #: 只能靠各自占一个槽位才都进得了 bundle（AC-2.4 的「担保逾期可判定」要两份都在）。
+    guarantee_keys: dict[tuple[str, str], tuple[str, str]] = {}
     for source, section in groups:
         candidates = [
             item for item in index.get("entries", [])
@@ -344,17 +396,34 @@ def _module_evidence(
         # Concrete guarantees take priority over accounting-policy references.
         if section in {"MATTERS", "P6"}:
             targeted = select_evidence(
-                {"entries": candidates}, keywords=["担保总额", "担保逾期", "逾期金额", "对外担保"], limit=1
+                {"entries": candidates},
+                keywords=["担保总额", "担保逾期", "逾期金额", "对外担保"],
+                limit=MAX_EVIDENCE_PER_SECTION,
             )
+            if len(targeted) > 1:
+                # 第 2 条（通常是汇总段）单独占一个槽位，避免被均分预算挤掉。
+                summary_key = f"{source}:{section}:guarantee"
+                ranked_by_group[summary_key] = [targeted[1]]
+                guarantee_keys[summary_key] = (source, section)
+                targeted = targeted[:1]
             ranked = targeted or ranked
         ranked_by_group[(source, section)] = (ranked or candidates)[:MAX_EVIDENCE_PER_SECTION]
+    # 担保明细块与汇总块都放进「必选档」：两块各自占一个第一遍槽位，从而都拿到
+    # 最小引文额度（实测：只占一个槽位时另一块会被降级成「额外块」，额度 58 字被丢弃）。
+    for summary_key in guarantee_keys:
+        groups.append(summary_key)
+        required_leave_one_out.add(summary_key)
 
     coverage: dict[str, str] = {}
     for key, choice in ranked_by_group.items():
-        source, section = key
-        coverage[f"{source}:{section}"] = "missing" if not choice else "omitted"
-        if not choice and key in unfilled:
-            coverage[f"{source}:{section}"] = "unavailable"
+        source, section = guarantee_keys.get(key, key)
+        coverage_key = f"{source}:{section}"
+        # 汇总块与主块共用一个 (source, section) 覆盖键：只要有一条入选就算有证据。
+        if coverage_key in coverage and choice:
+            continue
+        coverage[coverage_key] = "missing" if not choice else "omitted"
+        if not choice and (source, section) in unfilled:
+            coverage[coverage_key] = "unavailable"
 
     # 第一遍：必选节 + prior_analysis 各一条。必选节先拿，保证「本期财务事实」优先于
     # 上一版结论；prior_analysis 紧随其后，保证对比基准不被本轮数据包挤掉。
@@ -379,9 +448,12 @@ def _module_evidence(
                 choice = ranked_by_group[key]
                 if chosen_from.get(key, 0) >= min(1, len(choice)):
                     continue
-                selected.append(choice[0])
+                # 记下槽位：担保汇总块与 MATTERS 明细块同属一个段落，但必须各自按
+                # 「第一块」拿预算（AC-2.4）。
+                selected.append(dict(choice[0], _slot=key))
                 chosen_from[key] = 1
-                coverage[f"{key[0]}:{key[1]}"] = choice[0]["evidence_id"]
+                source, section = guarantee_keys.get(key, key)
+                coverage[f"{source}:{section}"] = choice[0]["evidence_id"]
                 progressed = True
                 break
         if not progressed:
@@ -397,10 +469,11 @@ def _module_evidence(
             position = chosen_from.get(key, 0)
             if position >= len(choice):
                 continue
-            selected.append(choice[position])
+            selected.append(dict(choice[position], _slot=key))
             chosen_from[key] = position + 1
             if position == 0:  # 该组刚拿到第一条：覆盖状态要指向它
-                coverage[f"{key[0]}:{key[1]}"] = choice[0]["evidence_id"]
+                source, section = guarantee_keys.get(key, key)
+                coverage[f"{source}:{section}"] = choice[0]["evidence_id"]
             progressed = True
         if not progressed:
             break
@@ -578,7 +651,7 @@ def build_module_context(
         def _render(item: dict[str, Any], limit: int) -> dict[str, Any] | None:
             """把一条索引条目渲染成 bundle 里的 evidence（预算不够返回 None）。"""
 
-            if limit < min(160, len(item["quote"])):
+            if limit < min(MIN_QUOTE_BUDGET, len(item["quote"])):
                 return None
             quote = item["quote"]
             cap = shown_lengths.get((item["source_id"], item["section"]))
@@ -598,20 +671,36 @@ def build_module_context(
 
         # 两遍分配：每个段落的**第一块**先按均分拿预算（保证大表不饿死别的段落），
         # 剩余预算再给同一段的后续块（REQ-006.2 AC-2.5 / 发现 F22）。
-        grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        # 分组键是**槽位**而不是真实段落：``_module_evidence`` 给重大担保的汇总块单独
+        # 发了一个槽位（``pdf_sections:MATTERS:guarantee``），它和明细块同属
+        # ``(pdf_sections, MATTERS)``；按真实段落分组会把汇总块降级成「第 2+ 块」，
+        # 预算不够时被 ``_render`` 整条丢掉（AC-2.4 要明细与汇总两块都在）。
+        grouped: dict[Any, list[dict[str, Any]]] = {}
         for item in selected_evidence:
-            grouped.setdefault((item["source_id"], item["section"]), []).append(item)
+            slot = item.get("_slot") or (item["source_id"], item["section"])
+            grouped.setdefault(slot, []).append(item)
         first_items = [items[0] for items in grouped.values()]
-        first_limits = _fair_limits([len(item["quote"]) for item in first_items], pools[2])
+        # 每个「第一块」先按最小额度留位，再均分剩余预算：否则池子被前面的块吃掉后，
+        # 排在最后的第一块（实测：重大担保明细表）会连 `_render` 的 160 字门槛都够不到而
+        # 被整条丢掉（AC-2.4 要担保明细与汇总两块都在）。
+        first_limits = _minimum_then_fair(
+            [len(item["quote"]) for item in first_items], pools[2], MIN_QUOTE_BUDGET,
+        )
         spent = 0
+        #: 真正渲染出来的块 -> 段落覆盖键。``evidence_coverage`` 必须指向**交付了**的
+        #: 证据：担保明细与汇总同属 ``pdf_sections:MATTERS``，``_module_evidence`` 选中的
+        #: 那条可能因为预算没渲染出来（实测 coverage 指向 003、交付的却是 004）。
+        rendered_coverage: dict[str, str] = {}
+        failed_coverage: list[str] = []
         for item, limit in zip(first_items, first_limits):
             rendered = _render(item, limit)
-            key = f"{item['source_id']}:{item['section']}"
+            coverage_key = f"{item['source_id']}:{item['section']}"
             if rendered is None:
-                retained_coverage[key] = "omitted"
+                failed_coverage.append(coverage_key)
                 truncated = True
                 continue
             evidence.append(rendered)
+            rendered_coverage.setdefault(coverage_key, rendered["evidence_id"])
             spent += len(rendered["quote"])
             truncated |= rendered["quote"] != item["quote"]
         extra_items = (
@@ -626,7 +715,13 @@ def build_module_context(
                 truncated = True
                 continue
             evidence.append(rendered)
+            rendered_coverage.setdefault(key, rendered["evidence_id"])
             truncated |= rendered["quote"] != item["quote"]
+        # 段落覆盖状态收口：有块渲染出来就指向它；一条都没渲染出来才算 ``omitted``。
+        for coverage_key in failed_coverage:
+            if coverage_key not in rendered_coverage:
+                retained_coverage[coverage_key] = "omitted"
+        retained_coverage.update(rendered_coverage)
         context_text = "\n\n".join(blocks)
         # F13 的可判定形式：每条引文是否能在 context_text 里逐字核对。
         # 附注源（pdf_footnotes）与「同一段落的第 2+ 块」本来就不在 context_text 里，

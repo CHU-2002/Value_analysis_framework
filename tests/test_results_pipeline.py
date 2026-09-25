@@ -1852,3 +1852,260 @@ def test_period_delta_gets_its_own_evidence_and_char_budget(tmp_path):
     )
     assert bundle["budget"]["max_chars"] == delta["max_chars"]
     assert len(bundle["evidence"]) <= delta["max_evidence"]
+
+
+# ============================================================
+# REQ-006.2 AC-2.4：MATTERS 重大担保表的「列 ↔ 值」对应与「担保逾期」可判定
+# ============================================================
+
+#: 重大担保表的列数（真实中报 p.37 是 16 列）。合成夹具沿用同一列数，让「列头 ↔ 值」的
+#: 校验与真实载荷同构；真实 PDF 上另有一条 ``skipif`` 端到端用例。
+_GUARANTEE_COLUMNS = 16
+_GUARANTEE_HEADER = (
+    "| 担保方 | 关系 | 被担保方 | 金额 | 起始 | 到期 | 类型 | 债务 | 担保物 "
+    "| 担保是否 已经履行 完毕 | 担保 是否 逾期 | 担保逾期 金额 | 反担保 情况 "
+    "| 是否为 关联方 担保 | 关联 关系 | 备注 |"
+)
+
+
+def _guarantee_row(label: str, value: str = "", value_column: int = 8) -> str:
+    """构造一行 16 列的汇总行：``label`` 在第 1 列、``value`` 在第 ``value_column`` 列。"""
+
+    cells = (
+        [label]
+        + [""] * (value_column - 2)
+        + [value]
+        + [""] * (_GUARANTEE_COLUMNS - value_column)
+    )
+    return "| " + " | ".join(cells) + " |"
+
+
+def _guarantee_pdf_sections() -> dict:
+    """合成 PDF 章节包：MATTERS 里含 16 列担保明细表与「担保总额（A+B）」汇总块。
+
+    明细表（列头 + 一行数据）与汇总块之间隔了足够长的正文，使它们落在**两个索引窗口**里
+    ——真实中报的明细表与汇总表也跨窗口，这正是「同段落的第 2 块会被当额外块牺牲」的
+    触发条件。其余段落用来把证据预算压满。
+    """
+
+    detail = (
+        "| 内蒙古 惠商融 资担保 有限公 司 | 全资子 公司 | 供应商 | 198,026.04 "
+        "| 2024年1月 10日 | 2027年6月 30日 | 连带责 任担保 | 为有效促进公司主业发展 "
+        "| 动产、不 动产 | 否 | 是 | 4,811.72 | 是 | 否 | 无 |  |"
+    )
+    summary = "\n".join([
+        _guarantee_row("报告期内担保发生额合计（不包括对子公司的担保）", "198,026.04"),
+        _guarantee_row("报告期末担保余额合计（A）（不包括对子公司的担保）", "218,033.17"),
+        _guarantee_row("报告期末对子公司担保余额合计（B）", "689,596.58"),
+        _guarantee_row("担保总额（A+B）", "907,629.75"),
+        _guarantee_row("担保总额占公司净资产的比例(%)", "16.90"),
+    ])
+    matters = "\n".join([
+        "第五节 重要事项",
+        "公司严格遵循担保管理制度，逐笔审查被担保方的资信状况与偿债能力。" * 30,
+        "(二)报告期内履行的及尚未履行完毕的重大担保情况",
+        "√适用 □不适用",
+        "单位：万元 币种：人民币",
+        "[TABLE]",
+        _GUARANTEE_HEADER,
+        "|" + " --- |" * _GUARANTEE_COLUMNS,
+        detail,
+        "--- p.38 ---",
+        "公司持续推进产业链金融服务，为上游供应商与下游经销商提供融资支持。" * 40,
+        "--- p.39 ---",
+        "[TABLE]",
+        summary,
+    ])
+    return {
+        "MDA": "MD&A 正文。" * 300,
+        "GOV": "治理正文。" * 300,
+        "MATTERS": matters,
+        "P2": "股东正文。" * 300,
+        "P13": "行业正文。" * 300,
+        "P4": "关联方正文。" * 300,
+        "P6": "担保附注正文。" * 300,
+        "P3": "会计政策正文。" * 300,
+    }
+
+
+def _matters_guarantee_layout(root: Path) -> tuple[Path, Path, Path]:
+    """合成公司目录，返回 ``(data_pack, pdf_sections, evidence_index)``。"""
+
+    root.mkdir(parents=True, exist_ok=True)
+    pack = root / "data_pack_market.md"
+    pack.write_text(
+        "".join(
+            f"## {prefix} Section {prefix}\n\n| 项目 | 2026H1 | 2025H1 |\n| --- | --- | --- |\n"
+            + "| 行 | 1 | 2 |\n" * 40
+            for prefix in (
+                "1.", "3.", "3P.", "4.", "4P.", "5.", "6.", "7.",
+                "9.", "10.", "12.", "13.", "15.", "16.", "17.",
+            )
+        ),
+        encoding="utf-8",
+    )
+    pdf = root / "pdf_sections.json"
+    pdf.write_text(json.dumps(_guarantee_pdf_sections()), encoding="utf-8")
+    notes = root / "data_pack_report.md"
+    notes.write_text(
+        "".join(f"## {key}. Notes {key}\n附注正文\n" for key in ("P13", "P3", "P6", "P4", "P2")),
+        encoding="utf-8",
+    )
+    prior = root / "prior.json"
+    prior.write_text(
+        json.dumps({
+            key: f"上一版 {key} 结论"
+            for key in ("summary", "parameters", "claims", "risks", "watchlist", "quality")
+        }),
+        encoding="utf-8",
+    )
+    index = root / "index.json"
+    index.write_text(
+        json.dumps(build_evidence_index([
+            {"source_id": "market_data", "path": str(pack)},
+            {"source_id": "pdf_sections", "path": str(pdf)},
+            {"source_id": "pdf_footnotes", "path": str(notes)},
+            {"source_id": "prior_analysis", "path": str(prior)},
+        ])),
+        encoding="utf-8",
+    )
+    return pack, pdf, index
+
+
+def _markdown_cells(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _line_with(quote: str, marker: str) -> str:
+    for line in quote.splitlines():
+        if marker in line:
+            return line
+    raise AssertionError(f"quote 里没有包含 {marker!r} 的行：{quote!r}")
+
+
+def _matters_evidence(bundle: dict) -> list[dict]:
+    return [
+        item for item in bundle["evidence"]
+        if item["evidence_id"].startswith("pdf_sections:MATTERS")
+    ]
+
+
+def _assert_guarantee_blocks_reach_bundle(bundle: dict) -> None:
+    """两块都在、明细块的列值一一对应、汇总块数值同一行、覆盖指向真实交付的块。"""
+
+    blocks = _matters_evidence(bundle)
+    detail = next((item for item in blocks if "4,811.72" in item["quote"]), None)
+    summary = next((item for item in blocks if "907,629.75" in item["quote"]), None)
+    assert detail is not None, [item["evidence_id"] for item in blocks]
+    assert summary is not None, [item["evidence_id"] for item in blocks]
+    assert detail["evidence_id"] != summary["evidence_id"]
+
+    # 明细块：16 列列头 + 16 格数据行；按列名取值 → 列与值一一对应，「担保逾期」可判定。
+    header_cells = _markdown_cells(_line_with(detail["quote"], "担保逾期 金额"))
+    assert len(header_cells) == _GUARANTEE_COLUMNS, header_cells
+    row_cells = _markdown_cells(_line_with(detail["quote"], "内蒙古 惠商融"))
+    assert len(row_cells) == len(header_cells), row_cells
+    assert row_cells[header_cells.index("担保是否 已经履行 完毕")] == "否"
+    assert row_cells[header_cells.index("担保 是否 逾期")] == "是"
+    assert row_cells[header_cells.index("担保逾期 金额")] == "4,811.72"
+    assert row_cells[header_cells.index("反担保 情况")] == "是"
+    assert row_cells[header_cells.index("是否为 关联方 担保")] == "否"
+
+    # 汇总块：「担保总额（A+B）」与数值在同一行。
+    summary_cells = _markdown_cells(_line_with(summary["quote"], "担保总额（A+B）"))
+    assert summary_cells[7] == "907,629.75", summary_cells
+
+    # 覆盖状态必须指向**真的交付了**的证据（旧实现指向被预算丢掉的那条）。
+    coverage = bundle["selection"]["evidence_coverage"]["pdf_sections:MATTERS"]
+    assert coverage in {item["evidence_id"] for item in bundle["evidence"]}, coverage
+    assert bundle["budget"]["actual_chars"] <= bundle["budget"]["max_chars"]
+
+
+@pytest.mark.parametrize("module", ["governance", "period_delta"])
+def test_matters_guarantee_detail_and_summary_reach_bundle(tmp_path, module):
+    """AC-2.4：MATTERS 的担保明细块与汇总块必须**都**进 bundle，且覆盖指向交付的块。
+
+    两块同属 ``pdf_sections:MATTERS``：旧实现按真实段落分组，第 2 块降级成「额外块」后
+    被均分预算压到 160 字门槛以下、整条丢弃，而 ``evidence_coverage`` 仍指向它。
+    """
+
+    pack, pdf, index = _matters_guarantee_layout(tmp_path / "伊利")
+
+    bundle = build_module_context(
+        module,
+        data_pack_path=pack,
+        pdf_sections_path=pdf,
+        evidence_index_path=index,
+        # 合成载荷比真实中报小得多，缺省 24,000 会把「列头 + 数据行」一起渲染所需的空间
+        # 压到装不下（真实中报的明细块实测 566 字，见 skipif 的真实 PDF 用例）。这里给
+        # 足以放下 16 列列头 + 数据行的预算，好让用例专注验证「两块都在」的槽位机制。
+        max_chars=32000,
+    )
+
+    _assert_guarantee_blocks_reach_bundle(bundle)
+
+
+def test_chunk_text_does_not_split_table_header_from_first_data_row():
+    """AC-2.4：1200 字索引窗口不能把表头与紧随其后的数据行劈到两个窗口里。
+
+    多行列头的大表（重大担保表 16 列）若被劈开，前一个窗口只有列名、后一个窗口只有数值，
+    任何一条摘录都无法核对「列与值一一对应」。
+    """
+
+    header = (
+        "| 担保方名称 | 担保方与上市公司关系 | 被担保方名称 | 担保金额 | 担保发生日期 "
+        "| 担保起始日 | 担保到期日 | 担保类型 | 主债务情况 | 担保物 | 担保是否已经履行完毕 "
+        "| 担保是否逾期 | 担保逾期金额 | 反担保情况 | 是否为关联方担保 | 关联关系 |"
+    )
+    row = (
+        "| 内蒙古惠商融资担保有限公司 | 全资子公司 | 供应商及经销商 | 198,026.04 "
+        "| 2024年1月10日 | 2026年1月1日 | 2027年6月30日 | 连带责任担保 "
+        "| 为上游供应商提供融资担保 | 动产 | 否 | 是 | 4,811.72 | 是 | 否 | 无 |"
+    )
+    text = (
+        "前置正文。" * 100
+        + f"\n[TABLE]\n{header}\n|" + " --- |" * 16 + f"\n{row}\n"
+    )
+    chunks = chunk_text(text, max_chars=760, overlap=76)
+    assert any(header in chunk and row in chunk for chunk in chunks), [
+        (header in chunk, row in chunk) for chunk in chunks
+    ]
+
+
+#: 真实中报 PDF（`output/` 已被 gitignore，CI 里不存在 → 本用例自动 skip）。
+_REAL_PDF = (
+    Path(__file__).resolve().parents[1]
+    / "output" / "600887_伊利" / "sources" / "pdf" / "600887_2026_中报.pdf"
+)
+
+
+@pytest.mark.skipif(not _REAL_PDF.exists(), reason="本地没有真实中报 PDF（output/ 已 gitignore）")
+@pytest.mark.parametrize("module", ["governance", "period_delta"])
+def test_real_pdf_matters_guarantee_columns_align(tmp_path, module):
+    """AC-2.4 实跑：重新解析真实中报，断言 p.37 重大担保表的明细与汇总两块都在。
+
+    这是 mock 测试看不见的那部分：真实 pdfplumber 会把 16 列列头折成多行、把数值与列名
+    错位地排进原文；去重 + 分窗 + 槽位分配三者缺一，明细行或汇总行就会掉出 bundle。
+    """
+
+    from pdf_preprocessor import (
+        extract_all_pages,
+        extract_section_context,
+        find_section_pages,
+    )
+
+    pages = extract_all_pages(str(_REAL_PDF))
+    contexts = extract_section_context(pages, find_section_pages(pages))
+    pdf = tmp_path / "pdf_sections_2026H1.json"
+    pdf.write_text(json.dumps(contexts, ensure_ascii=False), encoding="utf-8")
+    index = tmp_path / "index.json"
+    index.write_text(
+        json.dumps(build_evidence_index([{"source_id": "pdf_sections", "path": str(pdf)}])),
+        encoding="utf-8",
+    )
+
+    bundle = build_module_context(module, pdf_sections_path=pdf, evidence_index_path=index)
+
+    # 真实载荷上 MATTERS 的担保明细表跨窗口：明细块（列头 + 数据行）与汇总块各占一条。
+    assert "MATTERS" in contexts and "担保总额（A+B）" in (contexts["MATTERS"] or "")
+    _assert_guarantee_blocks_reach_bundle(bundle)

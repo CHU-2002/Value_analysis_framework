@@ -104,7 +104,7 @@ supersedes: TBD
   写成 `in-progress` 而非 `accepted` 是**追溯门禁的强制结果**：父需求 REQ-006 已是 `in-progress`，
   而门禁要求「父需求不得比它最慢的子需求更靠前」，所以新登记的子需求不能停在 `accepted`。
   实际完成度以 `AC-2.1`~`AC-2.8` 的证据与 PR 为准。
-- 进度（2026-09-25，**未收口**，全量门禁 `1606 passed, 3 skipped`、覆盖率 78.75%）：
+- 进度（2026-09-25，**未收口**，全量门禁 `1613 passed, 3 skipped`、覆盖率 79.00%）：
   - **`F29` 已修（2026-09-25，本切片）**：附注源的**期次**从「完全没有标记」变成
     「登记 + 判定 + 对模块可见」三层落地——
     ① 附注包头部新增机器可读的 `> 报告期：YYYYH1` 契约（`prompts/phase2_PDF解析.md`
@@ -179,11 +179,35 @@ supersedes: TBD
     `MDA` 由 7,999 字（开头是上一节的非经常性损益表）变为 9,376 字、开头即 p.10 的真实 MD&A 正文。
     ② 双栏串行：新增 `reflow_two_column_words`（按中缝判定，只对明显两栏页重排；否则交回
     `extract_text()`），带合成单测；**实测该中报未触发**（输出与改动前逐字节一致），所以真实数据上
-    未获验证。③ **未做到**：`MATTERS` 重大担保表的「列与值一一对应、担保逾期可判定」——
+    未获验证。③ **当时未做到**（后续已在下一进度条补做）：`MATTERS` 重大担保表的「列与值一一对应、
+    担保逾期可判定」——
     用真实 PDF 定位了根因：pdfplumber 默认 `extract_tables()` 对这一页把多行列头堆叠在一起，
     换 `vertical_strategy=text / horizontal_strategy=lines` 也只能把「担保逾期金额 / 是否逾期 /
     反担保」并进同一个 cell（值 `是 4,811.72` 无法自动拆开），需要版面层或人工处理，
     留作后续切片。
+  - `AC-2.4` 的**重大担保表**部分已实现（2026-09-25，本切片，三层落地）：
+    ① **原文去重补全**（`scripts/pdf_preprocessor.py`）：`_drop_raw_duplicates_of_tables` 的判据
+    从「整行等于某个单元格」扩到四条（整行 / 连续子串 / 片段全覆盖 / 折行拼接），把原文里
+    **折行后的多行列头与错位数值**也认成表格复述。真实中报 `MATTERS` 由 8,012 字降到 6,739 字：
+    p.37 原文那份错位的 16 列列头与「值 `4,811.72` 落在孤立行」的复述全部消失，进入索引的
+    只有结构化表格（`| 担保是否 已经履行 完毕 | 担保 是否 逾期 | 担保逾期 金额 | ... |` 与
+    `| 内蒙古 惠商融 资担保 有限公 司 | ... | 否 | 是 | 4,811.72 | 是 | 否 |` 列值对齐）。
+    ② **索引窗口不劈表格**（`scripts/results/evidence.py:chunk_text`）：窗口尾部还落在 markdown
+    表格里、且表格起点在本窗口后半段时，把边界提前到表格起点，让表头与首个数据行落在同一窗口。
+    真实中报实测 `pdf_sections:MATTERS:003` = 16 列列头 + 内蒙古惠商融明细行，
+    `MATTERS:004` = `担保总额（A+B） 907,629.75 / 占净资产比例 16.90` 汇总段。
+    ③ **按证据槽位分预算 + 覆盖指向交付块**（`scripts/results/context.py:build_module_context`）：
+    担保明细块与汇总块同属 `pdf_sections:MATTERS`，旧实现按真实段落分组会把第 2 块降级成
+    「额外块」并按 <160 字丢弃，而 `evidence_coverage` 仍指向它。现按**槽位**分组
+    （汇总块伪键 `pdf_sections:MATTERS:guarantee`），两块各拿一个「第一块」额度；
+    `evidence_coverage` 改为指向真正渲染出来的块。**真实 PDF 实测**（同一中报，缺省预算）：
+    `governance` 两块都在、`actual_chars=23,999/24,000`；`period_delta` 两块都在、
+    `actual_chars=31,348/32,000`；两者的 `evidence_coverage["pdf_sections:MATTERS"]` 都指向
+    已交付的 `MATTERS:004`。缺省 24,000 已够装两块，故**撤掉了本切片早先给 `governance`
+    抬到 30,000 的临时预算**（保持 AC-2.5 的「只有 period_delta 显式抬高」不变量）。
+    测试：`tests/test_pdf_preprocessor.py` 增 2 例（合成多行列头去重、正文不误删）、
+    `tests/test_results_pipeline.py` 增 5 例（`chunk_text` 表格不劈窗、合成担保明细 + 汇总
+    两块进 bundle ×2 模块、真实中报 p.37 端到端 ×2 模块，后者 `skipif` 于本地 PDF 存在）。
   - `AC-2.7` **部分实现**：① `run.as_of` 有了明确规则并由 `validate_result` 校验——
     必须是 `YYYY-MM-DD` 且不得晚于 `run.generated_at`（`schema.py:_validate_as_of`）；
     ② 输入指纹不再受重解析的易变字段影响：`describe_input` 对 JSON 输入按「去掉
