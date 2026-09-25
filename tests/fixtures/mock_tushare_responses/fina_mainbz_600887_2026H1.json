@@ -1,0 +1,83 @@
+[
+  {
+    "ts_code": "600887.SH",
+    "end_date": "20260630",
+    "bz_item": "液体乳",
+    "bz_sales": 36590170000.0,
+    "bz_profit": 12496000000.0,
+    "bz_cost": 24076331860.0,
+    "curr_type": "CNY"
+  },
+  {
+    "ts_code": "600887.SH",
+    "end_date": "20260630",
+    "bz_item": "奶粉及奶制品",
+    "bz_sales": 16845310000.0,
+    "bz_profit": 6949320000.0,
+    "bz_cost": 9888196970.0,
+    "curr_type": "CNY"
+  },
+  {
+    "ts_code": "600887.SH",
+    "end_date": "20260630",
+    "bz_item": "合计特别调整",
+    "bz_sales": 158780000.0,
+    "bz_profit": null,
+    "bz_cost": null,
+    "curr_type": "CNY"
+  },
+  {
+    "ts_code": "600887.SH",
+    "end_date": "20260630",
+    "bz_item": "冷饮产品系列",
+    "bz_sales": 9073000000.0,
+    "bz_profit": 3543620000.0,
+    "bz_cost": 5525457000.0,
+    "curr_type": "CNY"
+  },
+  {
+    "ts_code": "600887.SH",
+    "end_date": "20260630",
+    "bz_item": "冷饮产品",
+    "bz_sales": 9073000000.0,
+    "bz_profit": 3543620000.0,
+    "bz_cost": 5525457000.0,
+    "curr_type": "CNY"
+  },
+  {
+    "ts_code": "600887.SH",
+    "end_date": "20260630",
+    "bz_item": "其他主营业务",
+    "bz_sales": 1266350000.0,
+    "bz_profit": 161070000.0,
+    "bz_cost": 1105523550.0,
+    "curr_type": "CNY"
+  },
+  {
+    "ts_code": "600887.SH",
+    "end_date": "20260630",
+    "bz_item": "其他业务",
+    "bz_sales": 556120000.0,
+    "bz_profit": 286840000.0,
+    "bz_cost": 269162080.0,
+    "curr_type": "CNY"
+  },
+  {
+    "ts_code": "600887.SH",
+    "end_date": "20260630",
+    "bz_item": "其他",
+    "bz_sales": 1266350000.0,
+    "bz_profit": 161070000.0,
+    "bz_cost": 1105523550.0,
+    "curr_type": "CNY"
+  },
+  {
+    "ts_code": "600887.SH",
+    "end_date": "20260630",
+    "bz_item": "产品",
+    "bz_sales": 64489720000.0,
+    "bz_profit": 23595640000.0,
+    "bz_cost": 40886482480.0,
+    "curr_type": "CNY"
+  }
+]

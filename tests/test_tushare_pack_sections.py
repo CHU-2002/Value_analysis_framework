@@ -294,3 +294,65 @@ class TestSection131PeriodSelection:
         warnings = result.split("### 13.1 脚本自动检测", 1)[1].split("### 13.2", 1)[0]
         assert "2026H1" in warnings, f"§13.1 必须包含本期：{warnings}"
         assert "2008" not in warnings, f"§13.1 不应再落在 18 年前的数据上：{warnings}"
+
+
+# --- AC-2.1：§9 主营业务构成 ------------------------------------------------
+
+
+#: 由 2026-09-25 实跑落盘的 §9 表格反推的 fina_mainbz 响应（营收/利润是真实值，
+#: bz_cost 按该表的毛利率回推，使渲染出的毛利率与原表一致）。
+SEGMENT_FIXTURE = "fina_mainbz_600887_2026H1.json"
+
+
+def _render_segments(df: pd.DataFrame) -> str:
+    client = _make_client()
+    with patch("tushare_collector.time.sleep"):
+        client._safe_call = MagicMock(return_value=df)
+        return client.get_segments("600887.SH")
+
+
+def _segment_table_rows(section_markdown: str) -> list:
+    """解析 §9 的四列表格 → [(名称, 营收, 利润, 毛利率)]。"""
+    rows = []
+    for line in section_markdown.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) != 4 or cells[0] in {"业务名称", ""} or set(cells[0]) <= {"-", ":"}:
+            continue
+        rows.append(tuple(cells))
+    return rows
+
+
+class TestSegmentSection:
+    def test_duplicate_rows_are_merged(self):
+        """AC-2.1：同值重复行只能出现一次（F8：冷饮产品系列≡冷饮产品、其他主营业务≡其他）。"""
+        rows = _segment_table_rows(_render_segments(_load_mock(SEGMENT_FIXTURE)))
+        names = [row[0] for row in rows]
+
+        assert names.count("冷饮产品系列") == 1
+        assert "冷饮产品" not in names
+        assert names.count("其他主营业务") == 1
+        assert "其他" not in names
+        values = [(row[1], row[2]) for row in rows]
+        assert len(values) == len(set(values)), "不应再有两行同值"
+        assert ("产品", "64,489.72", "23,595.64", "36.6") in rows, "真实合计行必须保留"
+
+    def test_margin_shows_a_dash_instead_of_a_literal_nan(self):
+        """AC-2.1：成本缺失时毛利率是「—」，不是字面 `nan`（F8）。"""
+        markdown = _render_segments(_load_mock(SEGMENT_FIXTURE))
+        rows = {row[0]: row for row in _segment_table_rows(markdown)}
+
+        assert rows["合计特别调整"][3] == "—"
+        assert "| nan |" not in markdown
+        assert "|nan|" not in markdown
+
+    def test_reconciliation_note_explains_the_gap(self):
+        """AC-2.1：口径差必须在数据包里有文字说明（去重后分部合计 + 调整 = 产品）。"""
+        markdown = _render_segments(_load_mock(SEGMENT_FIXTURE))
+
+        assert "口径说明" in markdown
+        assert "各分部营业收入合计 64,330.95 百万元" in markdown
+        assert "合计特别调整" in markdown
+        assert "158.78" in markdown
+        assert "64,489.72" in markdown

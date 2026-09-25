@@ -104,20 +104,22 @@ supersedes: TBD
   写成 `in-progress` 而非 `accepted` 是**追溯门禁的强制结果**：父需求 REQ-006 已是 `in-progress`，
   而门禁要求「父需求不得比它最慢的子需求更靠前」，所以新登记的子需求不能停在 `accepted`。
   实际完成度以 `AC-2.1`~`AC-2.8` 的证据与 PR 为准。
-- 进度（2026-09-25，**未收口**，全量门禁 `1574 passed, 3 skipped`、覆盖率 78.32%）：
+- 进度（2026-09-25，**未收口**，全量门禁 `1577 passed, 3 skipped`、覆盖率 78.32%）：
   - `AC-2.2` 已实现：`scripts/tushare_modules/other_data.py:get_pledge_stat` 去掉三个股数字段的
     `divider=1e4`（接口本就是万股），并新增「§1 总市值 ÷ 现价 反推股数 ≈ §16 总股本（相对误差 <1%）」
     与「质押比例 == 质押股数 / 总股本」两条一致性校验；`pledge_stat.json` 夹具换成 2026-09-18 真实响应。
-  - `AC-2.1` 部分实现：`§12 营收同比增长率` 改请求真实字段 `or_yoy`（`tr_yoy` 兜底），
+  - `AC-2.1` 已实现：`§12 营收同比增长率` 改请求真实字段 `or_yoy`（`tr_yoy` 兜底），
     此前请求的 `revenue_yoy` 不是 `fina_indicator` 字段、被静默丢弃导致整行永远为「—」；
-    `§9` 的重复行/字面 `nan`/口径差说明**尚未做**。
+    `§9 主营业务构成` 合并同值重复行（实测「冷饮产品系列」≡「冷饮产品」、「其他主营业务」≡「其他」）、
+    成本缺失时毛利率写「—」而不是字面 `nan`，并在表后给出「各分部合计 + 合计特别调整 = 产品」
+    的口径说明（`other_data.py:_segment_reconciliation_note`）。
   - `AC-2.3` 已实现：`§13.1` 的异常检测窗口改为「最新财报期 vs 上年同期」+「最新年报 vs 上一年报」
     （`assembly.py:_yoy_period_pairs`，并把 `assets_impair_loss` 纳入被检字段），不再拿 2007 年的
     历史逐对比较；占位段落的填充策略按 owner 决定落成**「只由全量分析填、增量 run 不填」**
     （需求内 AC-2.3 的策略引用块 + [`docs/PERIODIC_UPDATE_PLAN.md` §7.1.1](../../PERIODIC_UPDATE_PLAN.md)），
     并由 `evidence.py`（占位符段落进 `unfilled_sections`、不进 `entries`；混合段落只删占位符行）与
     `context.py`（`evidence_coverage: unavailable` + `unavailable_inputs`，原始上下文也不塞占位符）落地。
-  - 测试：新增 `tests/test_tushare_pack_sections.py`（10 例，夹具取真实响应、不做网络调用）。
+  - 测试：新增 `tests/test_tushare_pack_sections.py`（13 例，夹具取真实响应、不做网络调用）。
   - PR #TBD（合入后回填）。
 - 目标：把 2026-09-25 的 AC-1.9 复跑（run `20260925T042255414048Z`）暴露的**数据包生成、PDF 抽取、
   证据索引与 bundle 预算、输入接线、跨 run 一致性**五类缺陷一次性收干净，并让每一类都留下**可判定**的回归判据
