@@ -15,6 +15,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
+from .evidence_ref import (
+    SUB_EXCERPT_SEPARATOR,
+    evidence_reference_base,
+    format_evidence_reference,
+    split_evidence_reference,
+)
+
 
 RESULT_SCHEMA_ID = "investment.result"
 RESULT_SCHEMA_VERSION = "1.0"
@@ -289,6 +296,7 @@ def validate_result(result: dict[str, Any], *, strict: bool = True) -> list[str]
         evidence = []
 
     evidence_ids: set[str] = set()
+    base_evidence_ids: set[str] = set()
     for index, item in enumerate(evidence):
         if not _is_mapping(item):
             errors.append(f"evidence[{index}] must be an object")
@@ -300,6 +308,9 @@ def validate_result(result: dict[str, Any], *, strict: bool = True) -> list[str]
             errors.append(f"duplicate evidence_id: {evidence_id}")
         else:
             evidence_ids.add(evidence_id)
+            # 允许 `base#1` 与 `base#2` 各占一条：具名子段本来就是「同一块的不同摘录」，
+            # 唯一性判在**引用**上而不是块 id 上（REQ-006.2 AC-2.5 / F25）。
+            base_evidence_ids.add(evidence_reference_base(evidence_id))
         if not isinstance(item.get("source_id"), str) or not item["source_id"].strip():
             errors.append(f"evidence[{index}].source_id must be a non-empty string")
         if not isinstance(item.get("locator"), dict) or not item["locator"]:
@@ -333,7 +344,14 @@ def validate_result(result: dict[str, Any], *, strict: bool = True) -> list[str]
         elif strict and not references and item.get("type") != "fact":
             errors.append(f"claims[{index}] must cite evidence for non-fact claims")
         elif strict:
-            missing = sorted(set(references) - evidence_ids)
+            # 引用可以写成 `base` 或 `base#n`（具名子段）；两种都按块 id 归属校验。
+            missing = sorted(
+                {
+                    ref
+                    for ref in references
+                    if evidence_reference_base(ref) not in base_evidence_ids
+                }
+            )
             if missing:
                 errors.append(f"claims[{index}] references unknown evidence: {missing}")
 

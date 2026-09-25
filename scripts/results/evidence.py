@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from .evidence_ref import evidence_reference_base, split_evidence_reference
+
 
 DEFAULT_CHUNK_CHARS = 1200
 DEFAULT_OVERLAP_CHARS = 120
@@ -259,6 +261,16 @@ def bundle_evidence_ids(bundle: dict[str, Any]) -> set[str]:
     return ids
 
 
+def _excerpts_of(indexed: dict[str, Any]) -> list[str]:
+    """一个索引块提供的全部摘录：块自身的 quote + alternative_quotes（用于子段越界检查）。"""
+
+    excerpts = [indexed.get("quote", "")]
+    alternatives = indexed.get("alternative_quotes")
+    if isinstance(alternatives, list):
+        excerpts.extend(item for item in alternatives if isinstance(item, str))
+    return [item for item in excerpts if isinstance(item, str) and item.strip()]
+
+
 def validate_bundle_evidence(result: dict[str, Any], bundle: dict[str, Any]) -> list[str]:
     """模块结果引用的证据必须落在这个模块自己的 bundle 里。
 
@@ -274,7 +286,8 @@ def validate_bundle_evidence(result: dict[str, Any], bundle: dict[str, Any]) -> 
     errors: list[str] = []
     for position, evidence in enumerate(result.get("evidence", [])):
         evidence_id = evidence.get("evidence_id") if isinstance(evidence, dict) else None
-        if isinstance(evidence_id, str) and evidence_id not in allowed:
+        # `base#n`（具名子段，REQ-006.2 AC-2.5 / F25）按块 id 归属：base 必须在 bundle 里。
+        if isinstance(evidence_id, str) and evidence_reference_base(evidence_id) not in allowed:
             errors.append(
                 f"evidence[{position}] ID {evidence_id!r} is outside this module's context bundle"
             )
@@ -282,7 +295,7 @@ def validate_bundle_evidence(result: dict[str, Any], bundle: dict[str, Any]) -> 
         if not isinstance(claim, dict):
             continue
         for evidence_id in claim.get("evidence_ids", []) or []:
-            if isinstance(evidence_id, str) and evidence_id not in allowed:
+            if isinstance(evidence_id, str) and evidence_reference_base(evidence_id) not in allowed:
                 errors.append(
                     f"claims[{position}] references {evidence_id!r} outside this module's context bundle"
                 )
@@ -307,23 +320,41 @@ def validate_result_evidence(result: dict[str, Any], index: dict[str, Any]) -> l
         if not isinstance(evidence, dict):
             continue
         evidence_id = evidence.get("evidence_id")
-        indexed = by_id.get(evidence_id) if isinstance(evidence_id, str) else None
+        base_id, sub_index = (
+            split_evidence_reference(evidence_id) if isinstance(evidence_id, str) else ("", None)
+        )
+        indexed = by_id.get(base_id) if base_id else None
         if indexed is None:
             errors.append(f"evidence[{position}] ID {evidence_id!r} is absent from the evidence index")
             continue
+        if sub_index is not None:
+            excerpts = _excerpts_of(indexed)
+            if sub_index >= len(excerpts):
+                errors.append(
+                    f"evidence[{position}] sub-excerpt #{sub_index} of {base_id!r} is out of range "
+                    f"({len(excerpts)} excerpt(s) available)"
+                )
+                continue
         if evidence.get("source_id") != indexed.get("source_id"):
             errors.append(f"evidence[{position}] source_id does not match the evidence index")
         if evidence.get("locator") != indexed.get("locator"):
             errors.append(f"evidence[{position}] locator does not match the evidence index")
         quote = evidence.get("quote", "")
-        indexed_quote = indexed.get("quote", "")
-        if (
-            not isinstance(quote, str)
-            or not quote.strip()
-            or not isinstance(indexed_quote, str)
-            or quote not in indexed_quote
-        ):
+        if not isinstance(quote, str) or not quote.strip():
             errors.append(f"evidence[{position}] quote does not match the evidence index")
+        elif sub_index is not None:
+            # 具名子段：引文必须落在**该子段**里（比只查块的主 quote 更严）。
+            expected = _excerpts_of(indexed)[sub_index]
+            if quote not in expected:
+                errors.append(
+                    f"evidence[{position}] quote does not match sub-excerpt #{sub_index} "
+                    f"of {base_id!r}"
+                )
+        else:
+            # 块可以带多条摘录（`quote` + `alternative_quotes`，F25）：模块引用其中
+            # **任何一条**都算命中该索引块，否则「不同模块引用同一块的不同摘录」会被误判。
+            if not any(quote in excerpt for excerpt in _excerpts_of(indexed)):
+                errors.append(f"evidence[{position}] quote does not match the evidence index")
         content_hash = evidence.get("content_hash")
         if content_hash is not None and content_hash != indexed.get("content_hash"):
             errors.append(f"evidence[{position}] content_hash does not match the evidence index")

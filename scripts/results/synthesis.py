@@ -83,6 +83,19 @@ def _candidates(result: dict[str, Any], card: dict[str, Any]):
                 yield queue.popleft()
 
 
+def _drop_label(key: str, name: str, item: Any) -> str:
+    """给「被让出的这条卡片内容」一个可读且**逐条唯一**的标签。
+
+    列表类条目用条目自己的标识（claim_id / risk / item / statement 或序号），
+    其余用 ``key:name``。标签只用于 ``budget.dropped`` 与 ``dropped_count`` 去重计数，
+    所以必须逐条不同：笼统标签会让 `dropped_count` 小于实际丢弃条数。
+    """
+
+    if key in {"claims", "risks", "watchlist"}:
+        return f"{key}:{_list_item_label(key, item, 0)}"
+    return f"{key}:{name}"
+
+
 def _list_item_label(key: str, item: Any, position: int) -> str:
     """给列表类条目起一个稳定且可读的丢弃标签（用于 budget.dropped 与 dropped_count）。"""
 
@@ -227,6 +240,13 @@ def build_synthesis_context(
                 "must_cite_evidence": True,
                 "omissions_require_targeted_lookup": True,
                 "quote_index": "0 = quote; n > 0 = alternative_quotes[n - 1]. Copy one continuous excerpt; never concatenate alternatives.",
+                # REQ-006.2 AC-2.5 / 发现 F25：同一个块的不同摘录要能被**分别引用**，
+                # 否则同一块里的两个数值只能有一个进最终 sidecar。
+                "sub_excerpts": (
+                    "When one chunk's several values must each be cited, reference them "
+                    "separately as `<evidence_id>#<n>` (n = quote_index of that excerpt); "
+                    "each reference keeps its own continuous quote. A bare id equals `#0`."
+                ),
                 "source_of_truth": "module results plus reconciliation; numerical metrics remain deterministic",
             },
         }
@@ -279,22 +299,31 @@ def build_synthesis_context(
             trial = build_payload()
             if trial["budget"]["actual_chars"] <= max_chars:
                 payload = trial
-                admitted.append((result["result_type"], target, None if is_list else name))
+                admitted.append(
+                    (
+                        result["result_type"],
+                        target,
+                        None if is_list else name,
+                        # 被让出时要能报出**这条**内容的名字，否则只能报一个笼统标签，
+                        # dropped_count 会小于 omitted 之和（自检不变量见测试）。
+                        _drop_label(key, name, item),
+                    )
+                )
             elif is_list:
                 target.pop()
-                dropped.setdefault(result["result_type"], []).append(f"{key}:{name}")
+                dropped.setdefault(result["result_type"], []).append(_drop_label(key, name, item))
             else:
                 del target[name]
-                dropped.setdefault(result["result_type"], []).append(f"{key}:{name}")
+                dropped.setdefault(result["result_type"], []).append(_drop_label(key, name, item))
     # 记账本身也占字符：加上最后一批丢弃记录后若超预算，就继续让出最大的卡片内容。
     payload = build_payload()
     while _size(payload) > max_chars and admitted:
-        module, target, name = admitted.pop()
+        module, target, name, label = admitted.pop()
         if name is None:
             target.pop()
         else:
             del target[name]
-        dropped.setdefault(module, []).append("budget:disclosure")
+        dropped.setdefault(module, []).append(label)
         payload = build_payload()
     payload["budget"]["actual_chars"] = _size(payload)
     return payload

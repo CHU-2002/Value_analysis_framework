@@ -104,7 +104,7 @@ supersedes: TBD
   写成 `in-progress` 而非 `accepted` 是**追溯门禁的强制结果**：父需求 REQ-006 已是 `in-progress`，
   而门禁要求「父需求不得比它最慢的子需求更靠前」，所以新登记的子需求不能停在 `accepted`。
   实际完成度以 `AC-2.1`~`AC-2.8` 的证据与 PR 为准。
-- 进度（2026-09-25，**未收口**，全量门禁 `1617 passed, 3 skipped`、覆盖率 79.02%）：
+- 进度（2026-09-25，**未收口**，全量门禁 `1625 passed, 3 skipped`、覆盖率 79.11%）：
   - **`F29` 已修（2026-09-25，本切片）**：附注源的**期次**从「完全没有标记」变成
     「登记 + 判定 + 对模块可见」三层落地——
     ① 附注包头部新增机器可读的 `> 报告期：YYYYH1` 契约（`prompts/phase2_PDF解析.md`
@@ -144,6 +144,24 @@ supersedes: TBD
     `quality.missing_inputs`」，`shared/qualitative/references/output_schema.md` 的
     `business_trend` 行同步；测试见 `tests/test_period_delta_module.py::
     test_business_trend_basis_is_the_year_ago_period`。
+  - **`F25` 已修（2026-09-25，本切片）**：同一 `evidence_id` 的多段具名子段可以分别引用——
+    新增 `scripts/results/evidence_ref.py`（`split_evidence_reference` /
+    `evidence_reference_base` / `format_evidence_reference`，单独成模块以免 `evidence.py`
+    与 `schema.py` 循环 import），`validate_result` 的唯一性判在**引用**上而不是块 id 上
+    （`base#1` / `base#2` 可以各占一条），`validate_result_evidence` 校验子段序号
+    （越界报 `sub-excerpt #n ... out of range`）且**裸块引用命中该块的任意一条摘录**，
+    模块级 bundle 边界检查按 base 归属；`synthesis` 的 instructions 新增 `sub_excerpts`
+    规则、`final_synthesis.md` 与 `output_schema.md` 写明「同一块的不同数值分别引用，
+    不得拼接」，`synthesis.py` 的窗口选择指导与之一致。
+    测试：`tests/test_results_pipeline.py` +7（解析规则、两条子段各自可引用、越界被拒、
+    未知块被拒、裸引用命中任意摘录、合成上下文声明规则、端到端「同一块两条摘录分别进
+    sidecar 且引文必须落在对应子段」）。
+    **副产物（本切片实测暴露的真实缺陷）**：`synthesis` 的预算收尾循环原先把被让出的条目
+    统一记成笼统标签 `budget:disclosure`，多条被让出时会被 `set()` 去重成 1，于是
+    `dropped_count` 可能**小于**各卡片 `omitted` 之和；把 `sub_excerpts` 说明文字加进
+    instructions 后推过阈值即复现。现改为逐条带自己的标签，并加回归测试
+    `test_budget_eviction_labels_every_dropped_item`（扫描 12k/11k/10k/9k 四档预算，
+    断言「丢弃计数 ≥ 省略之和」且标签不含笼统项）。
   - `AC-2.2` 已实现：`scripts/tushare_modules/other_data.py:get_pledge_stat` 去掉三个股数字段的
     `divider=1e4`（接口本就是万股），并新增「§1 总市值 ÷ 现价 反推股数 ≈ §16 总股本（相对误差 <1%）」
     与「质押比例 == 质押股数 / 总股本」两条一致性校验；`pledge_stat.json` 夹具换成 2026-09-18 真实响应。
@@ -163,7 +181,7 @@ supersedes: TBD
     并在 `run_manifest.unavailable_inputs` 里登记 `pdf_footnotes / not_applicable`（不再是
     模块里一个无原因的 `missing`）；`update-analysis.md` 的 Step 3 与 `PERIODIC_UPDATE_PLAN.md`
     §7.1 第 1 步把附注源写进 `--input` 清单（`.claude` 与 `.opencode` 两份镜像同步）。
-  - `AC-2.5` 已实现（**`F25` 除外，见下**）：① 摘录长度契约显式化——索引条目自带
+  - `AC-2.5` 已实现（含 `F25`，见下）：① 摘录长度契约显式化——索引条目自带
     `quote_contract`（`index_window_chars` / `module_quote_max_chars`），写明「索引窗口是检索单位、
     模块引文是窗口内 ≤300 字逐字子段」，`context.py` 保证同一 evidence id 的引文**逐字落在
     `context_text` 展示的范围内**（F5/F13）；② 利润表**必选行**（营业收入/营业成本/财务费用/净利润/
@@ -172,8 +190,8 @@ supersedes: TBD
     ④ 同一段落可给最多 2 条摘录（`MAX_EVIDENCE_PER_SECTION`），采用**两遍分配**——先保证每个
     段落各 1 条（维持「大表不能饿死其他段落」的不变量），剩余预算再补第二块；真实数据包实测
     `environment` 由 7 条增至 9 条，MDA/P13/§3/§12 各拿到 2 块（F22）。
-    未做：**`F25`（同一 `evidence_id` 的多段具名子段可被分别引用）**——它要改结果 schema 的
-    引用形态（窗口 + 具名子段），留待与 AC-2.7 的引用一致性一起做。
+    **`F25` 已修（2026-09-25，本切片）**：引入具名子段引用 `<evidence_id>#<n>`
+    （`n` 即该摘录的 `quote_index`，裸 id 等价 `#0`），见下面单独一条进度。
   - `AC-2.5` 的 **`max_evidence`/字符预算保底已实现（2026-09-25，本切片）**：
     ① `_module_evidence` 改成**三档轮转**的第一遍——必选节（§3 利润表 / §4 资产负债表 /
     §5 现金流量表 / §12 关键财务指标，`REQUIRED_MARKET_SECTIONS`）→ `prior_analysis` →

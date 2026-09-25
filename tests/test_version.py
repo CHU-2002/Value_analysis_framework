@@ -36,7 +36,7 @@ def _make_root(tmp_path):
 
 
 def test_framework_version_is_next_semver():
-    assert FRAMEWORK_VERSION == "0.2.0"
+    assert FRAMEWORK_VERSION == "0.3.0"
     assert version.FRAMEWORK_VERSION == FRAMEWORK_VERSION
 
 
