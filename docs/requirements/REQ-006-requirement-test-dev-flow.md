@@ -104,7 +104,7 @@ supersedes: TBD
   写成 `in-progress` 而非 `accepted` 是**追溯门禁的强制结果**：父需求 REQ-006 已是 `in-progress`，
   而门禁要求「父需求不得比它最慢的子需求更靠前」，所以新登记的子需求不能停在 `accepted`。
   实际完成度以 `AC-2.1`~`AC-2.8` 的证据与 PR 为准。
-- 进度（2026-09-25，**未收口**，全量门禁 `1579 passed, 3 skipped`、覆盖率 78.32%）：
+- 进度（2026-09-25，**未收口**，全量门禁 `1583 passed, 3 skipped`、覆盖率 78.57%）：
   - `AC-2.2` 已实现：`scripts/tushare_modules/other_data.py:get_pledge_stat` 去掉三个股数字段的
     `divider=1e4`（接口本就是万股），并新增「§1 总市值 ÷ 现价 反推股数 ≈ §16 总股本（相对误差 <1%）」
     与「质押比例 == 质押股数 / 总股本」两条一致性校验；`pledge_stat.json` 夹具换成 2026-09-18 真实响应。
@@ -124,10 +124,21 @@ supersedes: TBD
     并在 `run_manifest.unavailable_inputs` 里登记 `pdf_footnotes / not_applicable`（不再是
     模块里一个无原因的 `missing`）；`update-analysis.md` 的 Step 3 与 `PERIODIC_UPDATE_PLAN.md`
     §7.1 第 1 步把附注源写进 `--input` 清单（`.claude` 与 `.opencode` 两份镜像同步）。
+  - `AC-2.5` 已实现（**`F25` 除外，见下**）：① 摘录长度契约显式化——索引条目自带
+    `quote_contract`（`index_window_chars` / `module_quote_max_chars`），写明「索引窗口是检索单位、
+    模块引文是窗口内 ≤300 字逐字子段」，`context.py` 保证同一 evidence id 的引文**逐字落在
+    `context_text` 展示的范围内**（F5/F13）；② 利润表**必选行**（营业收入/营业成本/财务费用/净利润/
+    归母净利润）在截断时先保（F14），`section_states` 逐段给出 `full/truncated/omitted`；
+    ③ bundle 增 `coverage_states`，把五态翻译成对本模块的可用性说明（F20）；
+    ④ 同一段落可给最多 2 条摘录（`MAX_EVIDENCE_PER_SECTION`），采用**两遍分配**——先保证每个
+    段落各 1 条（维持「大表不能饿死其他段落」的不变量），剩余预算再补第二块；真实数据包实测
+    `environment` 由 7 条增至 9 条，MDA/P13/§3/§12 各拿到 2 块（F22）。
+    未做：**`F25`（同一 `evidence_id` 的多段具名子段可被分别引用）**——它要改结果 schema 的
+    引用形态（窗口 + 具名子段），留待与 AC-2.7 的引用一致性一起做。
   - 测试：新增 `tests/test_tushare_pack_sections.py`（13 例，夹具取真实响应、不做网络调用）；
-    `tests/test_results_pipeline.py` 增 2 例（附注源缺失的 warning + manifest 登记、中报源被接受）；
-    `tests/test_prepare_primary_period.py` / `tests/test_prepare_prior_analysis.py` 的夹具补上附注源，
-    让「干净 run 无 warning」的断言继续成立。
+    `tests/test_results_pipeline.py` 增 2 例（AC-2.6）+ 4 例（AC-2.5：契约、必选行、
+    引文窗口一致、三态图例）；`tests/test_prepare_primary_period.py` /
+    `tests/test_prepare_prior_analysis.py` 的夹具补上附注源，让「干净 run 无 warning」的断言继续成立。
   - PR #TBD（合入后回填）。
 - 目标：把 2026-09-25 的 AC-1.9 复跑（run `20260925T042255414048Z`）暴露的**数据包生成、PDF 抽取、
   证据索引与 bundle 预算、输入接线、跨 run 一致性**五类缺陷一次性收干净，并让每一类都留下**可判定**的回归判据

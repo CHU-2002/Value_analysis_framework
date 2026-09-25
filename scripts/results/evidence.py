@@ -201,6 +201,15 @@ def build_evidence_index(
         "sources": source_manifest,
         "entries": entries,
         "unfilled_sections": unfilled_sections,
+        # 摘录长度契约（REQ-006.2 AC-2.5）：索引条目是**检索窗口**，模块结果里的
+        # evidence[].quote 是窗口内的 ≤300 字**子段**（schema.py 校验）。两层不是同一个
+        # 上限——旧实跑里 195 条索引摘录有 178 条超过 300 字（最长 1,199），当时没有任何
+        # 地方写明这个「窗口 + 子段范围」的关系。
+        "quote_contract": {
+            "index_window_chars": chunk_chars,
+            "module_quote_max_chars": 300,
+            "rule": "索引窗口是检索单位；模块引用必须是窗口内 ≤300 字的逐字子段。",
+        },
     }
     if run_id is not None:
         index["run"] = {"run_id": run_id}

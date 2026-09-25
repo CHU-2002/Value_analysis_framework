@@ -247,6 +247,21 @@ python3 scripts/download_report.py --stock-code 600887 --report-type auto --sinc
 5. 增量 run 若发现行业/政策出现**实质变化**，按既有升级规则走 `stale:framework` 全量重跑，
    而不是在增量流程里临时补段。
 
+#### 7.1.2 证据引文与 bundle 预算的契约（REQ-006.2 AC-2.5）
+
+- **「索引窗口 + 引文子段」**：`evidence/index.json` 的每条摘录是**检索窗口**
+  （≤ `chunk_chars`，默认 1,200 字）；模块结果里的 `evidence[].quote` 必须是该窗口内
+  **≤300 字的逐字子段**（由 `results/schema.py` 校验，`validate_result_evidence` 保证
+  子段确实包含在窗口里）。索引自带 `quote_contract` 字段把这个关系写死，别再拿 300 去要求索引。
+- **必选行/必选节先保**：`contexts/{module}.json` 的预算按「先保必选行，再按预算填其余」
+  分配——利润表的**营业收入 / 营业成本 / 财务费用 / 净利润 / 归母净利润**不会因为从尾部
+  截断而消失（实测曾把「归母净利润」砍掉，D5 只能写 `null`）。
+- **同一 evidence id 的引文必须能在 `context_text` 里逐字核对**（同一段落的首块引文取
+  context 展示窗口内的子段，不再用另一个关键词窗口）。
+- **三态语义要翻译**：bundle 的 `coverage_states` 给出 `full / truncated / omitted /
+  missing / unavailable` 对本模块的含义（`omitted` 是预算不足，不是数据不存在；
+  `unavailable` 是 Agent 专属占位段本 run 不填），`section_states` 逐段给出实际状态。
+
 ### 7.2 新模块 `period_delta`
 
 - 契约：`scripts/results/schema.py:RESULT_TYPE_CONTRACTS` 增 `qualitative.period_delta`，scope `["D7"]`。

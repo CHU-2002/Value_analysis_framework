@@ -15,7 +15,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | 项 | 当前 | 上限 | 使用率 |
 |----|------|------|--------|
 | 测试文件数 | 35 | 48 | 73% |
-| 收集到的用例数 | 1582 | 1800 | 88% |
+| 收集到的用例数 | 1586 | 1800 | 88% |
 
 （用例数含 `parametrize` 展开，由 `pytest --collect-only` 统计；函数数见下表末列，仅作参考。）
 
@@ -48,7 +48,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_refresh_market.py` | 基线 | `unit` | — | 23 |
 | `tests/test_release_gates.py` | REQ-003, REQ-005, REQ-006, REQ-006.1 | `unit` | — | 37 |
 | `tests/test_requirement_traceability.py` | 基线 | `unit` | — | 17 |
-| `tests/test_results_pipeline.py` | REQ-006.1, REQ-006.2 | `e2e` | — | 66 |
+| `tests/test_results_pipeline.py` | REQ-006.1, REQ-006.2 | `e2e` | — | 70 |
 | `tests/test_runs_ledger.py` | REQ-003, REQ-006.1 | `unit` | — | 38 |
 | `tests/test_screener.py` | REQ-006.1 | `unit` | — | 99 |
 | `tests/test_test_scope.py` | REQ-003, REQ-006 | `unit` | `scripts/test_scope.py` | 16 |

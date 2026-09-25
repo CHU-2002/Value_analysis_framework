@@ -7,7 +7,7 @@ import argparse
 import json
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from .evidence import UNFILLED_REASON, select_evidence, unfilled_placeholder_markers
 
@@ -98,10 +98,74 @@ def _truncate(text: str, max_chars: int) -> tuple[str, bool]:
     return cut, True
 
 
+#: 利润表里「不能因为预算被截掉」的必选行（REQ-006.2 AC-2.5 / 发现 F14：旧实现从尾部
+#: 截断，把「归母净利润」砍掉，D5 的 net_profit_mm 只能为 null）。
+REQUIRED_INCOME_ROWS: tuple[str, ...] = (
+    "营业收入", "营业成本", "财务费用", "净利润", "归母净利润",
+)
+
+#: 同一段落最多给模块几条索引摘录（F22：只给 1 条会让索引里其余可用摘录引不到；
+#: 超过这个数就会挤占别的段落，预算兜底由 evidence 池的均分截断负责）。
+MAX_EVIDENCE_PER_SECTION = 2
+
+#: 段落的预算份额低于这个值时不再强保必选行（否则极端紧的 max_chars 下 bundle 永远装不进）。
+REQUIRED_ROWS_MIN_BUDGET = 300
+
+#: bundle 里每个输入状态对**本模块结论**的含义（F20：missing/omitted/truncated 三态
+#: 被模块混用，出现过「不存在」式错误表述）。
+COVERAGE_STATE_MEANINGS: dict[str, str] = {
+    "full": "完整进入 bundle。",
+    "truncated": "被截断：尾部不在 bundle（可用 evidence_id 取原文）。",
+    "omitted": "索引里有、预算没装下（不是数据不存在）。",
+    "missing": "索引里没有：没采到或没接进 inputs。",
+    "unavailable": "Agent 专属占位段，本 run 不填（不是缺陷）。",
+}
+
+
+def _truncate_keeping_rows(
+    text: str, max_chars: int, required: Iterable[str],
+) -> tuple[str, bool]:
+    """截断时**先保必选行**，再用剩余预算按原顺序填其余内容。
+
+    2026-09-25 实跑（F14）：按预算从尾部截断会把「归母净利润」行砍掉，D5 只能写 null。
+    这里改成：markdown 表头 + 命中 ``required`` 的行无条件保留，其余行填到预算用完；
+    输出仍按原文顺序，读起来还是一张表。
+    """
+
+    if max_chars <= 0 or len(text) <= max_chars or not required:
+        return _truncate(text, max_chars)
+    lines = text.splitlines(keepends=True)
+    selected: set[int] = set()
+    used = 0
+    header_end = 1 if lines else 0
+    for position, line in enumerate(lines[:4]):
+        stripped = line.strip()
+        if stripped and set(stripped) <= set("|-: "):
+            header_end = position + 1
+            break
+    for position in range(header_end):
+        selected.add(position)
+        used += len(lines[position])
+    for position, line in enumerate(lines):
+        if any(term in line for term in required):
+            if position not in selected:
+                selected.add(position)
+                used += len(lines[position])
+    for position, line in enumerate(lines):
+        if position in selected:
+            continue
+        if used + len(line) > max_chars:
+            break
+        selected.add(position)
+        used += len(line)
+    return "".join(lines[position] for position in sorted(selected)), True
+
+
 def _estimate_tokens(text: str) -> int:
     # Conservative estimate for mixed Chinese/Latin text. Exact token counts
     # depend on the selected model and are recorded separately by the runner.
     return max(1, math.ceil(len(text) / 2)) if text else 0
+
 
 
 def _load_pdf_sections(path: Path | None) -> dict[str, str]:
@@ -148,6 +212,7 @@ def _module_evidence(
         for section in sections
     )
     selected: list[dict[str, Any]] = []
+    deferred: list[dict[str, Any]] = []
     coverage = {}
     # Agent 专属占位段落（§7/§8/§10/§13.2）不进索引，这里的槽位必须显示为
     # ``unavailable``（按策略本 run 不填）而不是 ``missing``（看起来像数据丢了）
@@ -167,21 +232,36 @@ def _module_evidence(
         if source == "prior_analysis":
             ranked = candidates[:1]
         else:
-            ranked = select_evidence({"entries": candidates}, keywords=config["keywords"], limit=1)
+            # 一个段落有多块可用摘录时不能只给 1 条就切断其余（REQ-006.2 AC-2.5 /
+            # 发现 F22：MDA 有 8 块、§17 有 4 块，D2 的市场份额/Capex 证据在索引里
+            # 却引不到）。这里按关键词取前 MAX_EVIDENCE_PER_SECTION 块。
+            ranked = select_evidence(
+                {"entries": candidates},
+                keywords=config["keywords"],
+                limit=MAX_EVIDENCE_PER_SECTION,
+            )
         # Concrete guarantees take priority over accounting-policy references.
         if section in {"MATTERS", "P6"}:
             targeted = select_evidence(
                 {"entries": candidates}, keywords=["担保总额", "担保逾期", "逾期金额", "对外担保"], limit=1
             )
             ranked = targeted or ranked
-        choice = (ranked or candidates)[:1]
+        choice = (ranked or candidates)[:MAX_EVIDENCE_PER_SECTION]
         key = f"{source}:{section}"
         coverage[key] = "missing" if not choice else "omitted"
         if not choice and (source, section) in unfilled:
             coverage[key] = "unavailable"
         if choice and len(selected) < limit:
-            selected.extend(choice)
+            # 第一遍：每个段落先保证 1 条（max_evidence 先分给「所有段落各一条」，
+            # 否则第二条会把后面的段落整个挤掉）。
+            selected.append(choice[0])
             coverage[key] = choice[0]["evidence_id"]
+            deferred.extend(choice[1:])
+    # 第二遍：还有 max_evidence 余量时，再补同一段落的后续块（F22）。
+    for item in deferred:
+        if len(selected) >= limit:
+            break
+        selected.append(item)
     return selected, coverage
 
 
@@ -268,6 +348,7 @@ def build_module_context(
         for item in agent_only_sections
     )
     content_budget = int(max_chars * 0.75)
+    include_extras = True
     while True:
         # Independent pools prevent a long financial table from starving PDF
         # sections. Rebuild all pools after measuring JSON, never slice the tail.
@@ -276,36 +357,88 @@ def build_module_context(
         blocks: list[str] = []
         section_metadata: list[list[dict[str, Any]]] = [[], []]
         truncated = False
+        #: 每个输入段落在 context_text 里**实际展示**的字符数；同一 evidence id 的
+        #: quote 必须落在这个范围内（REQ-006.2 AC-2.5 / 发现 F13：context_text 与
+        #: evidence[].quote 覆盖窗口不一致，模块拿到的引文无法在上下文里核对）。
+        shown_lengths: dict[tuple[str, str], int] = {}
         for sections, pool, metadata, label, key in (
             (market, pools[0], section_metadata[0], "Market data:", "title"),
             (pdf, pools[1], section_metadata[1], "PDF", "section"),
         ):
             limits = _fair_limits([len(text) for _, text in sections], pool)
             for (title, text), limit in zip(sections, limits):
-                excerpt, cut = _truncate(text, limit)
-                metadata.append({key: title, "selected_chars": len(excerpt), "truncated": cut})
+                # 必选行（利润表）先保，再按预算填其余（F14）。极端紧的预算下
+                # （段落份额 < 300 字）连必选行本身都放不下，此时退回普通截断，
+                # 否则 bundle 永远装不进 max_chars。
+                required = REQUIRED_INCOME_ROWS if limit >= REQUIRED_ROWS_MIN_BUDGET else ()
+                excerpt, cut = _truncate_keeping_rows(text, limit, required)
+                state = "omitted" if not excerpt else ("truncated" if cut else "full")
+                metadata.append(
+                    {key: title, "selected_chars": len(excerpt), "truncated": cut, "state": state}
+                )
                 if excerpt:
                     blocks.append(f"[{label} {title}]\n{excerpt}")
+                    source_id = "market_data" if label.startswith("Market") else "pdf_sections"
+                    section_key = title.split(".")[0].strip() if source_id == "market_data" else title
+                    shown_lengths[(source_id, section_key)] = len(excerpt)
                 truncated |= cut
 
         evidence = []
-        limits = _fair_limits([len(item["quote"]) for item in selected_evidence], pools[2])
         retained_coverage = dict(coverage)
-        for item, limit in zip(selected_evidence, limits):
+        truncated_extra: list[str] = []
+
+        def _render(item: dict[str, Any], limit: int) -> dict[str, Any] | None:
+            """把一条索引条目渲染成 bundle 里的 evidence（预算不够返回 None）。"""
+
             if limit < min(160, len(item["quote"])):
-                retained_coverage[f"{item['source_id']}:{item['section']}"] = "omitted"
-                truncated = True
-                continue
+                return None
             quote = item["quote"]
-            terms = ["担保总额", "担保逾期", "逾期金额", "对外担保"] + config["keywords"]
-            positions = [quote.find(term) for term in terms if term in quote]
-            start = max(0, min(positions[0] - limit // 4, len(quote) - limit)) if positions else 0
-            excerpt, _ = _truncate(quote[start:], limit)
-            evidence.append({
+            cap = shown_lengths.get((item["source_id"], item["section"]))
+            if cap is not None and int(item.get("chunk_number", 1) or 1) == 1:
+                # 这一段已经作为 context_text 展示了前 cap 个字符：引文必须是它的子段，
+                # 否则模块拿到引文却无法在上下文里核对（F13）。
+                excerpt, _ = _truncate(quote[:cap], limit)
+            else:
+                terms = ["担保总额", "担保逾期", "逾期金额", "对外担保"] + config["keywords"]
+                positions = [quote.find(term) for term in terms if term in quote]
+                start = max(0, min(positions[0] - limit // 4, len(quote) - limit)) if positions else 0
+                excerpt, _ = _truncate(quote[start:], limit)
+            return {
                 **{key: item[key] for key in ("evidence_id", "source_id", "locator", "content_hash") if key in item},
                 "quote": excerpt,
-            })
-            truncated |= excerpt != quote
+            }
+
+        # 两遍分配：每个段落的**第一块**先按均分拿预算（保证大表不饿死别的段落），
+        # 剩余预算再给同一段的后续块（REQ-006.2 AC-2.5 / 发现 F22）。
+        grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        for item in selected_evidence:
+            grouped.setdefault((item["source_id"], item["section"]), []).append(item)
+        first_items = [items[0] for items in grouped.values()]
+        first_limits = _fair_limits([len(item["quote"]) for item in first_items], pools[2])
+        spent = 0
+        for item, limit in zip(first_items, first_limits):
+            rendered = _render(item, limit)
+            key = f"{item['source_id']}:{item['section']}"
+            if rendered is None:
+                retained_coverage[key] = "omitted"
+                truncated = True
+                continue
+            evidence.append(rendered)
+            spent += len(rendered["quote"])
+            truncated |= rendered["quote"] != item["quote"]
+        extra_items = (
+            [item for items in grouped.values() for item in items[1:]] if include_extras else []
+        )
+        extra_limits = _fair_limits([len(item["quote"]) for item in extra_items], max(0, pools[2] - spent))
+        for item, limit in zip(extra_items, extra_limits):
+            rendered = _render(item, limit)
+            key = f"{item['source_id']}:{item['section']}"
+            if rendered is None:
+                truncated_extra.append(key)
+                truncated = True
+                continue
+            evidence.append(rendered)
+            truncated |= rendered["quote"] != item["quote"]
         context_text = "\n\n".join(blocks)
         bundle = {
             "schema": "investment.context_bundle",
@@ -316,6 +449,23 @@ def build_module_context(
             "data_sections": section_metadata[0],
             "pdf_sections": section_metadata[1],
             "evidence": evidence,
+            "coverage_states": {
+                state: COVERAGE_STATE_MEANINGS[state]
+                for state in (
+                    {item.get("state") for item in [*section_metadata[0], *section_metadata[1]]}
+                    | set(retained_coverage.values())
+                )
+                if state in COVERAGE_STATE_MEANINGS
+            },
+            "section_states": [
+                {
+                    "section": item.get("title") or item.get("section"),
+                    "state": item.get("state"),
+                    "selected_chars": item.get("selected_chars"),
+                }
+                for item in [*section_metadata[0], *section_metadata[1]]
+                if item.get("state") != "full"
+            ],
             "unavailable_inputs": unavailable_inputs,
             "context_text": context_text,
             "budget": {
@@ -329,6 +479,8 @@ def build_module_context(
                 "pdf_section_ids": config["pdf_sections"],
                 "keywords": config["keywords"],
                 "evidence_coverage": retained_coverage,
+                # 同一段的第 2+ 块里没装进预算的那些（F22 的可判定披露）。
+                "evidence_extra_omitted": sorted(set(truncated_extra)),
                 "missing_pdf_sections": [key for key in config["pdf_sections"] if key not in parsed_pdf],
                 **(
                     {
@@ -367,6 +519,14 @@ def build_module_context(
             bundle["budget"]["actual_chars"] = actual_chars
         if actual_chars <= max_chars:
             return bundle
+        if include_extras and extra_items:
+            # 预算不够时**先牺牲同一段落的第 2+ 块**，再考虑压缩第一块：否则
+            # 第二块摘录会把别段落的第一块挤出预算（「大表不能饿死别的段落」）。
+            include_extras = False
+            truncated_extra.extend(
+                f"{item['source_id']}:{item['section']}" for item in extra_items
+            )
+            continue
         if content_budget == 0:
             raise ValueError(f"Unable to fit {module} context bundle within {max_chars} characters")
         content_budget = max(0, content_budget - max(1, actual_chars - max_chars))

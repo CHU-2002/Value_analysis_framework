@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from results.context import build_module_context
+from results.context import COVERAGE_STATE_MEANINGS, build_module_context
 from results.evidence import (
     build_evidence_index,
     bundle_evidence_ids,
@@ -1340,3 +1340,101 @@ def test_validate_result_cli_checks_the_bundle(tmp_path, capsys):
         validate_main()
     assert excinfo.value.code == 1
     assert "outside this module's context bundle" in capsys.readouterr().err
+
+
+# --- REQ-006.2 AC-2.5：索引窗口/引文子段、必选行、三态语义、窗口一致性 ---
+
+
+def test_evidence_index_declares_window_and_subrange_quote_contract(tmp_path):
+    """AC-2.5：索引摘录与模块引文的长度关系必须显式声明（窗口 + 子段范围）。"""
+    source = tmp_path / "pack.md"
+    source.write_text("## 3. 合并利润表\n" + "x" * 4000, encoding="utf-8")
+
+    index = build_evidence_index(
+        [{"source_id": "market_data", "path": str(source)}], chunk_chars=1200
+    )
+
+    contract = index["quote_contract"]
+    assert contract["index_window_chars"] == 1200
+    assert contract["module_quote_max_chars"] == 300
+    assert all(len(entry["quote"]) <= 1200 for entry in index["entries"])
+    assert any(len(entry["quote"]) > 300 for entry in index["entries"]), "检索窗口可以超过 300"
+
+
+def test_bundle_keeps_required_income_rows_under_a_tight_budget(tmp_path):
+    """AC-2.5：预算再紧也要保住利润表必选行（F14：「归母净利润」曾被截掉）。"""
+    rows = "".join(f"| 附带行{index} | {index} | {index} |\n" for index in range(300))
+    required = (
+        "| 营业收入 | 64,330.94 | 61,776.75 |\n"
+        "| 营业成本 | 40,894.00 | 39,507.00 |\n"
+        "| 财务费用 | -100.00 | -90.00 |\n"
+        "| 净利润 | 6,000.00 | 7,500.00 |\n"
+        "| 归母净利润 | 6,172.79 | 7,720.36 |\n"
+    )
+    pack = tmp_path / "data_pack.md"
+    pack.write_text(
+        "## 3. 合并利润表\n\n| 项目 | 2026H1 | 2025H1 |\n| --- | ---: | ---: |\n"
+        + rows
+        + required,
+        encoding="utf-8",
+    )
+
+    bundle = build_module_context("mda_quality", data_pack_path=pack, max_chars=6000)
+
+    for row in ("营业收入", "营业成本", "财务费用", "净利润", "归母净利润"):
+        assert row in bundle["context_text"], f"{row} 被预算砍掉了"
+    assert bundle["budget"]["actual_chars"] <= 6000
+    assert any(item["state"] == "truncated" for item in bundle["section_states"])
+
+
+def test_evidence_quote_stays_inside_the_shown_context_excerpt(tmp_path):
+    """AC-2.5：同一 evidence id 的引文必须落在 context_text 展示的范围内（F13）。"""
+    pack = tmp_path / "data_pack.md"
+    pack.write_text(
+        "## 3. 合并利润表\n" + "".join(f"| 行{index} | {index} |\n" for index in range(160)),
+        encoding="utf-8",
+    )
+    index = build_evidence_index([{"source_id": "market_data", "path": str(pack)}])
+    index_path = tmp_path / "index.json"
+    index_path.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+
+    bundle = build_module_context(
+        "mda_quality", data_pack_path=pack, evidence_index_path=str(index_path), max_chars=6000
+    )
+
+    marker = "[Market data: 3. 合并利润表]\n"
+    assert marker in bundle["context_text"]
+    shown = bundle["context_text"].split(marker, 1)[1].split("\n\n[", 1)[0]
+    quotes = [
+        item["quote"]
+        for item in bundle["evidence"]
+        if item["source_id"] == "market_data"
+        and item.get("locator", {}).get("section") == "3"
+    ]
+    assert quotes, bundle["selection"]["evidence_coverage"]
+    assert all(quote in shown for quote in quotes), "引文必须能在 context_text 里逐字核对"
+
+
+def test_bundle_translates_coverage_states_for_the_module(tmp_path):
+    """AC-2.5：missing / omitted / truncated / unavailable 在 bundle 里必须有可用性说明。"""
+    pack = tmp_path / "data_pack.md"
+    pack.write_text(
+        "## 3. 合并利润表\n" + "x" * 3000 + "\n\n## 8. 行业与竞争\n*[§8 待Agent WebSearch补充]*\n",
+        encoding="utf-8",
+    )
+    index = build_evidence_index([{"source_id": "market_data", "path": str(pack)}])
+    index_path = tmp_path / "index.json"
+    index_path.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+
+    bundle = build_module_context(
+        "environment", data_pack_path=pack, evidence_index_path=str(index_path), max_chars=8000
+    )
+
+    states = bundle["coverage_states"]
+    assert "不填" in states["unavailable"]
+    assert "索引里没有" in states["missing"]
+    # 图例覆盖全部五态；bundle 只带上本模块实际出现的那几态（省预算）。
+    assert set(COVERAGE_STATE_MEANINGS) >= {"full", "truncated", "omitted", "missing", "unavailable"}
+    assert "预算" in COVERAGE_STATE_MEANINGS["omitted"]
+    assert set(states) <= set(COVERAGE_STATE_MEANINGS)
+    assert all(states.values()), states
