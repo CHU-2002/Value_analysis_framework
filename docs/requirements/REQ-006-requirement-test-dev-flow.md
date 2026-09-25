@@ -104,7 +104,7 @@ supersedes: TBD
   写成 `in-progress` 而非 `accepted` 是**追溯门禁的强制结果**：父需求 REQ-006 已是 `in-progress`，
   而门禁要求「父需求不得比它最慢的子需求更靠前」，所以新登记的子需求不能停在 `accepted`。
   实际完成度以 `AC-2.1`~`AC-2.8` 的证据与 PR 为准。
-- 进度（2026-09-25，**未收口**，全量门禁 `1583 passed, 3 skipped`、覆盖率 78.57%）：
+- 进度（2026-09-25，**未收口**，全量门禁 `1588 passed, 3 skipped`、覆盖率 78.60%）：
   - `AC-2.2` 已实现：`scripts/tushare_modules/other_data.py:get_pledge_stat` 去掉三个股数字段的
     `divider=1e4`（接口本就是万股），并新增「§1 总市值 ÷ 现价 反推股数 ≈ §16 总股本（相对误差 <1%）」
     与「质押比例 == 质押股数 / 总股本」两条一致性校验；`pledge_stat.json` 夹具换成 2026-09-18 真实响应。
@@ -135,10 +135,23 @@ supersedes: TBD
     `environment` 由 7 条增至 9 条，MDA/P13/§3/§12 各拿到 2 块（F22）。
     未做：**`F25`（同一 `evidence_id` 的多段具名子段可被分别引用）**——它要改结果 schema 的
     引用形态（窗口 + 具名子段），留待与 AC-2.7 的引用一致性一起做。
+  - `AC-2.4` **部分实现**：① `MDA` 的前置 buffer 页不再排在正文前面——`extract_section_context`
+    改成「正文（best_page 起）在前、前置页作为带标注的『前置上下文』附在后面」，且截断只在正文里做，
+    代表块必然落在正文（F12）；`SECTION_EXTRACT_CONFIG` 的 MDA/GOV/MATTERS `max_chars` 由 8,000 提到
+    20,000。**真实 PDF 实测**（`output/600887_伊利/sources/pdf/600887_2026_中报.pdf`，本地文件、不联网）：
+    `MDA` 由 7,999 字（开头是上一节的非经常性损益表）变为 9,376 字、开头即 p.10 的真实 MD&A 正文。
+    ② 双栏串行：新增 `reflow_two_column_words`（按中缝判定，只对明显两栏页重排；否则交回
+    `extract_text()`），带合成单测；**实测该中报未触发**（输出与改动前逐字节一致），所以真实数据上
+    未获验证。③ **未做到**：`MATTERS` 重大担保表的「列与值一一对应、担保逾期可判定」——
+    用真实 PDF 定位了根因：pdfplumber 默认 `extract_tables()` 对这一页把多行列头堆叠在一起，
+    换 `vertical_strategy=text / horizontal_strategy=lines` 也只能把「担保逾期金额 / 是否逾期 /
+    反担保」并进同一个 cell（值 `是 4,811.72` 无法自动拆开），需要版面层或人工处理，
+    留作后续切片。
   - 测试：新增 `tests/test_tushare_pack_sections.py`（13 例，夹具取真实响应、不做网络调用）；
     `tests/test_results_pipeline.py` 增 2 例（AC-2.6）+ 4 例（AC-2.5：契约、必选行、
-    引文窗口一致、三态图例）；`tests/test_prepare_primary_period.py` /
-    `tests/test_prepare_prior_analysis.py` 的夹具补上附注源，让「干净 run 无 warning」的断言继续成立。
+    引文窗口一致、三态图例）；`tests/test_pdf_preprocessor.py` 增 5 例（正文在前的代表块、
+    双栏重排判定）；`tests/test_prepare_primary_period.py` / `tests/test_prepare_prior_analysis.py`
+    的夹具补上附注源，让「干净 run 无 warning」的断言继续成立。
   - PR #TBD（合入后回填）。
 - 目标：把 2026-09-25 的 AC-1.9 复跑（run `20260925T042255414048Z`）暴露的**数据包生成、PDF 抽取、
   证据索引与 bundle 预算、输入接线、跨 run 一致性**五类缺陷一次性收干净，并让每一类都留下**可判定**的回归判据

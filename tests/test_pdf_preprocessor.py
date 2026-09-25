@@ -32,6 +32,7 @@ from scripts.pdf_preprocessor import (
     detect_zones,
     find_section_pages,
     extract_section_context,
+    reflow_two_column_words,
     write_output,
     run_pipeline,
     is_garbled,
@@ -579,10 +580,10 @@ class TestMDAExtraction:
         assert "董事会报告" in keywords
 
     def test_mda_extract_config(self):
-        """MDA has buffer_pages=3, max_chars=8000."""
+        """MDA has buffer_pages=3, max_chars=20000（旧值 8000 会截掉正文尾部，F12）。"""
         assert "MDA" in SECTION_EXTRACT_CONFIG
         assert SECTION_EXTRACT_CONFIG["MDA"]["buffer_pages"] == 3
-        assert SECTION_EXTRACT_CONFIG["MDA"]["max_chars"] == 8000
+        assert SECTION_EXTRACT_CONFIG["MDA"]["max_chars"] == 20000
 
     def test_default_config_values(self):
         """Default buffer/max_chars are 1/4000."""
@@ -633,6 +634,76 @@ class TestMDAExtraction:
 # ============================================================
 # SUB extraction (subsidiary holdings)
 # ============================================================
+
+# 覆盖需求：REQ-006.2 —— AC-2.4 代表块必须落在章节正文而不是前置上下文
+# 覆盖需求：REQ-006.2 —— AC-2.4 双栏文本必须按栏重排，不得串行错乱
+class TestTwoColumnReflow:
+    """AC-2.4 / F23：双栏页的左右栏不能交错拼到一起。"""
+
+    @staticmethod
+    def _two_column_words():
+        words = []
+        # 左栏：x 60-280；右栏：x 460-680；页面宽 842（中缝无词）
+        for row in range(6):
+            words.append({"text": f"L{row}A", "x0": 60, "x1": 120, "top": 100 + row * 12})
+            words.append({"text": f"L{row}B", "x0": 130, "x1": 200, "top": 100 + row * 12})
+        for row in range(6):
+            words.append({"text": f"R{row}A", "x0": 460, "x1": 520, "top": 100 + row * 12})
+            words.append({"text": f"R{row}B", "x0": 530, "x1": 600, "top": 100 + row * 12})
+        # 补足 40 个词的下限
+        for index in range(30):
+            words.append({"text": f"x{index}", "x0": 60, "x1": 100, "top": 200 + index * 12})
+        return words
+
+    def test_two_column_page_is_read_column_by_column(self):
+        reflowed = reflow_two_column_words(self._two_column_words(), 842.0)
+        assert reflowed is not None
+        left_end = reflowed.index("R0A")
+        assert "L0A" in reflowed[:left_end] and "L5B" in reflowed[:left_end]
+        # 右栏整段在左栏之后，不再交错
+        assert reflowed.index("R5B") > left_end
+
+    def test_single_column_page_is_left_to_the_linear_extractor(self):
+        words = [
+            {"text": f"word{index}", "x0": 300 + (index % 5) * 20, "x1": 340 + (index % 5) * 20,
+             "top": 100 + index * 12}
+            for index in range(80)
+        ]
+        assert reflow_two_column_words(words, 842.0) is None
+
+    def test_too_few_words_is_left_alone(self):
+        assert reflow_two_column_words([{"text": "a", "x0": 1, "x1": 2, "top": 1}], 842.0) is None
+
+
+class TestSectionBodyVersusPrefix:
+    """AC-2.4：buffer 页是「前置上下文」，不能排在正文前面当代表块。"""
+
+    def _pages(self):
+        # p.4-5 是上一节的内容（会长到超过预算），p.6 起才是本节
+        return [
+            (4, "上一节：非经常性损益明细表 " * 200),
+            (5, "上一节续：非经常性损益 " * 200),
+            (6, "第三节 管理层讨论与分析 经营情况回顾 " + "正文内容。" * 400),
+            (7, "管理层讨论与分析续 " + "更多正文。" * 50),
+        ]
+
+    def test_body_comes_before_the_labelled_prefix(self):
+        result = extract_section_context(self._pages(), {"MDA": [6]}, buffer_pages=3)
+
+        text = result["MDA"]
+        assert text.startswith("--- p.6 ---"), text[:80]
+        assert "管理层讨论与分析" in text[:200]
+        assert text.index("--- p.6 ---") < text.index("前置上下文")
+        assert "非经常性损益" in text  # 前置内容仍保留，只是排在后面并被标注
+
+    def test_representative_chunk_is_the_body(self):
+        """证据索引的第一块（代表块）不能再是前置页的表格。"""
+        from results.evidence import build_evidence_index
+
+        text = extract_section_context(self._pages(), {"MDA": [6]}, buffer_pages=3)["MDA"]
+        assert text.split("--- p.", 2)[1].startswith("6 ---")
+        assert "非经常性损益" not in text[:300]
+
 
 class TestSUBExtraction:
     """SUB section extraction for subsidiary holdings data."""
