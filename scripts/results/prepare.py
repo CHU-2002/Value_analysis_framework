@@ -275,11 +275,14 @@ def prepare_run(
     company: str,
     market: str = "CN",
     run_id: str | None = None,
-    max_chars: int = 24000,
+    max_chars: int | None = None,
     primary_period: str | None = None,
     prior_analysis: str | Path | None = None,
 ) -> dict[str, object]:
     """Create all deterministic inputs needed by module Agents.
+
+    ``max_chars=None``（默认）让每个模块用它自己的字符预算（``MODULE_CONFIG``；
+    period_delta 因为要同时装下必选节与完整 prior_analysis 而更大，见 AC-2.5）。
 
     Inputs are read from ``<output_dir>/inputs/`` when that directory exists
     (the run-store snapshot layout) and from ``<output_dir>/`` otherwise. The
@@ -509,7 +512,8 @@ def main() -> None:
     parser.add_argument("--company", required=True)
     parser.add_argument("--market", default="CN")
     parser.add_argument("--run-id")
-    parser.add_argument("--max-chars", type=int, default=24000)
+    # 不设默认值：None 表示「用每个模块自己的预算」（MODULE_CONFIG，见 AC-2.5）。
+    parser.add_argument("--max-chars", type=int, default=None)
     parser.add_argument(
         "--primary-period",
         type=_period_arg,

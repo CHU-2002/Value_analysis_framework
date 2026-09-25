@@ -104,7 +104,7 @@ supersedes: TBD
   写成 `in-progress` 而非 `accepted` 是**追溯门禁的强制结果**：父需求 REQ-006 已是 `in-progress`，
   而门禁要求「父需求不得比它最慢的子需求更靠前」，所以新登记的子需求不能停在 `accepted`。
   实际完成度以 `AC-2.1`~`AC-2.8` 的证据与 PR 为准。
-- 进度（2026-09-25，**未收口**，全量门禁 `1603 passed, 3 skipped`、覆盖率 78.74%）：
+- 进度（2026-09-25，**未收口**，全量门禁 `1606 passed, 3 skipped`、覆盖率 78.75%）：
   - **`F29` 已修（2026-09-25，本切片）**：附注源的**期次**从「完全没有标记」变成
     「登记 + 判定 + 对模块可见」三层落地——
     ① 附注包头部新增机器可读的 `> 报告期：YYYYH1` 契约（`prompts/phase2_PDF解析.md`
@@ -152,6 +152,26 @@ supersedes: TBD
     `environment` 由 7 条增至 9 条，MDA/P13/§3/§12 各拿到 2 块（F22）。
     未做：**`F25`（同一 `evidence_id` 的多段具名子段可被分别引用）**——它要改结果 schema 的
     引用形态（窗口 + 具名子段），留待与 AC-2.7 的引用一致性一起做。
+  - `AC-2.5` 的 **`max_evidence`/字符预算保底已实现（2026-09-25，本切片）**：
+    ① `_module_evidence` 改成**三档轮转**的第一遍——必选节（§3 利润表 / §4 资产负债表 /
+    §5 现金流量表 / §12 关键财务指标，`REQUIRED_MARKET_SECTIONS`）→ `prior_analysis` →
+    其余来源，每轮每档最多 1 条，剩余槽位第二遍按组轮流补；旧顺序是 `prior_analysis`
+    先拿满 6 条，实测把 `period_delta` 的 8 个 `market_data` 槽位全挤成 `omitted`
+    （F29/AC-2.5 记的正是这一条）。
+    ② 含必选行的段落（利润表）在字符预算里有下限 `REQUIRED_INCOME_SECTION_MIN_CHARS=900`，
+    从**有余量**的段落按「最多让出一半份额」扣出来补给，池子总量不变；行首识别用正则，
+    避免「归母净利润」行把资产负债表也误判成利润表。
+    ③ `period_delta` 显式声明自己的预算（`max_evidence=16`、`max_chars=32000`）：
+    它要同时装下必选节、6 段上一版结论与 PDF 正文，缺省 12 / 24,000 下必选节只剩
+    97~170 字（实测 §5 现金流量表只剩表头）。`build_module_context` / `prepare` /
+    CLI 的 `max_chars`/`max_evidence` 默认值改为 `None` = 「用模块自己的预算」，显式传参
+    仍然优先；其余模块的缺省不变（12 / 24,000）。
+    **真实 run 实测对照**（`output/600887_伊利/runs/20260925T091012981574Z`，只读重算）：
+    修复前 `period_delta` 只有 12 条证据（6 prior + 5 pdf_sections + 1 附注）、
+    `market_data` 8 个槽位全 `omitted`、context_text 6,255 字、§3 只剩 168 字（表头两行）；
+    修复后 16 条证据（§3/§3P/§4/§4P/§5/§6/§12/§17 各 1 + 6 prior + MDA + MATTERS）、
+    利润表 5 条必选行全部在 `context_text` 里、§3 = 816 字、§5/§12 = 168/454 字、
+    `actual_chars=31,287 ≤ 32,000`。
   - `AC-2.4` **部分实现**：① `MDA` 的前置 buffer 页不再排在正文前面——`extract_section_context`
     改成「正文（best_page 起）在前、前置页作为带标注的『前置上下文』附在后面」，且截断只在正文里做，
     代表块必然落在正文（F12）；`SECTION_EXTRACT_CONFIG` 的 MDA/GOV/MATTERS `max_chars` 由 8,000 提到
@@ -227,6 +247,7 @@ supersedes: TBD
       `gross_margin_change` / `ocf_to_profit` 只能为 null、`status=partial`。
       即「必选节 + 每节首块」的保底在 `max_evidence` 分配层面仍会被打穿，需把
       `max_evidence` 也改成「先保结构（必选节 + 每节首块）再给 prior_analysis」。
+      **→ 已在本切片修复，证据与实测对照见上面进度里 `AC-2.5` 那一条。**
     - **`AC-2.7` 元数据可信仍不成立**：`history.jsonl`/`record.json` 的 `framework.git_commit`
       = `a8b6147`、`run.json` = `eb84fc3`（squash 合入后都不可达 main）；
       `run.json` `dirty=false` 而 `run_manifest.json` `dirty=true`、

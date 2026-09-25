@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -61,6 +62,15 @@ MODULE_CONFIG: dict[str, dict[str, Any]] = {
         "market_evidence": ["3", "3P", "4", "4P", "5", "6", "12", "17"],
         "footnote_evidence": ["P13", "P3", "P6"],
         "prior_analysis": ["summary", "parameters", "claims", "risks", "watchlist", "quality"],
+        #: 这个模块的证据槽位比别的模块多：它既要**本期**财务（必选节 §3/§4/§5/§12 +
+        #: 其余数据段），又要**上一版结论**（6 段，D7 的全部对比基准）。实测默认 12
+        #: 会让必选节或对比基准二选一被饿死（REQ-006.2 AC-2.5），所以显式抬到 16。
+        "max_evidence": 16,
+        #: 字符预算同理要抬：16 条证据的 JSON 元数据（evidence_id/locator/hash）就占掉
+        #: 十几 k，默认 24,000 下必选节只能分到 97~170 字（实测 §5 现金流量表只剩表头）。
+        #: 32,000 下 §3 保得住 5 条必选行、§5/§12 各约 450~520 字、16 条证据全在
+        #: （实测 `actual_chars=31,287`）。
+        "max_chars": 32000,
     },
 }
 
@@ -103,6 +113,29 @@ def _truncate(text: str, max_chars: int) -> tuple[str, bool]:
 REQUIRED_INCOME_ROWS: tuple[str, ...] = (
     "营业收入", "营业成本", "财务费用", "净利润", "归母净利润",
 )
+
+#: **必选节**（REQ-006.2 AC-2.5）：利润表（含必选行）、资产负债表、现金流量表、
+#: 关键财务指标。它们在 max_evidence 分配里**先于 prior_analysis** 拿槽位，在字符预算里
+#: 也有下限——否则「本期财务事实」会被上一版结论与 PDF 正文挤空。
+#: 实测（run `20260925T091012981574Z`）：period_delta 的 `market_data` 8 个槽位全 `omitted`、
+#: §3 只剩 168 字（表头两行），D7 的 revenue_yoy / net_profit_yoy / gross_margin_change /
+#: ocf_to_profit 只能为 null。
+REQUIRED_MARKET_SECTIONS: tuple[str, ...] = ("3", "4", "5", "12")
+
+#: 含必选行的段落至少要分到这个字符数，`_truncate_keeping_rows` 才装得下整块必选行
+#: （实测 §3 的 5 条必选行 + 表头共 725 字，故下限取 900）。
+REQUIRED_INCOME_SECTION_MIN_CHARS = 900
+
+#: 识别「这个段落里有必选行」：只认**行首**的必选行（`| 营业收入 |` / `- 营业收入`）。
+#: 朴素子串匹配会把资产负债表段落也误判成利润表（它也有「净利润」这类行）。
+REQUIRED_INCOME_ROW_RE = re.compile(
+    r"^[\s|>*\-]*(" + "|".join(re.escape(row) for row in REQUIRED_INCOME_ROWS) + r")\s*[\s|:：]"
+)
+
+#: 模块没有显式声明证据槽位预算时的缺省值。
+DEFAULT_MAX_EVIDENCE = 12
+#: 模块没有显式声明字符预算时的缺省值。
+DEFAULT_MAX_CHARS = 24000
 
 #: 同一段落最多给模块几条索引摘录（F22：只给 1 条会让索引里其余可用摘录引不到；
 #: 超过这个数就会挤占别的段落，预算兜底由 evidence 池的均分截断负责）。
@@ -193,27 +226,68 @@ def _fair_limits(lengths: list[int], budget: int) -> list[int]:
     return limits
 
 
+def _raise_income_section_limits(
+    sections: list[tuple[str, str]], limits: list[int],
+) -> list[int]:
+    """把「含必选行的段落」的字符下限抬到 ``REQUIRED_INCOME_SECTION_MIN_CHARS``。
+
+    多出来的部分从**有余量**的段落里扣（每次扣掉超出其一半份额的部分，从最大者开始），
+    保证池子总量不变、bundle 不会超 ``max_chars``；池子里确实没有余量时保持原样，
+    仍走普通截断（AC-2.5 的必选行保底在 `max_chars` 太小时只能让位给「装得进」）。
+    """
+
+    if not limits:
+        return limits
+    positions = [
+        index
+        for index, (_, text) in enumerate(sections)
+        if any(REQUIRED_INCOME_ROW_RE.match(line) for line in text.splitlines())
+    ]
+    if not positions:
+        return limits
+    ceilings = {
+        index: min(len(sections[index][1]), REQUIRED_INCOME_SECTION_MIN_CHARS)
+        for index in positions
+    }
+    shortfall = sum(max(0, ceilings[index] - limits[index]) for index in positions)
+    if shortfall <= 0:
+        return limits
+    donors = sorted(
+        (index for index in range(len(limits)) if index not in positions),
+        key=lambda index: -limits[index],
+    )
+    # 每个段落最多让出「自己份额的一半」，避免把它们压到连表头都不剩。
+    available = sum(limits[index] - limits[index] // 2 for index in donors)
+    if available < shortfall:
+        # 池子没有余量：保持原样，交给普通截断（装得进优先于装得全）。
+        return limits
+    for index in donors:
+        if shortfall <= 0:
+            break
+        give = min(limits[index] - limits[index] // 2, shortfall)
+        limits[index] -= give
+        shortfall -= give
+    for index in positions:
+        limits[index] = max(limits[index], ceilings[index])
+    return limits
+
+
 def _module_evidence(
     index: dict[str, Any], config: dict[str, Any], limit: int,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
-    # Prior-run conclusions are the comparison baseline for the incremental
-    # delta module. They are selected first: a wide data pack otherwise fills
-    # the whole evidence limit and starves them completely.
-    groups: list[tuple[str, str]] = [
-        ("prior_analysis", section) for section in config.get("prior_analysis", [])
-    ]
-    groups.extend(
-        (source, section)
-        for source, sections in (
-            ("pdf_sections", config["pdf_sections"]),
-            ("pdf_footnotes", config["footnote_evidence"]),
-            ("market_data", config["market_evidence"]),
-        )
-        for section in sections
-    )
-    selected: list[dict[str, Any]] = []
-    deferred: list[dict[str, Any]] = []
-    coverage = {}
+    """按「先保结构、再给 prior_analysis」的顺序挑选证据槽位。
+
+    REQ-006.2 AC-2.5：`max_evidence` 是**两遍分配**——
+    第一遍先给必选节（利润表 / 资产负债表 / 现金流量表 / 关键财务指标）与
+    `prior_analysis` 各一条，这两类都不能被别的组饿死（前者是本期财务事实，
+    后者是增量对比基准）；剩下的槽位再按组轮流补给其余来源与多余的块。
+    实测（run `20260925T091012981574Z`）：旧顺序「prior_analysis 先拿满」让
+    `period_delta` 的 8 个 `market_data` 槽位全 `omitted`，D7 的四个必填参数只能为 null。
+
+    段落里有多块可用摘录时不能只给 1 条就切断其余（发现 F22：MDA 有 8 块、
+    §17 有 4 块，D2 的市场份额/Capex 证据在索引里却引不到）。
+    """
+
     # Agent 专属占位段落（§7/§8/§10/§13.2）不进索引，这里的槽位必须显示为
     # ``unavailable``（按策略本 run 不填）而不是 ``missing``（看起来像数据丢了）
     # —— REQ-006.2 AC-2.3。
@@ -222,6 +296,36 @@ def _module_evidence(
         for item in index.get("unfilled_sections", []) or []
         if isinstance(item, dict)
     }
+    groups: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add_group(source: str, section: str) -> None:
+        if (source, section) not in seen:
+            seen.add((source, section))
+            groups.append((source, section))
+
+    for source, sections in (
+        ("market_data", config["market_evidence"]),
+        ("pdf_sections", config["pdf_sections"]),
+        ("pdf_footnotes", config["footnote_evidence"]),
+        ("prior_analysis", config.get("prior_analysis", [])),
+    ):
+        for section in sections:
+            add_group(source, section)
+
+    # 必选节按编号前缀匹配：market_evidence 里的 "3." / "3" 都算利润表。
+    required_sections = set(REQUIRED_MARKET_SECTIONS)
+
+    def is_required(source: str, section: str) -> bool:
+        prefix = str(section).split(".")[0].strip()
+        return source == "market_data" and prefix in required_sections
+
+    required_leave_one_out = {
+        (source, section) for source, section in groups if is_required(source, section)
+    }
+
+    #: 每个「组」排好序的候选块（最多 MAX_EVIDENCE_PER_SECTION 条）。
+    ranked_by_group: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for source, section in groups:
         candidates = [
             item for item in index.get("entries", [])
@@ -232,9 +336,6 @@ def _module_evidence(
         if source == "prior_analysis":
             ranked = candidates[:1]
         else:
-            # 一个段落有多块可用摘录时不能只给 1 条就切断其余（REQ-006.2 AC-2.5 /
-            # 发现 F22：MDA 有 8 块、§17 有 4 块，D2 的市场份额/Capex 证据在索引里
-            # 却引不到）。这里按关键词取前 MAX_EVIDENCE_PER_SECTION 块。
             ranked = select_evidence(
                 {"entries": candidates},
                 keywords=config["keywords"],
@@ -246,22 +347,63 @@ def _module_evidence(
                 {"entries": candidates}, keywords=["担保总额", "担保逾期", "逾期金额", "对外担保"], limit=1
             )
             ranked = targeted or ranked
-        choice = (ranked or candidates)[:MAX_EVIDENCE_PER_SECTION]
-        key = f"{source}:{section}"
-        coverage[key] = "missing" if not choice else "omitted"
-        if not choice and (source, section) in unfilled:
-            coverage[key] = "unavailable"
-        if choice and len(selected) < limit:
-            # 第一遍：每个段落先保证 1 条（max_evidence 先分给「所有段落各一条」，
-            # 否则第二条会把后面的段落整个挤掉）。
-            selected.append(choice[0])
-            coverage[key] = choice[0]["evidence_id"]
-            deferred.extend(choice[1:])
-    # 第二遍：还有 max_evidence 余量时，再补同一段落的后续块（F22）。
-    for item in deferred:
-        if len(selected) >= limit:
+        ranked_by_group[(source, section)] = (ranked or candidates)[:MAX_EVIDENCE_PER_SECTION]
+
+    coverage: dict[str, str] = {}
+    for key, choice in ranked_by_group.items():
+        source, section = key
+        coverage[f"{source}:{section}"] = "missing" if not choice else "omitted"
+        if not choice and key in unfilled:
+            coverage[f"{source}:{section}"] = "unavailable"
+
+    # 第一遍：必选节 + prior_analysis 各一条。必选节先拿，保证「本期财务事实」优先于
+    # 上一版结论；prior_analysis 紧随其后，保证对比基准不被本轮数据包挤掉。
+    selected: list[dict[str, Any]] = []
+    chosen_from: dict[tuple[str, str], int] = {}
+    # 第一遍按**轮转**分三档，每轮每档最多拿 1 条：① 必选节（本期财务事实）
+    # ② prior_analysis（增量对比基准）③ 其余来源（PDF 正文 / 附注 / 非必选数据段）。
+    # 轮转而不是「一档拿满再下一档」，是为了在两件事之间取平衡：默认 max_evidence=12 时
+    # 必选节必须先拿到（旧行为是 prior_analysis 先拿 6 条，market_data 8 个槽位全 `omitted`，
+    # D7 四个必填参数只能为 null）；极紧的 max_evidence 下对比基准也不能整档消失。
+    priority_tiers = [
+        [key for key in groups if key in required_leave_one_out],
+        [key for key in groups if key[0] == "prior_analysis"],
+        [key for key in groups if key not in required_leave_one_out and key[0] != "prior_analysis"],
+    ]
+    while len(selected) < limit:
+        progressed = False
+        for tier in priority_tiers:
+            if len(selected) >= limit:
+                break
+            for key in tier:
+                choice = ranked_by_group[key]
+                if chosen_from.get(key, 0) >= min(1, len(choice)):
+                    continue
+                selected.append(choice[0])
+                chosen_from[key] = 1
+                coverage[f"{key[0]}:{key[1]}"] = choice[0]["evidence_id"]
+                progressed = True
+                break
+        if not progressed:
             break
-        selected.append(item)
+
+    # 第二遍：剩余槽位按组轮流分（每轮每组补 1 条），直到槽位用尽。
+    while len(selected) < limit:
+        progressed = False
+        for key in groups:
+            if len(selected) >= limit:
+                break
+            choice = ranked_by_group[key]
+            position = chosen_from.get(key, 0)
+            if position >= len(choice):
+                continue
+            selected.append(choice[position])
+            chosen_from[key] = position + 1
+            if position == 0:  # 该组刚拿到第一条：覆盖状态要指向它
+                coverage[f"{key[0]}:{key[1]}"] = choice[0]["evidence_id"]
+            progressed = True
+        if not progressed:
+            break
     return selected, coverage
 
 
@@ -271,20 +413,31 @@ def build_module_context(
     data_pack_path: str | Path | None = None,
     pdf_sections_path: str | Path | None = None,
     evidence_index_path: str | Path | None = None,
-    max_chars: int = 24000,
-    max_evidence: int = 12,
+    max_chars: int | None = None,
+    max_evidence: int | None = None,
     run_id: str | None = None,
     subject: dict[str, Any] | None = None,
     input_digest: str | None = None,
     routing: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build a bounded context bundle for one analysis module."""
+    """Build a bounded context bundle for one analysis module.
+
+    ``max_chars`` / ``max_evidence`` 传 ``None``（默认）时取模块自己的预算
+    （``MODULE_CONFIG`` 的 ``max_chars`` / ``max_evidence``，缺省 24,000 / 12）：
+    period_delta 需要更多槽位与字符才能同时装下必选节、完整的 ``prior_analysis``
+    与 PDF 正文（REQ-006.2 AC-2.5）。
+    """
 
     if module not in MODULE_CONFIG:
         raise ValueError(f"Unknown module: {module}. Expected one of {sorted(MODULE_CONFIG)}")
+
+    if max_chars is None:
+        max_chars = int(MODULE_CONFIG[module].get("max_chars", DEFAULT_MAX_CHARS))
     if max_chars <= 0:
         raise ValueError("max_chars must be positive")
 
+    if max_evidence is None:
+        max_evidence = int(MODULE_CONFIG[module].get("max_evidence", DEFAULT_MAX_EVIDENCE))
     if max_evidence < 0:
         raise ValueError("max_evidence must be non-negative")
     config = MODULE_CONFIG[module]
@@ -396,6 +549,11 @@ def build_module_context(
             (pdf, pools[1], section_metadata[1], "PDF", "section"),
         ):
             limits = _fair_limits([len(text) for _, text in sections], pool)
+            # 含必选行的段落（利润表）不能只分到一个装不下必选行的份额：先按
+            # REQUIRED_INCOME_SECTION_MIN_CHARS 抬起下限，多出来的部分从同一池里
+            # 余量足够的段落扣（AC-2.5）。
+            if label.startswith("Market"):
+                limits = _raise_income_section_limits(sections, limits)
             for (title, text), limit in zip(sections, limits):
                 # 必选行（利润表）先保，再按预算填其余（F14）。极端紧的预算下
                 # （段落份额 < 300 字）连必选行本身都放不下，此时退回普通截断，
@@ -582,8 +740,9 @@ def main() -> None:
     parser.add_argument("--data-pack")
     parser.add_argument("--pdf-sections")
     parser.add_argument("--evidence-index")
-    parser.add_argument("--max-chars", type=int, default=24000)
-    parser.add_argument("--max-evidence", type=int, default=12)
+    # 不设默认值：None 表示「用该模块自己的预算」（MODULE_CONFIG，见 AC-2.5）。
+    parser.add_argument("--max-chars", type=int, default=None)
+    parser.add_argument("--max-evidence", type=int, default=None)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -600,7 +759,7 @@ def main() -> None:
     output_path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(
         f"Context written: {args.output} "
-        f"({bundle['budget']['actual_chars']}/{args.max_chars} chars, "
+        f"({bundle['budget']['actual_chars']}/{bundle['budget']['max_chars']} chars, "
         f"estimated {bundle['budget']['estimated_context_tokens']} context tokens)"
     )
 
