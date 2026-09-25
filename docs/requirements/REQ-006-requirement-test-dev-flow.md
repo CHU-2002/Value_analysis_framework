@@ -53,20 +53,24 @@ supersedes: TBD
 | T5 | CI 提速与简化：8 个 job 收敛为 `ci` + `ci-success`；测试只装 `requirements-test.txt`；`pytest -n auto` 并行；默认只跑 3.12，3.10 改手动核验 | 完成 | PR #34；独立验收见 [`2026-09-20-REQ-006.md`](../verification/2026-09-20-REQ-006.md) 的「本次维护验证（T5）」一节 |
 | T6 | 大特性拆子需求：`REQ-NNN.S` 编号与 `AC-S.n`、「父需求状态不得先于子需求」不变量、台账「子需求台账」表，并把子需求编号接进验收/追溯/scope 三个门禁；评审改为按子需求收口（AC-3 变更） | 完成 | PR #35；独立验收见 [`2026-09-20-REQ-006.md`](../verification/2026-09-20-REQ-006.md) 的「本次维护验证（T6）」一节。**诚实说明**：该报告在 `d3d769e` 上给出「有条件通过」，提出 3 项条件；实现者随后在 `fix(governance)` 里逐条修复（新增 4 个单测），但**按新的评审粒度没有为这次修复再拉一轮独立复核**——复核安排在下一个子需求/大特性收口时进行 |
 | T4 | 覆盖深度补强：`valuation_engine` 34%→60%、`portfolio_engine` 47%→70%、三个 0% 脚本逐个判定、总覆盖率→80% 并把门禁提到 ≥78% | 不做（2026-09-20 使用者决定：工程化流程到此为止，不补测） | 任务说明见 [`REQ-008`](REQ-008-coverage-debt.md)（该编号已并入本需求，文件保留作规格；覆盖率维持 76.8%、门禁维持 ≥74%） |
-| T7 | 测试 scope 预算上调（40→48 文件、1600→1800 用例），为图形化控制台（REQ-009）及其后续 GUI 需求留出余量；同步 `scripts/test_scope.py`、`docs/TESTING.md` §5、`docs/DEVELOPMENT.md` §14 与本需求 AC-7 的例外通道 | 进行中 | PR #TBD（合入后回填）；本项是**门禁阈值调整**，按 AC-3 的评审粒度在 REQ-006.1 收口时由独立评审者复核，不为它单独拉一轮评审 |
+| T7 | 测试 scope 预算上调（40→48 文件、1600→1800 用例），为图形化控制台（REQ-009）及其后续 GUI 需求留出余量；同步 `scripts/test_scope.py`、`docs/TESTING.md` §5、`docs/DEVELOPMENT.md` §14 与本需求 AC-7 的例外通道 | 完成 | **PR #48**（收口 PR 回填）。本项是**门禁阈值调整**，按 AC-3 的评审粒度在 REQ-006.1 收口时由独立评审者复核：见 [`docs/verification/2026-09-25-REQ-006.1.md`](../verification/2026-09-25-REQ-006.1.md) 的 **T7 复核**小节（48/1800 预算、owner 批准留痕、AC-7 例外通道均成立），不为它单独拉一轮评审 |
 | T8 | **REQ-006.1 AC-1.5 的收口前置**：`synthesis` 默认预算按真实载荷设定（40,000 → 120,000）与丢弃记账修正（列表条目逐条计数、标签可读）；补真实规模回归测试 | 完成 | **PR #46**（已合入 `b23270b`）。依据两轮实跑实测（完整载荷 96,496 / 97,359 字符；旧默认下丢 148 项，含每个模块的 `quality.missing_inputs`；同预算下丢弃计数 148 → 220）。代码 `scripts/results/synthesis.py`（`DEFAULT_MAX_CHARS`、`_list_item_label`），测试 `tests/test_results_pipeline.py` 的 `test_default_budget_*` 与 `test_dropped_accounting_counts_every_list_item` |
 
 ## 子需求
 
 ### REQ-006.1 财报分析端到端实跑加固与实跑验收规则
 
-- 状态：`implemented`
+- 状态：`verified`
 - 状态说明：`AC-1.1`~`AC-1.10` 全部落地；`AC-1.9` 于 2026-09-25 完成**两轮**真实复跑
   （第二轮在 `main b23270b` 上**全程默认参数、零覆盖**），命令与观察见
   [`docs/run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md`](../../run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md)，
   发现清单见[同目录的发现清单](../../run-records/2026-09-25-REQ-006.1-AC-1.9-实跑发现清单.md)。
   该次实跑暴露的 `AC-1.5` 缺口已由任务 T8（PR #46）修复；其余发现登记为 `REQ-006.2`。
-  **待独立验收**：`verified` 需由未参与实现者按 AC-3 产出报告后推进。
+  **独立验收通过（2026-09-25）**：由未参与实现的独立评审者在 `main 56a7d48` 上逐条核对
+  `AC-1.1`~`AC-1.10`（全量门禁 `1564 passed, 3 skipped`、覆盖率 78.31%），并独立复核两轮实跑产物，
+  报告见 [`docs/verification/2026-09-25-REQ-006.1.md`](../verification/2026-09-25-REQ-006.1.md)（含「## 实跑记录」）；
+  未通过项 0，报告另列 7 条不影响判定的观察与记录质量问题（如实跑记录 §8 的 owner 签署框未勾选），
+  在收口 PR 里一并处理。
 - 目标：把「用真实数据完整跑一次财报分析迭代」暴露的问题一次性收干净，并让这类**只有实跑才能发现**的问题在流程里有固定去处（登记 → 修复 → 复跑），不再靠对话里的临时结论或运行时补丁。
 - 背景：2026-09-20 用真实数据（Tushare + CNINFO + 本地 PDF）完整跑了一次迭代，**未改任何代码**、只用运行时补丁绕过，暴露 6 个问题 + 1 个流程观察。全部是 mock 测试发现不了的：
 
@@ -91,7 +95,7 @@ supersedes: TBD
   - **AC-1.8**：**流程闭环**：验收标准里写了「实跑」的编号，其收口报告必须带「## 实跑记录」（含可复制命令、环境与观察），由 `scripts/acceptance_gate.py` 强制；实跑发现的问题当次登记（子需求或任务），不允许只用运行时补丁绕过。
   - **AC-1.10**：`TushareScreener._safe_call` 的重试必须作用在**重建后**的客户端上（原实现把 `pro` 取在循环外，三次尝试都打在同一个坏客户端上，重试等于没做）；有回归测试证明「第一次失败、第二次成功」。
   - **AC-1.9**：在只读 HOME + 真实 token 下**复跑**一次迭代，不使用任何运行时补丁，产出完整 run（台账、manifest、结构化结果、两篇报告），命令与观察写进实跑记录。
-- 追溯：`tests/test_discover_report.py`、`tests/test_tushare_client.py`、`tests/test_screener.py`、`tests/test_runs_ledger.py`、`tests/test_results_pipeline.py`、`tests/test_change_report.py`、`tests/test_update_docs_contract.py`、`tests/test_release_gates.py`；PR #36（登记与规则）、PR #37（6 个实跑问题的修复，`4450863`）、PR #46（任务 T8）；实跑记录 [`docs/run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md`](../../run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md)
+- 追溯：`tests/test_discover_report.py`、`tests/test_tushare_client.py`、`tests/test_screener.py`、`tests/test_runs_ledger.py`、`tests/test_results_pipeline.py`、`tests/test_change_report.py`、`tests/test_update_docs_contract.py`、`tests/test_release_gates.py`；PR #36（登记与规则）、PR #37（6 个实跑问题的修复，`4450863`）、PR #46（任务 T8）、PR #48（独立验收收口，`verified`）；实跑记录 [`docs/run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md`](../../run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md)；独立验收报告 [`docs/verification/2026-09-25-REQ-006.1.md`](../verification/2026-09-25-REQ-006.1.md)
 
 ### REQ-006.2 实跑暴露的数据包与证据层缺陷修复
 
@@ -117,6 +121,7 @@ supersedes: TBD
   | 证据索引与 bundle 预算 | F5 / F13 / F14 / F20 | 索引 195 条里 178 条摘录超过契约的 300 字上限（最长 1,199），模块只能各自裁剪同一段摘录；同一 evidence id 的 `context_text` 与 `evidence[].quote` 覆盖行集不一致；利润表预算截断把「归母净利润」行砍掉（D5 的 `net_profit_mm` 只能为 null，且丢了上一轮尚可推导的单季归母 363.98）；`missing`/`omitted`/`truncated` 三态被混用，产生「不存在」式错误表述 |
   | 输入接线与元数据一致性 | F4 / F1 / F16 / F18 / F21 / F27 / 重试策略 | `pdf_footnotes` 源在**每一轮** report-update run 都是 `exists=false`（`prepare` 找 `inputs/data_pack_report.md`，而规范里的 `--input` 清单从不含它），且 `prepare` 的 `warnings` 为空——**静默**；同一 PDF 重解析只变 `metadata.extract_time` 却让输入指纹变化；模块 `as_of` 口径不一触发 high 级 `DATE-001` 并把整体置信度压到 low；对账器查不出**跨 run 评级被静默改写**（D2/D4 上调 vs D7 声称沿用）；`change_report` 的 `prior_synthesis` 卡片剥掉旧引用后无法区分「已剥离」与「本来无引用」，且 `synthesis` 卡片压缩后仍有 2 个悬空引用（`P4:003` / `P6:001`）；永久性 `no_permission` 仍走满 5 次重试 |
   | 第二轮重跑新增/加强 | F22 / F23 / F24 / F25 / F26 | **F22**：bundle 每节只给 1 条代表摘录（索引里 MDA 有 8 块、SUB 6、P3 4、§17 4、§4 3），D2 的核心证据（`MDA:006/007/008` 市场份额、`market_data:17` 的 Capex/5年CAGR）**在索引里但引不到**；**F23**：PDF 双栏交叉抽取导致文本串行错乱（「该类别票**据是由信用风险较**低银行出具」被另一栏切断），MATTERS 担保表还无法区分「0」与「未填写」；**F24**：模块规格要求 `unknown` 而 `cycle_position` 枚举没有它 → 「不知道」被迫写成「不适用」；**F25**：同一 `evidence_id` 被多模块以不同 `quote_index` 引用，而 sidecar 要求 id 唯一 → 同块内不同数值无法各自取得摘录；**F26**：模块 `run.status` 与 `business_trend`/`change_significance` 是 LLM 判断，**同一 `selection`** 下两轮分别给出 `complete`→`partial`、`恶化/重大`→`稳定/一般` |
+  | 独立验收者发现 | F28 | `code_fingerprint` = HEAD sha → **纯文档提交也让 run 变 `framework_changed`**：在 `56a7d48`（只改 docs）上 `analysis_status` 由 exit 1/`report-update` 变 exit 3/`full-rerun`，即记录实跑的那次文档提交本身令该 run 失效（详见 `docs/verification/2026-09-25-REQ-006.1.md` 的存疑项，登记于 **AC-2.7**） |
 
 - 验收标准：
   - **AC-2.1**：数据包的分部与关键指标可用——`§9 主营业务构成`不出现重复行、不出现字面 `nan`，
@@ -153,7 +158,10 @@ supersedes: TBD
     不一致时必须产出 conflict；同一份 PDF 重解析不得改变 run 的输入指纹；永久性权限类错误不得重试；
     规格与 schema 的枚举必须一致（**F24**：规格要求 `unknown` 而 `cycle_position` 没有该值）；
     卡片压缩后不得留下悬空引用、被剥离的引用必须显式标注（**F21/F27**）；
-    对「同一输入应得同一判断」的字段（`run.status`、`business_trend` 等）应给出可机器判定的伴随字段（**F26**）。
+    对「同一输入应得同一判断」的字段（`run.status`、`business_trend` 等）应给出可机器判定的伴随字段（**F26**）；
+    `code_fingerprint` 必须与「是否影响分析结果」同源——**只改 `docs/**` 的提交不得让 run 变成
+    `framework_changed`**（**F28**：实测纯文档提交 `b23270b8 → 56a7d487` 就让 `analysis_status`
+    从 exit 1/report-update 变成 exit 3/full-rerun，即记录实跑的那次文档提交本身令该 run 失效）。
   - **AC-2.8**（实跑）：修完后用**真实数据**复跑一次增量更新，逐条复核 `AC-2.1`~`AC-2.7` 在真实产物上的
     表现（命令 + 环境 + 观察），报告里带「## 实跑记录」；本次实跑发现的问题当次登记，不得只用运行时补丁绕过。
 - 追溯：`tests/test_tushare_pack_sections.py`（待建，AC-2.1~AC-2.3）、
