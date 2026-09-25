@@ -222,12 +222,12 @@ Issue 在**验收通过后**才关闭（`verified`），不在 PR 合并时自�
 | [REQ-003](REQ-003-run-history-ledger.md) | 分析迭代台账（run-store） | `verified` |
 | [REQ-004](REQ-004-period-delta-analysis.md) | 定期报告增量更新分析与变化报告 | `verified` |
 | [REQ-005](REQ-005-periodic-update-docs.md) | 增量更新文档与下游接线 | `verified` |
-| [REQ-006](REQ-006-requirement-test-dev-flow.md) | 工程化开发流程（建立与持续维护） | `in-progress`（子需求 `REQ-006.1` 待独立验收、`REQ-006.2` 未收口） |
+| [REQ-006](REQ-006-requirement-test-dev-flow.md) | 工程化开发流程（建立与持续维护） | `in-progress`（子需求 `REQ-006.1` 已 `verified`、`REQ-006.2` 未收口） |
 | [REQ-009](REQ-009-local-gui-console.md) | 本地图形化控制台（可扩展框架 + 按键执行 + 股票图表 + 报告与迭代记录浏览） | `accepted` |
 | ~~REQ-007~~ | 门禁与治理工具加固 → 并入 REQ-006 的 T2 | `superseded` |
 | ~~REQ-008~~ | 覆盖率洼地补测 → 并入 REQ-006 的 T4 | `superseded` |
 
-子需求（`REQ-NNN.S`）见 [`ledger.md`](ledger.md) 的「子需求台账」表；当前有 `REQ-006.1`（`implemented`，待独立验收）、
+子需求（`REQ-NNN.S`）见 [`ledger.md`](ledger.md) 的「子需求台账」表；当前有 `REQ-006.1`（`verified`）、
 `REQ-006.2`（`in-progress`，2026-09-25 受理）、`REQ-009.1` / `REQ-009.2` / `REQ-009.4`（`accepted`）
 与 `REQ-009.3`（`verified`）。`REQ-001`…`REQ-006` 在子需求机制建立前登记，按 §6.1 不回填。
 
