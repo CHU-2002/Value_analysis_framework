@@ -177,8 +177,10 @@ supersedes: TBD
     只含 §8/§10、`quote_contract` 就位、最长摘录 1,199 ≤ 1,200 窗口；四个模块 bundle 都带
     `coverage_states`/`section_states`，`market_data:8/10` 为 `unavailable`。另用同一 PDF 两次解析
     验证 F1：原始字节不同（`extract_time`）、内容指纹完全相同。
-    **未跑**：LLM 模块 / `reconcile` / `synthesis` / `resolve_qualitative` / `change_report`
-    （需要独立 agent 会话，不在本轮伪造），故 `AC-2.8` 尚未满足。
+    **LLM 半程（Step 5~9）随后由独立 agent 会话在同一个 run 上跑完**：6 模块
+    `validate_result` 全 exit 0（未用 `--allow-legacy`）、`synthesis` 默认预算、
+    `resolve_qualitative` `source=structured`、两篇报告落盘并写了台账。
+    但本轮实跑暴露了下面必须登记的新缺口，故 **`AC-2.8` 仍不能判成立**。
     **产物处置（2026-09-25 owner 决定）**：正式半程 run `20260925T091012981574Z`
     **保留在 `output/600887_伊利/runs/` 作为 `AC-2.8` 的半程实跑证据**（不写台账、不影响
     `latest.json`，因为它是未完成的 run，写台账会误导）；另一个演示用 run
@@ -191,7 +193,43 @@ supersedes: TBD
     mda_quality 4 条、governance 8 条）。现在每条 evidence 带 `in_context` 布尔与
     `selection.quotes_not_in_context` 清单——不可核对的引文**显式标出**（回索引核对），
     不再含糊；完全包含需要重构 context_text，留作后续。
-  - PR #TBD（合入后回填）。
+  - **AC-2.8 实跑复核暴露的新缺口（2026-09-25，run `20260925T091012981574Z`）**：
+    - **F29（新，中~高）附注源期次混用**：`pdf_footnotes` 输入是公司目录里的
+      `data_pack_report.md` = **2025 年年报**附注包（资料截止 2025-12-31），而同一 run 的
+      `pdf_sections` 是 **2026H1 中报**，bundle/报告里没有任何期次标记。后果：担保 A+B
+      9,076.30 百万元 / 16.90%（中报）与 5,732.95 百万元 / 10.49%（2025 年报）、关联采购
+      16,381.59 百万元、非经常性损益 496.84 百万元被当同期数据引用（agent 已在产物里改成
+      显式年份并撤回跨口径比率，但那是**运行时人工纠正**）。**`AC-2.6` 只覆盖「源缺失」，
+      不覆盖「源存在但期次不对」**：公司目录缺 `data_pack_report_interim.md` 时
+      `prepare` 无 warning、`unavailable_inputs` 为空。需补「附注源期次必须与
+      `primary_period` 一致」的校验与告警。
+    - **`AC-2.5` 在真实载荷下仍未满足**：`period_delta` bundle 的 10 个 `market_data` 段落
+      `selected_chars` 只剩 168–271，8 条 `market_data` 证据槽位**全部 `omitted`**
+      （`max_evidence=12` 被 prior_analysis 6 + pdf_sections 5 + pdf_footnotes 1 占满），
+      必填行（营业收入 / 归母净利润）不在 bundle 内 → D7 的 `revenue_yoy` / `net_profit_yoy` /
+      `gross_margin_change` / `ocf_to_profit` 只能为 null、`status=partial`。
+      即「必选节 + 每节首块」的保底在 `max_evidence` 分配层面仍会被打穿，需把
+      `max_evidence` 也改成「先保结构（必选节 + 每节首块）再给 prior_analysis」。
+    - **`AC-2.7` 元数据可信仍不成立**：`history.jsonl`/`record.json` 的 `framework.git_commit`
+      = `a8b6147`、`run.json` = `eb84fc3`（squash 合入后都不可达 main）；
+      `run.json` `dirty=false` 而 `run_manifest.json` `dirty=true`、
+      `code_fingerprint=eb84fc3-dirty`；`latest.json` 没有 `framework` 字段。F28 同时复现：
+      `prompt_fingerprint` 未变，仅因 squash 合并的 HEAD 变化就让 `analysis_status` 由
+      exit 1 变 exit 3/`framework_changed`。
+    - **F26 / F23 复议**：同一 2026H1 输入下本轮 vs 上轮给出 `business_trend` 稳定→恶化、
+      `change_significance` 一般→轻微、`moat_evidence_strength` 强→中等、`pricing_power` 弱→中、
+      `promise_delivery` 中→高、`mda_credibility` 低→中，而 `reconcile_results` 0 冲突；
+      双栏串行错乱仍在 `evidence/index.json` 的 `pdf_sections:P3:001/002/004`，并已进入
+      `business_moat`、`mda_quality` 的 `context_text`。
+    - **F30（新，中）D7 的 `business_trend` 相对基准未定义**：同一 2026H1 数据，上一版按
+      「run 间相对口径」记 `稳定`，本轮按 D7 定义（2026H1 vs 2025H1）记 `恶化`，规格没写
+      「同期重跑」时该以谁为基准 → 需在 `shared/qualitative/agents/modules/period_delta.md`
+      写明基准，否则跨 run 比对必然误判（本轮已在 `quality.warnings` 两种口径都说明）。
+    - **F31（新，低）bundle 元数据开销挤压正文**：`contexts/period_delta.json` 共 22,254 字符，
+      `context_text` 只占 6,255，其余是 `selection`/`coverage_states`/`section_states`；
+      预算循环为容纳这些元数据把 `content_budget` 压到约 9k，是上面「必选行丢失」的放大器。
+  - PR #49（进度切片，squash 合入 `0a5beac`）；跟踪 Issue
+    [#50](https://github.com/CHU-2002/Value_analysis_framework/issues/50)（**未收口**，剩余项见该 Issue）。
 - 目标：把 2026-09-25 的 AC-1.9 复跑（run `20260925T042255414048Z`）暴露的**数据包生成、PDF 抽取、
   证据索引与 bundle 预算、输入接线、跨 run 一致性**五类缺陷一次性收干净，并让每一类都留下**可判定**的回归判据
   ——这些缺陷全部是 mock 测试看不见的（真实载荷规模、真实接口字段、真实表格脏值、真实权限错误）。
@@ -261,9 +299,10 @@ supersedes: TBD
     从 exit 1/report-update 变成 exit 3/full-rerun，即记录实跑的那次文档提交本身令该 run 失效）。
   - **AC-2.8**（实跑）：修完后用**真实数据**复跑一次增量更新，逐条复核 `AC-2.1`~`AC-2.7` 在真实产物上的
     表现（命令 + 环境 + 观察），报告里带「## 实跑记录」；本次实跑发现的问题当次登记，不得只用运行时补丁绕过。
-- 追溯：`tests/test_tushare_pack_sections.py`（待建，AC-2.1~AC-2.3）、
+- 追溯：`tests/test_tushare_pack_sections.py`（AC-2.1~AC-2.3）、
   `tests/test_pdf_preprocessor.py`（AC-2.4）、`tests/test_results_pipeline.py`（AC-2.5、AC-2.7）、
-  `tests/test_change_report.py`（AC-2.7）、`tests/test_runs_ledger.py`（AC-2.6、AC-2.7）；PR #TBD
+  `tests/test_change_report.py`（AC-2.7）、`tests/test_runs_ledger.py`（AC-2.6、AC-2.7）；
+  PR #49（进度）；跟踪 Issue [#50](https://github.com/CHU-2002/Value_analysis_framework/issues/50)
 
 ## 验收标准
 
