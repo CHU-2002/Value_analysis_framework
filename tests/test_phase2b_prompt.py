@@ -84,6 +84,19 @@ class TestFeature49OutputFormat:
         assert "⚠️" in prompt_text
         assert "null" in prompt_text.lower()
 
+    def test_declares_the_machine_readable_report_period(self, prompt_text):
+        """F29：附注包头部必须声明机器可读的报告期，供 prepare 与 primary_period 比对。"""
+        assert re.search(r"^>\s*报告期：", prompt_text, re.MULTILINE), (
+            "输出模板缺少 `> 报告期：` 行"
+        )
+        # 两种期次的取值示例都要在提示词里写明（年报 / 中报各一）
+        assert "2025FY" in prompt_text
+        assert "2026H1" in prompt_text
+        assert "资料截止日" in prompt_text
+        # 契约必须点名「与 --primary_period 比对」与失败形态，否则模型不知道后果
+        assert "primary_period" in prompt_text
+        assert "period mismatch" in prompt_text
+
 
 # --- Feature #50: P2 restricted cash template ---
 

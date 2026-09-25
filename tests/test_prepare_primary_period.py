@@ -187,12 +187,25 @@ class TestInputsSnapshotDirectory:
         _prepare(root)
 
         manifest = _manifest(root)
-        assert _source_ids(manifest["inputs"]) == [
+        # ``pdf_footnotes:<filename>`` 是「未选中的附注候选」（REQ-006.2 发现 F29）：
+        # 它只用于监测输入变更；断言时把监测项单列，其余必须与 decoy 无关。
+        source_ids = [
+            source_id
+            for source_id in _source_ids(manifest["inputs"])
+            if not source_id.startswith("pdf_footnotes:")
+        ]
+        assert source_ids == [
             "annual_report:600887_2025_年报",
             "market_data",
             "pdf_footnotes",
             "pdf_sections",
         ]
+        watched = [
+            source_id
+            for source_id in _source_ids(manifest["inputs"])
+            if source_id.startswith("pdf_footnotes:")
+        ]
+        assert watched == ["pdf_footnotes:data_pack_report_interim.md"]
         inputs_root = str(inputs.resolve())
         assert all(item["path"].startswith(inputs_root) for item in manifest["inputs"])
         assert "INPUTS" in _pdf_section_quotes(root)

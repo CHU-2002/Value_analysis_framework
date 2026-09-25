@@ -208,6 +208,12 @@ python3 scripts/download_report.py --stock-code 600887 --report-type auto --sinc
           `data_pack_report.md`——中报是 `data_pack_report_interim.md`。漏了它 `prepare`
           会给出显式 warning，并在 `run_manifest.unavailable_inputs` 里登记
           `pdf_footnotes / not_applicable`，不再静默；REQ-006.2 AC-2.6）
+          —— **附注源还必须与本期同期**：包头部要写 `> 报告期：{primary_period}`
+          （中报写 `2026H1`、年报写 `2025FY`，契约见 `prompts/phase2_PDF解析.md`）。
+          `prepare` 会把它与 `--primary-period` 比对，不一致时给 `period mismatch`
+          warning 并写入 `run_manifest.period_mismatches` / `evidence/index.json`，
+          模块 bundle 也能通过 `source_periods` 看到「这份附注属于哪一期」；
+          **中报附注包优先于年报包**（REQ-006.2 发现 F29）
        2. 拉最新期次（PR1）+ 章节解析 + 脚注抽取
        3. 刷新 data_pack_market.md 并快照进 inputs/
        4. prepare --run-id {run_id} --primary-period：生成 evidence / contexts

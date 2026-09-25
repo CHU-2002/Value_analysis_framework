@@ -325,6 +325,36 @@ def build_module_context(
         for item in index.get("unfilled_sections", []) or []
         if isinstance(item, dict)
     }
+    # 证据源的期次（REQ-006.2 发现 F29）：附注源与 run 的 primary_period 不同期时，
+    # 模块必须能看见「这段证据属于哪一期」，否则会把上年报附注当同期数据引用。
+    # 只登记本模块真正会用到的源；索引里没有期次信息时键不出现，bundle 形状对旧 run 保持不变。
+    relevant_sources = {"market_data", "pdf_sections", "pdf_footnotes"}
+    if config.get("prior_analysis"):
+        relevant_sources.add("prior_analysis")
+    # 年报 PDF 的 source_id 是 ``annual_report:{stem}``，其集合随 run 变化，
+    # 所以按前缀补进「本模块会看到的源」。
+    relevant_sources |= {
+        item["source_id"]
+        for item in index.get("sources", []) or []
+        if isinstance(item, dict)
+        and str(item.get("source_id", "")).startswith("annual_report:")
+    }
+    source_periods: dict[str, Any] = {
+        item["source_id"]: (
+            {"period": item["period"], "basis": item["period_basis"]}
+            if item.get("period_basis")
+            else item["period"]
+        )
+        for item in index.get("sources", []) or []
+        if isinstance(item, dict)
+        and item.get("source_id") in relevant_sources
+        and item.get("period")
+    }
+    period_mismatches = [
+        item
+        for item in index.get("period_mismatches", []) or []
+        if isinstance(item, dict) and item.get("source_id") in relevant_sources
+    ]
     unavailable_inputs = [
         {
             "source_id": source,
@@ -476,6 +506,7 @@ def build_module_context(
                 if item.get("state") != "full"
             ],
             "unavailable_inputs": unavailable_inputs,
+            **({"source_periods": source_periods} if source_periods else {}),
             "context_text": context_text,
             "budget": {
                 "max_chars": max_chars,
@@ -492,6 +523,9 @@ def build_module_context(
                 # 同一段的第 2+ 块里没装进预算的那些（F22 的可判定披露）。
                 "evidence_extra_omitted": sorted(set(truncated_extra)),
                 "missing_pdf_sections": [key for key in config["pdf_sections"] if key not in parsed_pdf],
+                # 期次不匹配的**可判定披露**（F29）：模块不能只看到「有附注证据」，
+                # 还得看到「这份附注证据属于哪一期、和 primary_period 不同期」。
+                **({"period_mismatches": period_mismatches} if period_mismatches else {}),
                 **(
                     {
                         "prior_analysis_sections": config["prior_analysis"],
