@@ -1,6 +1,8 @@
 """Tests for the structured result and bounded-context pipeline."""
 
-# 覆盖需求：REQ-006.2 —— AC-2.6 prepare 对缺失的附注源给出 warning 与 not_applicable 登记\n# 覆盖需求：REQ-006.1（财报分析端到端实跑加固）—— AC-1.3 prepare 的 run_id 一致性、
+# 覆盖需求：REQ-006.2 —— AC-2.6 prepare 对缺失的附注源给出 warning 与 not_applicable 登记、
+# 附注源期次登记与 primary_period 一致性判定（发现 F29）
+# 覆盖需求：REQ-006.1（财报分析端到端实跑加固）—— AC-1.3 prepare 的 run_id 一致性、
 # AC-1.4 period_delta 作为可选模块参与 digest、AC-1.5 上下文预算与丢卡可见性、
 # AC-1.7 证据边界检查器
 
@@ -986,7 +988,8 @@ def test_qualitative_resolver_rejects_changed_manifest_input(tmp_path):
 def test_qualitative_resolver_rejects_input_created_after_preparation(tmp_path):
     output_dir = tmp_path / "600000_Example"
     _write_complete_structured_run(output_dir)
-    (output_dir / "data_pack_report.md").write_text("late footnotes", encoding="utf-8")
+    # 附注源以中报包优先（F29）：prepare 登记的候选就是它，事后补上必须被发现
+    (output_dir / "data_pack_report_interim.md").write_text("late footnotes", encoding="utf-8")
 
     payload = resolve_qualitative_input(output_dir, ticker="600000.SH")
 
@@ -1518,3 +1521,185 @@ def test_bundle_marks_quotes_that_cannot_be_verified_in_context_text(tmp_path):
     footnote_ids = [eid for eid in marked if eid.startswith("pdf_footnotes:")]
     if footnote_ids:
         assert all(eid in bundle["selection"]["quotes_not_in_context"] for eid in footnote_ids)
+
+
+# --- REQ-006.2 F29：附注源的期次必须登记、可判定、对模块可见 -------------------
+
+
+def _f29_layout(root: Path, *, primary_pack: str, interim_pack: str | None = None) -> Path:
+    """公司目录：市场数据包 + 一个（或两个）附注包。"""
+
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "data_pack_market.md").write_text("## 1. Basic\n普通运营公司\n", encoding="utf-8")
+    (root / "data_pack_report.md").write_text(primary_pack, encoding="utf-8")
+    if interim_pack is not None:
+        (root / "data_pack_report_interim.md").write_text(interim_pack, encoding="utf-8")
+    return root
+
+
+#: 真实 run ``20260925T091012981574Z`` 的附注包形态：2025 年报（无 `报告期` 声明），
+#: 被传进 2026H1 的 run —— F29 的原始素材。
+_ANNUAL_2025_PACK = """# 年报附注数据包：伊利股份
+
+> PDF来源：`600887_2025_年报.pdf`
+> 资料截止日：2025-12-31（年报财务报表及附注）
+> 金额单位：百万元（人民币）
+
+## P6. 或有负债与承诺
+担保 A+B 5,732.95 百万元（2025 年报）
+"""
+
+_INTERIM_2026H1_PACK = """# 中报附注数据包：伊利股份
+
+> 报告期：2026H1
+> 资料截止日：2026-06-30（中报财务报表及附注）
+> 金额单位：百万元（人民币）
+
+## P6. 或有负债与承诺
+担保 A+B 9,076.30 百万元（2026 中报）
+"""
+
+
+def test_prepare_registers_the_footnote_source_period(tmp_path):
+    """F29：附注源的期次必须进 manifest 与证据索引（原来完全没有期次标记）。"""
+
+    root = _f29_layout(tmp_path / "伊利", primary_pack=_ANNUAL_2025_PACK)
+
+    prepare_run(root, ticker="600887.SH", company="伊利股份", primary_period="2025FY")
+
+    manifest = json.loads((root / "run_manifest.json").read_text(encoding="utf-8"))
+    footnote_input = next(item for item in manifest["inputs"] if item["source_id"] == "pdf_footnotes")
+    # 未声明 `报告期`，但头部有 `资料截止日` → 按文件名 + 资料截止日推断，并标出依据
+    assert footnote_input["period"] == "2025FY"
+    assert footnote_input["period_basis"] == "filename+cutoff"
+
+    index = json.loads((root / "evidence" / "index.json").read_text(encoding="utf-8"))
+    footnote_source = next(item for item in index["sources"] if item["source_id"] == "pdf_footnotes")
+    assert footnote_source["period"] == "2025FY"
+    assert footnote_source["period_basis"] == "filename+cutoff"
+
+
+def test_prepare_flags_a_footnote_source_from_another_period(tmp_path):
+    """F29 判据：2025 年报附注包配 2026H1 run 必须 warning + 登记，不得静默。"""
+
+    root = _f29_layout(tmp_path / "伊利", primary_pack=_ANNUAL_2025_PACK)
+
+    result = prepare_run(root, ticker="600887.SH", company="伊利股份", primary_period="2026H1")
+
+    assert any("附注源期次与 primary_period 不一致" in warning for warning in result["warnings"]), (
+        result["warnings"]
+    )
+    assert result["period_mismatches"] == [
+        {
+            "source_id": "pdf_footnotes",
+            "path": str(root / "data_pack_report.md"),
+            "primary_period": "2026H1",
+            "period": "2025FY",
+            "basis": "filename+cutoff",
+        }
+    ]
+    manifest = json.loads((root / "run_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["period_mismatches"] == result["period_mismatches"]
+    # 「期次不对」与「源缺失」是两件事：源在，所以不登记成 unavailable_inputs
+    assert all(item["source_id"] != "pdf_footnotes" for item in manifest["unavailable_inputs"])
+
+    index = json.loads((root / "evidence" / "index.json").read_text(encoding="utf-8"))
+    assert index["period_mismatches"] == result["period_mismatches"]
+    # 证据本身仍然可用（告警而不是删除），期次信息跟着源走
+    assert any(entry["source_id"] == "pdf_footnotes" for entry in index["entries"])
+
+
+def test_prepare_accepts_a_matching_declared_footnote_period(tmp_path):
+    """正向：中报附注包声明 `报告期：2026H1` 时无告警，依据记为 declared。"""
+
+    root = _f29_layout(tmp_path / "伊利", primary_pack=_ANNUAL_2025_PACK, interim_pack=_INTERIM_2026H1_PACK)
+
+    result = prepare_run(root, ticker="600887.SH", company="伊利股份", primary_period="2026H1")
+
+    assert result["warnings"] == []
+    assert result["period_mismatches"] == []
+    index = json.loads((root / "evidence" / "index.json").read_text(encoding="utf-8"))
+    footnote_source = next(item for item in index["sources"] if item["source_id"] == "pdf_footnotes")
+    assert Path(footnote_source["path"]).name == "data_pack_report_interim.md"
+    assert footnote_source["period"] == "2026H1"
+    assert footnote_source["period_basis"] == "declared"
+
+
+def test_prepare_warns_on_an_unparsable_footnote_period(tmp_path):
+    """声明存在但格式不对（写成日期）时：走 period unverified，而不是当作旧包放过。"""
+
+    pack = _ANNUAL_2025_PACK.replace(
+        "> PDF来源：`600887_2025_年报.pdf`", "> 报告期：2026-06-30\n> PDF来源：`x.pdf`"
+    ).replace("> 资料截止日：2025-12-31（年报财务报表及附注）\n", "")
+    root = _f29_layout(tmp_path / "伊利", primary_pack=pack)
+
+    result = prepare_run(root, ticker="600887.SH", company="伊利股份", primary_period="2026H1")
+
+    assert any("附注源期次无法确定" in warning for warning in result["warnings"]), result["warnings"]
+    assert result["period_mismatches"][0]["basis"] == "invalid"
+
+
+def test_prepare_stays_silent_for_a_legacy_pack_without_period_metadata(tmp_path):
+    """旧格式附注包（连 `资料截止日` 都没有）不追溯判红，否则会满屏噪声。"""
+
+    root = _f29_layout(tmp_path / "伊利", primary_pack="## P13 非经常性损益\n附注证据\n")
+
+    result = prepare_run(root, ticker="600887.SH", company="伊利股份", primary_period="2026H1")
+
+    assert result["warnings"] == []
+    assert result["period_mismatches"] == []
+
+
+def test_bundles_disclose_the_footnote_source_period(tmp_path):
+    """F29 面向模块的一半：读附注证据的模块必须看到「这份证据属于哪一期」。"""
+
+    root = _f29_layout(tmp_path / "伊利", primary_pack=_ANNUAL_2025_PACK)
+    prepare_run(root, ticker="600887.SH", company="伊利股份", primary_period="2026H1")
+
+    for module in ("period_delta", "mda_quality", "governance"):
+        bundle = json.loads((root / "contexts" / f"{module}.json").read_text(encoding="utf-8"))
+        assert bundle["source_periods"]["pdf_footnotes"] == {
+            "period": "2025FY",
+            "basis": "filename+cutoff",
+        }, module
+        assert bundle["selection"]["period_mismatches"][0]["primary_period"] == "2026H1", module
+
+
+def test_bundles_stay_unchanged_when_all_periods_agree(tmp_path):
+    """同期时 bundle 不带 period_mismatches（键不出现），避免模块把正常 run 读成残废。"""
+
+    root = _f29_layout(tmp_path / "伊利", primary_pack=_ANNUAL_2025_PACK, interim_pack=_INTERIM_2026H1_PACK)
+    prepare_run(root, ticker="600887.SH", company="伊利股份", primary_period="2026H1")
+
+    bundle = json.loads((root / "contexts" / "period_delta.json").read_text(encoding="utf-8"))
+    assert bundle["source_periods"]["pdf_footnotes"] == {"period": "2026H1", "basis": "declared"}
+    assert "period_mismatches" not in bundle["selection"]
+
+
+def test_prepare_prefers_the_interim_footnote_pack_and_watches_both(tmp_path):
+    """两个附注包都在时：中报包是中报 run 的附注源，年报包只作为「输入变更」监测项。"""
+
+    root = _f29_layout(
+        tmp_path / "伊利", primary_pack=_ANNUAL_2025_PACK, interim_pack=_INTERIM_2026H1_PACK
+    )
+
+    result = prepare_run(root, ticker="600887.SH", company="伊利股份", primary_period="2026H1")
+
+    assert result["warnings"] == []
+    manifest = json.loads((root / "run_manifest.json").read_text(encoding="utf-8"))
+    footnote_input = next(item for item in manifest["inputs"] if item["source_id"] == "pdf_footnotes")
+    assert Path(footnote_input["path"]).name == "data_pack_report_interim.md"
+    assert footnote_input["period"] == "2026H1"
+    # 未选中的年报包仍被登记：它事后被替换/新增，run 必须被判定为输入已变
+    watched = [item for item in manifest["inputs"] if item["source_id"].startswith("pdf_footnotes:")]
+    assert [Path(item["path"]).name for item in watched] == ["data_pack_report.md"]
+    assert watched[0]["exists"] is True
+
+    index = json.loads((root / "evidence" / "index.json").read_text(encoding="utf-8"))
+    # 年报包的内容不会因为「被监测」而进入模块可引用的证据池
+    bundle = json.loads((root / "contexts" / "mda_quality.json").read_text(encoding="utf-8"))
+    assert all(
+        not entry["evidence_id"].startswith("pdf_footnotes:data_pack_report.md")
+        for entry in bundle["evidence"]
+    ), [entry["evidence_id"] for entry in bundle["evidence"]]
+    assert any(entry["source_id"] == "pdf_footnotes" for entry in index["entries"])

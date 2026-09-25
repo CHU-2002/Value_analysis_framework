@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -33,10 +34,150 @@ except ImportError:  # Support importing the package with scripts/ on sys.path.
     from version import framework_block
 
 
-#: 附注证据源的文件名：年报用 ``data_pack_report.md``，中报用 ``data_pack_report_interim.md``
-#: （2026-09-25 实跑里 ``--input`` 清单从不含它 → 每一轮 run 都是 ``exists=false`` 且没有任何
-#: 提示，模块只在 evidence_coverage 里看到一个 ``missing``；REQ-006.2 AC-2.6）。
-FOOTNOTE_SOURCE_NAMES = ("data_pack_report.md", "data_pack_report_interim.md")
+#: 附注证据源的文件名。**中报包优先**：本期披露附注时用它，年报包是可选的对照来源；
+#: 反过来的话「inputs/ 里同时有中报与年报附注包」会静默选中上年报的（发现 F29 的同族问题）。
+#: 2026-09-25 实跑里 ``--input`` 清单从不含附注源 → 每一轮 run 都是 ``exists=false``
+#: 且没有任何提示，模块只在 evidence_coverage 里看到一个 ``missing``（REQ-006.2 AC-2.6）。
+FOOTNOTE_SOURCE_NAMES = ("data_pack_report_interim.md", "data_pack_report.md")
+#: 附注包头部声明的报告期（机器可读）。规格见 ``prompts/phase2_PDF解析.md`` 的「输出格式」：
+#: ``> 报告期：2026H1``。声明是**权威**的；缺失时才退回按文件名/资料截止日**推断**，
+#: 推断结果一律带 ``basis`` 标注，绝不冒充声明（REQ-006.2 发现 F29）。
+_DECLARED_PERIOD_RE = re.compile(r"^>\s*报告期\s*[：:]\s*(20\d{2}(?:Q1|H1|Q3|FY))\s*$", re.MULTILINE)
+#: 年报包的头部会写「资料截止日：2025-12-31（年报财务报表及附注）」，作为推断年份的兜底。
+_CUTOFF_DATE_RE = re.compile(r"资料截止日\s*[：:]\s*(\d{4})-\d{2}-\d{2}")
+
+
+def _read_declared_period(pack_path: Path) -> tuple[str, bool]:
+    """Read the ``> 报告期：YYYYH1`` header from a footnote pack.
+
+    Returns ``(period, declared_line_present)``: the second flag is ``True`` when
+    a ``报告期`` line exists at all, so a **malformed** declaration (e.g. a date
+    instead of a period id) is not silently mistaken for a legacy pack.
+    """
+
+    header = _read_pack_header(pack_path)
+    match = _DECLARED_PERIOD_RE.search(header)
+    if match:
+        return match.group(1), True
+    return "", bool(re.search(r"^\s*>?\s*报告期\s*[：:]", header, re.MULTILINE))
+
+
+def _read_pack_header(pack_path: Path) -> str:
+    """Return the metadata block of a footnote pack (first lines only).
+
+    只看头部：报告期必须和 PDF来源 / 总页数 一起出现在元数据块里，正文里的
+    「报告期」字样不参与判定（否则正文提及历史报告期会污染判定）。
+    """
+
+    try:
+        text = pack_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+    return "\n".join(text.splitlines()[:20])
+
+
+def _infer_period_from_pack(pack_path: Path) -> str:
+    """Infer the footnote period from the file name + the header's ``资料截止日``.
+
+    The report type comes from the file name (``..._interim.md`` → 中报 / ``H1``,
+    otherwise the annual pack / ``FY``); the **year** comes from the cut-off date,
+    because an annual pack's PDF is the *previous* year's (``600887_2025_年报.pdf``
+    carries ``资料截止日：2025-12-31``). Returns ``""`` when not inferable.
+    """
+
+    suffix = "H1" if pack_path.name.endswith("_interim.md") else "FY"
+    cutoff = _CUTOFF_DATE_RE.search(_read_pack_header(pack_path))
+    if not cutoff:
+        return ""
+    return f"{cutoff.group(1)}{suffix}"
+
+
+def _footnote_period(pack_path: Path) -> tuple[str, str]:
+    """Registered period of a footnote pack and the basis for it.
+
+    ``basis`` is one of:
+
+    * ``"declared"``: the pack's ``> 报告期：YYYYH1`` header (authoritative);
+    * ``"filename+cutoff"``: inferred from the file name + ``资料截止日``;
+    * ``"invalid"``: a `报告期` line exists but carries no usable period id —
+      that **must** warn rather than pass as a legacy pack;
+    * ``"absent"``: the pack carries **no** period metadata at all (legacy pack)
+      — nothing to verify, and deliberately **not** a warning: warning on every
+      pre-existing pack would be noise, while the declared-period contract below
+      is what makes the check decidable from now on.
+    """
+
+    declared, has_declared_line = _read_declared_period(pack_path)
+    if declared and is_valid_period(declared):
+        return declared, "declared"
+    inferred = _infer_period_from_pack(pack_path)
+    if inferred:
+        return inferred, "filename+cutoff"
+    if has_declared_line:
+        return "", "invalid"
+    return "", "absent"
+
+
+def _footnote_period_diagnostics(
+    pack_path: Path, footnote_period: str, period_basis: str, primary_period: str,
+) -> tuple[list[str], dict[str, str] | None]:
+    """Period mismatch checks for the footnote source (REQ-006.2 发现 F29).
+
+    ``AC-2.6`` only covered「源缺失」.  F29 is the harder case: the source exists
+    but belongs to **another period** (run ``20260925T091012981574Z`` mixed a
+    2025FY annual footnote pack into a 2026H1 interim run), so 担保/关联交易 etc.
+    were cited as if they were same-period data.  Returns ``(warnings, mismatch)``.
+    """
+
+    if not primary_period:
+        return [], None
+    if footnote_period:
+        if footnote_period == primary_period:
+            return [], None
+        return (
+            [
+                "附注源期次与 primary_period 不一致（period mismatch）："
+                f"primary_period={primary_period}，附注源 {pack_path.name} 的期次为 "
+                f"{footnote_period}（依据：{period_basis}）。"
+                "附注数据不得当同期数据引用；请改用本期附注包"
+                "（中报用 data_pack_report_interim.md），或确认本期确实不需要附注证据。"
+            ],
+            {
+                "source_id": "pdf_footnotes",
+                "path": str(pack_path),
+                "primary_period": primary_period,
+                "period": footnote_period,
+                "basis": period_basis,
+            },
+        )
+    if period_basis == "absent":
+        # 旧格式附注包（连 `资料截止日` 都没有）期次判不了，但也不能凭空告警：
+        # 「声明报告期」是本次新加的契约，历史包不会被追溯判红。
+        return [], None
+    # 有元数据但推不出期次：H1/Q1/Q3 run 拿到的年报附注包一定不是本期的，
+    # 不能静默（F29 的静默形态）。声明存在但格式不对时同样要走这里。
+    if primary_period.endswith("FY") and period_basis != "invalid":
+        return [], None
+    hint = (
+        f"{pack_path.name} 的 `报告期` 行无法解析（应形如 `> 报告期：{primary_period}`）"
+        if period_basis == "invalid"
+        else f"{pack_path.name} 头部没有可判定的 `报告期` / `资料截止日`"
+    )
+    return (
+        [
+            f"附注源期次无法确定（period unverified）：primary_period={primary_period}，而 {hint}，"
+            "prepare 无法证明它与本 run 同期。"
+            f"请在附注包头部补 `> 报告期：{primary_period}`（见 prompts/phase2_PDF解析.md），"
+            "或改用本期附注包（中报用 data_pack_report_interim.md）。"
+        ],
+        {
+            "source_id": "pdf_footnotes",
+            "path": str(pack_path),
+            "primary_period": primary_period,
+            "period": "",
+            "basis": period_basis or "unknown",
+        },
+    )
 
 
 def _resolve_footnote_source(inputs_root: Path) -> tuple[Path, list[str]]:
@@ -169,6 +310,20 @@ def prepare_run(
     pdf_sections, warnings = _select_pdf_sections(inputs_root, normalized_primary)
     footnote_report, footnote_warnings = _resolve_footnote_source(inputs_root)
     warnings.extend(footnote_warnings)
+    # 附注源的期次必须可登记、可判定（REQ-006.2 发现 F29）。
+    footnote_source_period: tuple[str, str] | None = None
+    period_mismatches: list[dict[str, str]] = []
+    if footnote_report.is_file():
+        footnote_source_period = _footnote_period(footnote_report)
+        period_warnings, mismatch = _footnote_period_diagnostics(
+            footnote_report,
+            footnote_source_period[0],
+            footnote_source_period[1],
+            normalized_primary,
+        )
+        warnings.extend(period_warnings)
+        if mismatch is not None:
+            period_mismatches.append(mismatch)
 
     prior_analysis_path = Path(prior_analysis) if prior_analysis else None
     if prior_analysis_path is not None and not prior_analysis_path.is_file():
@@ -180,6 +335,15 @@ def prepare_run(
         {"source_id": "pdf_sections", "path": str(pdf_sections)},
         {"source_id": "pdf_footnotes", "path": str(footnote_report)},
     ]
+    # 未选中的附注候选也要登记：inputs/ 里**事后**出现（或替换）附注包时，
+    # `validate_manifest_inputs` 才会发现 run 的输入变了。只登记选中的那一个的话，
+    # 「先 prepare 年报 run、再补中报附注包」这类改动会静默失效。
+    for candidate_name in FOOTNOTE_SOURCE_NAMES:
+        candidate = inputs_root / candidate_name
+        if candidate != footnote_report:
+            sources.append(
+                {"source_id": f"pdf_footnotes:{candidate_name}", "path": str(candidate)}
+            )
     if prior_analysis_path is not None:
         sources.append({"source_id": "prior_analysis", "path": str(prior_analysis_path.resolve())})
     # ``annual_report:{stem}`` is a hard contract: evidence ids are embedded in
@@ -217,6 +381,10 @@ def prepare_run(
         period = report_periods.get(source["source_id"])
         if period:
             item["period"] = period
+        if source["source_id"] == "pdf_footnotes" and footnote_source_period is not None:
+            # 只有附注源支持「声明 + 推断」两级口径，故加一个 basis 字段说明期次是怎么来的。
+            item["period"] = footnote_source_period[0]
+            item["period_basis"] = footnote_source_period[1]
         input_paths.append(item)
     input_digest = input_set_digest(input_paths)
 
@@ -230,6 +398,13 @@ def prepare_run(
         period = report_periods.get(source_meta.get("source_id"))
         if period:
             source_meta["period"] = period
+        if source_meta.get("source_id") == "pdf_footnotes" and footnote_source_period is not None:
+            source_meta["period"] = footnote_source_period[0]
+            source_meta["period_basis"] = footnote_source_period[1]
+    # 期次不匹配必须随证据索引一起走：模块 bundle 只读索引，看不到 run_manifest
+    # （REQ-006.2 发现 F29 —— 附注源是 2025FY、run 是 2026H1，却被当同期数据引用）。
+    if period_mismatches:
+        evidence_index["period_mismatches"] = period_mismatches
     evidence_path = evidence_dir / "index.json"
     evidence_path.write_text(json.dumps(evidence_index, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -300,9 +475,16 @@ def prepare_run(
             "reason": missing_reasons.get(item.get("source_id"), "输入文件不存在"),
         }
         for item in input_paths
+        # ``pdf_footnotes:<filename>`` 是「未选中的附注候选」，只用于监测输入变更，
+        # 不是本 run 的证据源，缺了也不代表降级，所以不进 unavailable_inputs。
         if not item.get("exists")
+        and not str(item.get("source_id", "")).startswith("pdf_footnotes:")
     ]
     manifest["unavailable_inputs"] = unavailable_inputs
+    # 期次不匹配与「源缺失」是两件事：文件在、内容也在，但**期次不对**。
+    # 单独给一个机器可读字段，不让它只活在一句 warning 文本里（REQ-006.2 发现 F29）。
+    if period_mismatches:
+        manifest["period_mismatches"] = period_mismatches
     manifest_path = root / "run_manifest.json"
     write_manifest(manifest, manifest_path)
     return {
@@ -315,6 +497,7 @@ def prepare_run(
         "primary_period": normalized_primary,
         "prior_analysis": str(prior_analysis_path.resolve()) if prior_analysis_path else "",
         "unavailable_inputs": unavailable_inputs,
+        "period_mismatches": period_mismatches,
         "warnings": warnings,
     }
 

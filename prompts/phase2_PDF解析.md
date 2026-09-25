@@ -172,8 +172,10 @@ pdf_sections.json 路径：{由协调器提供}
 ```markdown
 # 年报附注数据包：{公司名称}
 
+> 报告期：{YYYYH1 或 YYYYFY，必填，机器可读}
 > PDF来源：{pdf_sections.json.metadata.pdf_file}
 > 总页数：{pdf_sections.json.metadata.total_pages}
+> 资料截止日：{YYYY-MM-DD（写明该日期的口径）}
 > 提取时间：{当前时间}
 > 提取方式：pdf_preprocessor.py 预处理 + Agent 精提取
 > 金额单位：百万元（人民币）
@@ -199,6 +201,14 @@ pdf_sections.json 路径：{由协调器提供}
 ## SUB. 主要控股参股公司（条件触发）
 {提取结果或 ⚠️ 不适用（非控股结构）或 ⚠️ PDF 未找到相关章节，跳过此项}
 ```
+
+> **`> 报告期：` 是硬契约（REQ-006.2 发现 F29）**：取值只能是 `YYYYQ1` / `YYYYH1` /
+> `YYYYQ3` / `YYYYFY`（中报写 `2026H1`、年报写 `2025FY`），**必须与本次处理的报告一致**，
+> 中报包标题写「中报附注数据包」。`scripts/results/prepare` 会读这一行并与 run 的
+> `--primary_period` 比对，不一致（`period mismatch`）或无法判定（`period unverified`）
+> 时给出 warning 并在 `run_manifest.period_mismatches` 登记——2025 年报附注包被当
+> 2026H1 同期数据引用就是因为没有这一行。头部同时要写 `> 资料截止日：`：它是旧包缺
+> `报告期` 时唯一的年份兜底来源，也是模块判断「这条附注属于哪一期」的依据。
 
 ---
 

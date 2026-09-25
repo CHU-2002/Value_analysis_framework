@@ -104,7 +104,24 @@ supersedes: TBD
   写成 `in-progress` 而非 `accepted` 是**追溯门禁的强制结果**：父需求 REQ-006 已是 `in-progress`，
   而门禁要求「父需求不得比它最慢的子需求更靠前」，所以新登记的子需求不能停在 `accepted`。
   实际完成度以 `AC-2.1`~`AC-2.8` 的证据与 PR 为准。
-- 进度（2026-09-25，**未收口**，全量门禁 `1594 passed, 3 skipped`、覆盖率 78.65%）：
+- 进度（2026-09-25，**未收口**，全量门禁 `1603 passed, 3 skipped`、覆盖率 78.74%）：
+  - **`F29` 已修（2026-09-25，本切片）**：附注源的**期次**从「完全没有标记」变成
+    「登记 + 判定 + 对模块可见」三层落地——
+    ① 附注包头部新增机器可读的 `> 报告期：YYYYH1` 契约（`prompts/phase2_PDF解析.md`
+    输出模板，中报写 `2026H1`、年报写 `2025FY`，并保留 `> 资料截止日：`）；
+    ② `prepare.py` 读该声明登记为 `pdf_footnotes` 源的 `period`（`period_basis=declared`），
+    缺失时按「文件名 + 资料截止日」推断并标注 `basis=filename+cutoff`（真实 run
+    `20260925T091012981574Z` 的年报包即由此判出 `2025FY`）；与 `--primary_period` 不一致时
+    给出 `period mismatch` warning 并写入 `run_manifest.period_mismatches` 与
+    `evidence/index.json`，声明存在但不可解析时走 `period unverified`（`basis=invalid`）；
+    旧格式包（连 `资料截止日` 都没有）不追溯判红；
+    ③ 中报附注包优先于年报包（`FOOTNOTE_SOURCE_NAMES` 顺序），未选中的候选仍登记为
+    `pdf_footnotes:<filename>` 监测项（事后补上附注包会让 `validate_manifest_inputs`
+    判定输入已变），且不进 `unavailable_inputs`；模块 bundle 新增 `source_periods`
+    与 `selection.period_mismatches`，让读到附注证据的模块看见「这份证据属于哪一期」。
+    **复现对照**：真实 run 的 `run_manifest.json` 原本 `warnings` 为空、附注源无 `period`；
+    修复后在 run 目录副本上重跑得到 `primary_period=2026H1` / 附注源 `2025FY` 的
+    period mismatch 告警（原 run 未改动，见 PR）。
   - `AC-2.2` 已实现：`scripts/tushare_modules/other_data.py:get_pledge_stat` 去掉三个股数字段的
     `divider=1e4`（接口本就是万股），并新增「§1 总市值 ÷ 现价 反推股数 ≈ §16 总股本（相对误差 <1%）」
     与「质押比例 == 质押股数 / 总股本」两条一致性校验；`pledge_stat.json` 夹具换成 2026-09-18 真实响应。
@@ -202,7 +219,7 @@ supersedes: TBD
       显式年份并撤回跨口径比率，但那是**运行时人工纠正**）。**`AC-2.6` 只覆盖「源缺失」，
       不覆盖「源存在但期次不对」**：公司目录缺 `data_pack_report_interim.md` 时
       `prepare` 无 warning、`unavailable_inputs` 为空。需补「附注源期次必须与
-      `primary_period` 一致」的校验与告警。
+      `primary_period` 一致」的校验与告警。**→ 已在本切片修复，证据见上面进度第一条。**
     - **`AC-2.5` 在真实载荷下仍未满足**：`period_delta` bundle 的 10 个 `market_data` 段落
       `selected_chars` 只剩 168–271，8 条 `market_data` 证据槽位**全部 `omitted`**
       （`max_evidence=12` 被 prior_analysis 6 + pdf_sections 5 + pdf_footnotes 1 占满），
@@ -228,7 +245,8 @@ supersedes: TBD
     - **F31（新，低）bundle 元数据开销挤压正文**：`contexts/period_delta.json` 共 22,254 字符，
       `context_text` 只占 6,255，其余是 `selection`/`coverage_states`/`section_states`；
       预算循环为容纳这些元数据把 `content_budget` 压到约 9k，是上面「必选行丢失」的放大器。
-  - PR #49（进度切片，squash 合入 `0a5beac`）；跟踪 Issue
+  - PR #49（进度切片，squash 合入 `0a5beac`）、**F29 修复切片（`F29` 的期次登记/判定/可见性三层）**；
+    跟踪 Issue
     [#50](https://github.com/CHU-2002/Value_analysis_framework/issues/50)（**未收口**，剩余项见该 Issue）。
 - 目标：把 2026-09-25 的 AC-1.9 复跑（run `20260925T042255414048Z`）暴露的**数据包生成、PDF 抽取、
   证据索引与 bundle 预算、输入接线、跨 run 一致性**五类缺陷一次性收干净，并让每一类都留下**可判定**的回归判据
@@ -245,7 +263,7 @@ supersedes: TBD
   | 数据包·风险警示与占位板块 | F17 / F7 | §13.1 的 YOY 异常检测只报 2007→2008 / 2008→2009，本期「资产减值 +627.8%、商誉减值 0→1,546.54」反而没报；§8（行业与竞争）/§10（MD&A）/§13.2 永远是占位符（WebSearch 补充只在 PDF 下载失败时才做），而 D3 的 bundle 正以 §8 为行业证据来源 |
   | PDF 章节抽取 | F12 / 担保表列错位 | `MDA` 章节 `buffer_pages=3` 把前 3 页（非经常性损益）混进正文，`max_chars=8000` 又把真 MD&A 尾部截掉；`MATTERS` 的重大担保明细把「担保逾期金额/反担保/是否逾期」与主债务情况说明混排，担保是否逾期不可判定 |
   | 证据索引与 bundle 预算 | F5 / F13 / F14 / F20 | 索引 195 条里 178 条摘录超过契约的 300 字上限（最长 1,199），模块只能各自裁剪同一段摘录；同一 evidence id 的 `context_text` 与 `evidence[].quote` 覆盖行集不一致；利润表预算截断把「归母净利润」行砍掉（D5 的 `net_profit_mm` 只能为 null，且丢了上一轮尚可推导的单季归母 363.98）；`missing`/`omitted`/`truncated` 三态被混用，产生「不存在」式错误表述 |
-  | 输入接线与元数据一致性 | F4 / F1 / F16 / F18 / F21 / F27 / 重试策略 | `pdf_footnotes` 源在**每一轮** report-update run 都是 `exists=false`（`prepare` 找 `inputs/data_pack_report.md`，而规范里的 `--input` 清单从不含它），且 `prepare` 的 `warnings` 为空——**静默**；同一 PDF 重解析只变 `metadata.extract_time` 却让输入指纹变化；模块 `as_of` 口径不一触发 high 级 `DATE-001` 并把整体置信度压到 low；对账器查不出**跨 run 评级被静默改写**（D2/D4 上调 vs D7 声称沿用）；`change_report` 的 `prior_synthesis` 卡片剥掉旧引用后无法区分「已剥离」与「本来无引用」，且 `synthesis` 卡片压缩后仍有 2 个悬空引用（`P4:003` / `P6:001`）；永久性 `no_permission` 仍走满 5 次重试 |
+  | 输入接线与元数据一致性 | F4 / F1 / F16 / F18 / F21 / F27 / **F29** / 重试策略 | `pdf_footnotes` 源在**每一轮** report-update run 都是 `exists=false`（`prepare` 找 `inputs/data_pack_report.md`，而规范里的 `--input` 清单从不含它），且 `prepare` 的 `warnings` 为空——**静默**；**F29**：附注源**期次**与 run 的 `primary_period` 不同期却无任何标记（2025 年报附注包进 2026H1 run）；同一 PDF 重解析只变 `metadata.extract_time` 却让输入指纹变化；模块 `as_of` 口径不一触发 high 级 `DATE-001` 并把整体置信度压到 low；对账器查不出**跨 run 评级被静默改写**（D2/D4 上调 vs D7 声称沿用）；`change_report` 的 `prior_synthesis` 卡片剥掉旧引用后无法区分「已剥离」与「本来无引用」，且 `synthesis` 卡片压缩后仍有 2 个悬空引用（`P4:003` / `P6:001`）；永久性 `no_permission` 仍走满 5 次重试 |
   | 第二轮重跑新增/加强 | F22 / F23 / F24 / F25 / F26 | **F22**：bundle 每节只给 1 条代表摘录（索引里 MDA 有 8 块、SUB 6、P3 4、§17 4、§4 3），D2 的核心证据（`MDA:006/007/008` 市场份额、`market_data:17` 的 Capex/5年CAGR）**在索引里但引不到**；**F23**：PDF 双栏交叉抽取导致文本串行错乱（「该类别票**据是由信用风险较**低银行出具」被另一栏切断），MATTERS 担保表还无法区分「0」与「未填写」；**F24**：模块规格要求 `unknown` 而 `cycle_position` 枚举没有它 → 「不知道」被迫写成「不适用」；**F25**：同一 `evidence_id` 被多模块以不同 `quote_index` 引用，而 sidecar 要求 id 唯一 → 同块内不同数值无法各自取得摘录；**F26**：模块 `run.status` 与 `business_trend`/`change_significance` 是 LLM 判断，**同一 `selection`** 下两轮分别给出 `complete`→`partial`、`恶化/重大`→`稳定/一般` |
   | 独立验收者发现 | F28 | `code_fingerprint` = HEAD sha → **纯文档提交也让 run 变 `framework_changed`**：在 `56a7d48`（只改 docs）上 `analysis_status` 由 exit 1/`report-update` 变 exit 3/`full-rerun`，即记录实跑的那次文档提交本身令该 run 失效（详见 `docs/verification/2026-09-25-REQ-006.1.md` 的存疑项，登记于 **AC-2.7**） |
 
