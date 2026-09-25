@@ -660,10 +660,13 @@ def test_synthesis_budget_covers_metrics_quality_and_preserves_protected_content
         result["quality"]["extra_detail"] = "Unbounded quality extension. " * 3000
         results.append(result)
     args = _synthesis_fixture(tmp_path, results)
-    context = build_synthesis_context(**args)
-    assert context == build_synthesis_context(**args)
+    # 本用例检验的是「预算不足时如何记账」，因此显式给小预算，与默认值解耦
+    # （默认值由 test_default_budget_* 两个用例把关，REQ-006.1 AC-1.5）。
+    budget = 40000
+    context = build_synthesis_context(**args, max_chars=budget)
+    assert context == build_synthesis_context(**args, max_chars=budget)
     assert context["budget"]["actual_chars"] == len(json.dumps(context, ensure_ascii=False, indent=2) + "\n")
-    assert context["budget"]["actual_chars"] <= 40000
+    assert context["budget"]["actual_chars"] <= budget
     # 预算不足时必须留下丢弃记录：条数是完整的，字段名只留样本（REQ-006.1 AC-1.5）
     assert context["budget"]["dropped_count"] > 0
     assert context["budget"]["dropped"], "丢弃的模块名必须列出来"
@@ -700,9 +703,10 @@ def test_synthesis_keeps_evidence_dependencies_of_risks_and_metrics(tmp_path):
 
 
 def test_synthesis_refuses_to_discard_protected_parameters(tmp_path):
+    # 显式给小预算：受保护内容（参数）不能因为预算不够就被丢掉——与默认值解耦。
     result = make_result(parameters={"large_parameter": "Verified parameter " * 2000})
     with pytest.raises(ValueError, match="protected synthesis content"):
-        build_synthesis_context(**_synthesis_fixture(tmp_path, [result]))
+        build_synthesis_context(**_synthesis_fixture(tmp_path, [result]), max_chars=30000)
 
 
 def test_synthesis_rejects_risk_reference_without_precise_module_excerpt(tmp_path):
@@ -1179,6 +1183,82 @@ def test_synthesis_context_discloses_dropped_content(tmp_path):
     assert tight["budget"]["actual_chars"] <= full["budget"]["actual_chars"] - 500
     assert tight["budget"]["dropped_count"] > 0
     assert tight["budget"]["dropped"], "被丢的模块名必须列出来"
+
+
+def test_default_budget_covers_the_measured_real_payload():
+    """AC-1.5：默认预算按**真实载荷**设定，不是按小样本估算。
+
+    2026-09-25 的 AC-1.9 复跑实测：六模块完整载荷 **96,496** 字符；
+    旧默认 40,000 下丢弃 148 项（含每个模块的 `quality.missing_inputs`），
+    60,000 下仍丢 128 项。
+    """
+    import inspect
+
+    default = inspect.signature(build_synthesis_context).parameters["max_chars"].default
+    assert default >= 96000, f"默认预算 {default} 小于实跑测得的 96,496，真实载荷下会丢卡"
+
+
+def test_default_budget_admits_every_card_of_a_real_scale_payload(tmp_path):
+    """AC-1.5：真实规模的载荷在**默认预算**下必须零丢弃。"""
+    results = []
+    for result_type in DEFAULT_PARAMETERS:
+        result = make_result(result_type)
+        result["metrics"].update(
+            {f"metric_{index}": {"value": index, "unit": "million"} for index in range(40)}
+        )
+        result["claims"] = [
+            {
+                "claim_id": f"C-{index:03d}",
+                "statement": "Verified claim; " * 6,
+                "type": "fact",
+                "confidence": "medium",
+                "evidence_ids": ["E-001"],
+            }
+            for index in range(20)
+        ]
+        results.append(result)
+    args = _synthesis_fixture(tmp_path, results)
+    natural = build_synthesis_context(**args, max_chars=10**7)
+    assert natural["budget"]["actual_chars"] > 40000, "fixture 必须大到能暴露旧默认值（40,000）的问题"
+    assert natural["budget"]["dropped_count"] == 0
+
+    default = build_synthesis_context(**args)
+    assert default["budget"]["dropped_count"] == 0, "默认预算不得丢卡（AC-1.5）"
+    assert default["budget"]["dropped"] == {}
+
+
+def test_dropped_accounting_counts_every_list_item(tmp_path):
+    """AC-1.5：claims / risks / watchlist 被丢时必须**逐条**计数。
+
+    2026-09-25 实跑实测：这些条目的丢弃标签被写成 `claims:None`，`dropped_count`
+    用 `set()` 去重后把一个模块里被丢的 10 条 claims 折叠成 1 条（报 148，实际 299）。
+    """
+    result = make_result()
+    result["claims"] = [
+        {
+            "claim_id": f"C-{index:03d}",
+            "statement": "Verified claim; " * 30,
+            "type": "fact",
+            "confidence": "medium",
+            "evidence_ids": ["E-001"],
+        }
+        for index in range(25)
+    ]
+    result["risks"] = [
+        {"risk": f"Risk {index}", "severity": "medium", "evidence_ids": ["E-001"]}
+        for index in range(10)
+    ]
+    result["watchlist"] = [f"Watch item {index}" for index in range(10)]
+    args = _synthesis_fixture(tmp_path, [result])
+    context = build_synthesis_context(**args, max_chars=12000)
+    omitted = context["modules"][0]["omitted"]
+    dropped_labels = context["budget"]["dropped"].get("qualitative.business_moat", [])
+
+    assert omitted["claims"] + omitted["risks"] + omitted["watchlist"] > 0
+    assert context["budget"]["dropped_count"] >= (
+        omitted["claims"] + omitted["risks"] + omitted["watchlist"]
+    ), "被丢的列表条目必须逐条计入 dropped_count"
+    assert all("None" not in label for label in dropped_labels), f"丢弃标签不得是 None：{dropped_labels}"
 
 
 def test_bundle_evidence_checker_rejects_out_of_bundle_citations(tmp_path):

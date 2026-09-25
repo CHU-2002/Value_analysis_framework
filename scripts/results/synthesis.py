@@ -12,6 +12,13 @@ from typing import Any, Iterable
 from .evidence import validate_result_evidence
 from .schema import load_result, require_consistent_result_set, result_set_digest
 
+#: 默认预算，单位是序列化字符。取值的依据是两次真实实跑（REQ-006.1）：
+#: 2026-09-20 那次六模块载荷实际需要约 60k（当时靠人工传 `--max-chars 60000` 才跑通）；
+#: 2026-09-25 的 AC-1.9 复跑实测**完整载荷 96,496 字符** —— 旧的 40,000 下丢弃 148 项
+#: （含每个模块的 `quality.missing_inputs` 与本期关键减值口径），60,000 下仍丢 128 项，
+#: 120,000 起才零丢弃。故默认值取 120,000，为后续期次留出余量。
+DEFAULT_MAX_CHARS = 120000
+
 
 def _size(value: Any) -> int:
     return len(json.dumps(value, ensure_ascii=False, indent=2)) + 1
@@ -62,11 +69,31 @@ def _candidates(result: dict[str, Any], card: dict[str, Any]):
                 elif name not in card[key]:
                     queues.append(deque([(key, name, items)]))
         else:
-            queues.append(deque((key, None, item) for item in value if item not in card[key]))
+            # 列表类条目（risks / claims / watchlist）也必须逐条记账：先前把 name 写成 None，
+            # 于是标签恒为 "claims:None"，而 dropped_count 用 set() 去重会把一个模块里被丢的
+            # 10 条 claims 折叠成 1 条（2026-09-25 实跑实测：报 148，实际 299）。
+            queues.append(deque(
+                (key, _list_item_label(key, item, position), item)
+                for position, item in enumerate(value)
+                if item not in card[key]
+            ))
     while any(queues):
         for queue in queues:
             if queue:
                 yield queue.popleft()
+
+
+def _list_item_label(key: str, item: Any, position: int) -> str:
+    """给列表类条目起一个稳定且可读的丢弃标签（用于 budget.dropped 与 dropped_count）。"""
+
+    if isinstance(item, dict):
+        for field in ("claim_id", "risk", "item", "statement"):
+            value = item.get(field)
+            if isinstance(value, str) and value:
+                return value[:40]
+    elif isinstance(item, str) and item:
+        return item[:40]
+    return f"#{position}"
 
 
 def _result_card(result: dict[str, Any], selected: dict[str, Any]) -> dict[str, Any]:
@@ -128,12 +155,13 @@ def build_synthesis_context(
     optional_result_paths: Iterable[str | Path] = (),
     reconciliation_path: str | Path,
     evidence_index_path: str | Path,
-    max_chars: int = 40000,
+    max_chars: int = DEFAULT_MAX_CHARS,
 ) -> dict[str, Any]:
     """Create a compact, valid JSON handoff for Final Synthesis Agent.
 
-    默认 40000 字符来自一次真实实跑（REQ-006.1）：四个核心模块就要 30,124 字符，
-    加上 D7 是 38,070 —— 原来的 30,000 默认值在真实载荷下必然丢卡。
+    默认预算见 :data:`DEFAULT_MAX_CHARS`：它按**真实载荷**设定（2026-09-25 实测完整载荷
+    96,496 字符），而不是按更小的样本估算。原来的 40,000 默认值在真实 run 上会丢掉
+    148 项卡片内容，包括每个模块的 `quality.missing_inputs` —— 即「缺口披露」本身被丢掉。
     """
 
     if max_chars <= 0:
@@ -278,7 +306,7 @@ def main() -> None:
     parser.add_argument("--optional-input", action="append", default=[], help="optional module result.json")
     parser.add_argument("--reconciliation", required=True)
     parser.add_argument("--evidence-index", required=True)
-    parser.add_argument("--max-chars", type=int, default=40000)
+    parser.add_argument("--max-chars", type=int, default=DEFAULT_MAX_CHARS)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
