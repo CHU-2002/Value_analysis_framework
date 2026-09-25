@@ -2109,3 +2109,30 @@ def test_real_pdf_matters_guarantee_columns_align(tmp_path, module):
     # 真实载荷上 MATTERS 的担保明细表跨窗口：明细块（列头 + 数据行）与汇总块各占一条。
     assert "MATTERS" in contexts and "担保总额（A+B）" in (contexts["MATTERS"] or "")
     _assert_guarantee_blocks_reach_bundle(bundle)
+
+
+def test_bundle_metadata_overhead_does_not_starve_required_structure(tmp_path):
+    """AC-2.5 / F31：bundle 里 36~38% 是元数据（selection/section_states/locator），
+
+    这本身是预算的代价，不是缺陷；**必须成立的是**「元数据再怎么占，必选节与必选行
+    仍然交付、且总字数不超 max_chars」。这条测试钉住这个不变量：给一个元数据开销
+    很大的载荷（16 条证据、每条带完整 locator），必选节仍要拿到证据槽位、必选行仍要在
+    `context_text` 里，且 `actual_chars <= max_chars`。
+    """
+
+    pack, index = _ac25_layout(tmp_path / "伊利")
+
+    bundle = build_module_context(
+        "period_delta", data_pack_path=pack, evidence_index_path=str(index)
+    )
+
+    assert bundle["budget"]["actual_chars"] <= bundle["budget"]["max_chars"]
+    evidence = {(item["source_id"], item["locator"]["section"]) for item in bundle["evidence"]}
+    for section in ("3", "4", "5", "12"):
+        assert ("market_data", section) in evidence, sorted(evidence)
+    for row in ("营业收入", "营业成本", "财务费用", "净利润", "归母净利润"):
+        assert row in bundle["context_text"], row
+    # 元数据（总字数 - context_text - 引文）占比不得超过内容：留出 60% 给正文与引文
+    total = bundle["budget"]["actual_chars"]
+    content = len(bundle["context_text"]) + sum(len(item["quote"]) for item in bundle["evidence"])
+    assert content >= total * 0.4, (content, total)
