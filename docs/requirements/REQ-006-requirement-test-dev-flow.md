@@ -157,7 +157,9 @@ supersedes: TBD
     `cyclicality` / `cycle_position` / `regulatory_risk` 增加 `unknown`，
     `shared/qualitative/references/output_schema.md` 同步（契约测试逐字比较）（F24）。
     **未做**：`reconcile_results` 的跨 run 评级类参数一致性检查、卡片压缩后的悬空引用与
-    被剥离引用的显式标注（F21/F27）、F26 的「同输入同判断」伴随字段。
+    被剥离引用的显式标注（F21/F27）、F26 的「同输入同判断」伴随字段、
+    **F28（`code_fingerprint` = HEAD sha → 纯文档提交也让 run 变 `framework_changed`，
+    需改为与 `DIRTY_TRACKED_PATHS` 同源的内容摘要）**。
   - 测试：新增 `tests/test_tushare_pack_sections.py`（13 例，夹具取真实响应、不做网络调用）；
     `tests/test_results_pipeline.py` 增 2 例（AC-2.6）+ 4 例（AC-2.5）+ 3 例（AC-2.7：
     指纹不受 extract_time 影响、非 JSON 仍按字节、as_of 规则）；`tests/test_tushare_client.py`
@@ -176,9 +178,14 @@ supersedes: TBD
     `coverage_states`/`section_states`，`market_data:8/10` 为 `unavailable`。另用同一 PDF 两次解析
     验证 F1：原始字节不同（`extract_time`）、内容指纹完全相同。
     **未跑**：LLM 模块 / `reconcile` / `synthesis` / `resolve_qualitative` / `change_report`
-    （需要独立 agent 会话，不在本轮伪造），故 `AC-2.8` 尚未满足；本轮另留一个演示用 run
-    `20260925T091003039909Z`（故意用错误章节包文件名，用于验证「缺失输入被登记」的披露路径），
-    未写台账、可随时删除。
+    （需要独立 agent 会话，不在本轮伪造），故 `AC-2.8` 尚未满足。
+    **产物处置（2026-09-25 owner 决定）**：正式半程 run `20260925T091012981574Z`
+    **保留在 `output/600887_伊利/runs/` 作为 `AC-2.8` 的半程实跑证据**（不写台账、不影响
+    `latest.json`，因为它是未完成的 run，写台账会误导）；另一个演示用 run
+    `20260925T091003039909Z`（故意用错误章节包文件名，用于验证「缺失输入被登记」的披露路径）
+    已**移出仓库**到 `/tmp/req0062-run/removed/`（未删除，按护栏不擅自删数据）。
+    两轮真跑都写到 `/tmp/req0062-run/`，**公司级 `data_pack_market.md` 未被覆盖**，
+    `latest.json` / `history.jsonl` 未变。
   - **本轮真跑同时暴露并已修的缺口**：`F13` 的「引文可在 context_text 里核对」在
     附注源与「同一段落第 2+ 块」上并不成立（真跑实测 environment 2 条、business_moat 5 条、
     mda_quality 4 条、governance 8 条）。现在每条 evidence 带 `in_context` 布尔与
