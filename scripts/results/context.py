@@ -440,6 +440,15 @@ def build_module_context(
             evidence.append(rendered)
             truncated |= rendered["quote"] != item["quote"]
         context_text = "\n\n".join(blocks)
+        # F13 的可判定形式：每条引文是否能在 context_text 里逐字核对。
+        # 附注源（pdf_footnotes）与「同一段落的第 2+ 块」本来就不在 context_text 里，
+        # 这类引文只能回 evidence/index.json 核对——必须显式标出，不能含糊。
+        quotes_not_in_context: list[str] = []
+        for entry in evidence:
+            in_context = bool(entry["quote"]) and entry["quote"] in context_text
+            entry["in_context"] = in_context
+            if not in_context:
+                quotes_not_in_context.append(entry["evidence_id"])
         bundle = {
             "schema": "investment.context_bundle",
             "schema_version": "1.0",
@@ -479,6 +488,7 @@ def build_module_context(
                 "pdf_section_ids": config["pdf_sections"],
                 "keywords": config["keywords"],
                 "evidence_coverage": retained_coverage,
+                "quotes_not_in_context": quotes_not_in_context,
                 # 同一段的第 2+ 块里没装进预算的那些（F22 的可判定披露）。
                 "evidence_extra_omitted": sorted(set(truncated_extra)),
                 "missing_pdf_sections": [key for key in config["pdf_sections"] if key not in parsed_pdf],

@@ -104,7 +104,7 @@ supersedes: TBD
   写成 `in-progress` 而非 `accepted` 是**追溯门禁的强制结果**：父需求 REQ-006 已是 `in-progress`，
   而门禁要求「父需求不得比它最慢的子需求更靠前」，所以新登记的子需求不能停在 `accepted`。
   实际完成度以 `AC-2.1`~`AC-2.8` 的证据与 PR 为准。
-- 进度（2026-09-25，**未收口**，全量门禁 `1593 passed, 3 skipped`、覆盖率 78.64%）：
+- 进度（2026-09-25，**未收口**，全量门禁 `1594 passed, 3 skipped`、覆盖率 78.65%）：
   - `AC-2.2` 已实现：`scripts/tushare_modules/other_data.py:get_pledge_stat` 去掉三个股数字段的
     `divider=1e4`（接口本就是万股），并新增「§1 总市值 ÷ 现价 反推股数 ≈ §16 总股本（相对误差 <1%）」
     与「质押比例 == 质押股数 / 总股本」两条一致性校验；`pledge_stat.json` 夹具换成 2026-09-18 真实响应。
@@ -164,6 +164,26 @@ supersedes: TBD
     增 2 例（权限错误只调一次 / 普通错误仍重试）；`tests/test_pdf_preprocessor.py` 增 5 例；
     `tests/test_prepare_primary_period.py` / `tests/test_prepare_prior_analysis.py`
     的夹具补上附注源，让「干净 run 无 warning」的断言继续成立。
+  - **AC-2.8 实跑（确定性半程，2026-09-25，owner 授权「可以真跑」）**：真实 token 重新采集
+    （`tushare_collector.py --code 600887.SH`，exit 0，日志首行即
+    `yc_cb: permanent error …; not retrying`）→ 新数据包实测修复：
+    §16 `总股本 632,536.07` / `无限售质押 39,775.10` 万股（原 63.25 / 3.98）；
+    §12 营收同比增长率逐列有值（原整行 `—`）；§9 重复行消失、`合计特别调整` 毛利率为 `—`、
+    口径说明带真实数字；§13.1 唯一告警是**本期** `2025H1→2026H1 资产减值 +628%`（原 2007/2008 噪声）。
+    真实 PDF 重解析 → run `20260925T091012981574Z`（`runs.py new` + `prepare`，四个输入齐全）：
+    `warnings` 空、`unavailable_inputs` 空（附注源按新清单传入）；证据索引 `unfilled_sections`
+    只含 §8/§10、`quote_contract` 就位、最长摘录 1,199 ≤ 1,200 窗口；四个模块 bundle 都带
+    `coverage_states`/`section_states`，`market_data:8/10` 为 `unavailable`。另用同一 PDF 两次解析
+    验证 F1：原始字节不同（`extract_time`）、内容指纹完全相同。
+    **未跑**：LLM 模块 / `reconcile` / `synthesis` / `resolve_qualitative` / `change_report`
+    （需要独立 agent 会话，不在本轮伪造），故 `AC-2.8` 尚未满足；本轮另留一个演示用 run
+    `20260925T091003039909Z`（故意用错误章节包文件名，用于验证「缺失输入被登记」的披露路径），
+    未写台账、可随时删除。
+  - **本轮真跑同时暴露并已修的缺口**：`F13` 的「引文可在 context_text 里核对」在
+    附注源与「同一段落第 2+ 块」上并不成立（真跑实测 environment 2 条、business_moat 5 条、
+    mda_quality 4 条、governance 8 条）。现在每条 evidence 带 `in_context` 布尔与
+    `selection.quotes_not_in_context` 清单——不可核对的引文**显式标出**（回索引核对），
+    不再含糊；完全包含需要重构 context_text，留作后续。
   - PR #TBD（合入后回填）。
 - 目标：把 2026-09-25 的 AC-1.9 复跑（run `20260925T042255414048Z`）暴露的**数据包生成、PDF 抽取、
   证据索引与 bundle 预算、输入接线、跨 run 一致性**五类缺陷一次性收干净，并让每一类都留下**可判定**的回归判据

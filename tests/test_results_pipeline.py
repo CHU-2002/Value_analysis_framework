@@ -1490,3 +1490,31 @@ def test_as_of_must_be_a_date_and_not_in_the_future():
 
     result["run"]["as_of"] = "2026/06/30"
     assert any("YYYY-MM-DD" in error for error in validate_result(result))
+
+
+def test_bundle_marks_quotes_that_cannot_be_verified_in_context_text(tmp_path):
+    """AC-2.5 / F13：不能在 context_text 里核对的引文必须被显式标出。"""
+    pack = tmp_path / "data_pack.md"
+    pack.write_text("## 3. 合并利润表\n" + "".join(f"| 行{i} | {i} |\n" for i in range(160)), encoding="utf-8")
+    notes = tmp_path / "data_pack_report.md"
+    notes.write_text("## P6. Guarantees\n担保逾期金额 47.5624 百万元\n", encoding="utf-8")
+    index = build_evidence_index([
+        {"source_id": "market_data", "path": str(pack)},
+        {"source_id": "pdf_footnotes", "path": str(notes)},
+    ])
+    index_path = tmp_path / "index.json"
+    index_path.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+
+    bundle = build_module_context(
+        "governance", data_pack_path=pack, evidence_index_path=str(index_path), max_chars=6000
+    )
+
+    marked = {item["evidence_id"]: item["in_context"] for item in bundle["evidence"]}
+    assert marked, bundle["selection"]["evidence_coverage"]
+    assert bundle["selection"]["quotes_not_in_context"] == sorted(
+        evidence_id for evidence_id, ok in marked.items() if not ok
+    )
+    # 附注源本来就不在 context_text 里，必须出现在披露清单里
+    footnote_ids = [eid for eid in marked if eid.startswith("pdf_footnotes:")]
+    if footnote_ids:
+        assert all(eid in bundle["selection"]["quotes_not_in_context"] for eid in footnote_ids)
