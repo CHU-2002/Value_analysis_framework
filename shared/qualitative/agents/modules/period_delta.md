@@ -34,6 +34,13 @@ Rules:
 
 - `report_period` / `comparable_period` are period identifiers such as `2026H1` and `2025H1`. The context has no dedicated period field: derive them from the `Market data:` column headers in `context_text` rather than inventing them, and state them in `metrics`.
 - `business_trend` describes the operating trajectory, not the share price.
+  **基准（必须遵守，REQ-006.2 发现 F30）**：它比较的是**同一财报口径下的上年同期**，
+  即 `report_period` vs `comparable_period`（本期累计 vs 上年同期累计，例如
+  `2026H1` vs `2025H1`）。**不是**本轮结论与上一轮结论之间的相对变化（那是
+  `conclusion_change` 的语义），也**不是**与上一次 run 相比「变好了还是变差了」。
+  同一份 2026H1 数据、不管跑几次，`business_trend` 的基准都必须一样；若上年同期列不可得,
+  写 `不确定` 并在 `quality.missing_inputs` 说明，不要退化成「跟上一次 run 比」。
+  判定时要写出依据（同比了哪两个期次、看的是哪些指标），跨期或跨口径的比较不得作为依据。
 - `conclusion_change` is your judgement about the *previous* recorded conclusions: `维持` (unchanged), `上调` (more favourable), `下调` (less favourable), `证据不足` (cannot tell from this period).
 - `guidance_delivery` compares the previous run's `mda_forward_guidance` / promises / watchlist against what this period actually shows. Use `无指引` when the previous run recorded no guidance, and `无法验证` when this period cannot confirm or refute it.
 - `requires_full_rerun` is `true` when the delta invalidates the basis of the previous analysis rather than merely updating numbers: non-standard audit opinion, material M&A / equity issuance / restructuring, accounting policy change or restatement, a change in moat or integrity rating, or a change in the dominant business mix. Then say why in `quality.warnings` and in a claim.

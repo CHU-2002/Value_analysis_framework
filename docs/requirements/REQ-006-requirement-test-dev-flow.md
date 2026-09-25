@@ -104,7 +104,7 @@ supersedes: TBD
   写成 `in-progress` 而非 `accepted` 是**追溯门禁的强制结果**：父需求 REQ-006 已是 `in-progress`，
   而门禁要求「父需求不得比它最慢的子需求更靠前」，所以新登记的子需求不能停在 `accepted`。
   实际完成度以 `AC-2.1`~`AC-2.8` 的证据与 PR 为准。
-- 进度（2026-09-25，**未收口**，全量门禁 `1613 passed, 3 skipped`、覆盖率 79.00%）：
+- 进度（2026-09-25，**未收口**，全量门禁 `1617 passed, 3 skipped`、覆盖率 79.02%）：
   - **`F29` 已修（2026-09-25，本切片）**：附注源的**期次**从「完全没有标记」变成
     「登记 + 判定 + 对模块可见」三层落地——
     ① 附注包头部新增机器可读的 `> 报告期：YYYYH1` 契约（`prompts/phase2_PDF解析.md`
@@ -122,6 +122,28 @@ supersedes: TBD
     **复现对照**：真实 run 的 `run_manifest.json` 原本 `warnings` 为空、附注源无 `period`；
     修复后在 run 目录副本上重跑得到 `primary_period=2026H1` / 附注源 `2025FY` 的
     period mismatch 告警（原 run 未改动，见 PR）。
+  - **`F28` 已修（2026-09-25，本切片）**：`code_fingerprint` 由「HEAD sha（可带 `-dirty` 后缀）」
+    改成**内容摘要**——对 `DIRTY_TRACKED_PATHS`（`scripts` / `strategies` / `shared` / `prompts` /
+    `.claude/commands` / `.claude/skills` / `.opencode/commands` / `docs/BUY_SELL_CONTRACT.md`）
+    下的文件内容做 sha256（`sha256:` 前缀），并排除 `__pycache__` / `*.pyc` / `.DS_Store`
+    这类随运行出现或消失的产物（否则同一份代码的指纹会被字节码搅乱）。
+    `git_commit` 与 `dirty` 仍是 `framework_block` 的独立溯源字段，`dirty` 继续用同一套
+    pathspec 判定（与内容摘要各司其职，不再互相冒充）。
+    **真实提交复现**：新建仓库 → 提交框架（`fp=sha256:e406eaf8…`）→ 只改 `docs/**` 再提交
+    （HEAD 变了、`fp` **不变** → `analysis_status` 不再报 `framework_changed`）→ 改
+    `scripts/**` 再提交（`fp` 变、`prompt_fingerprint` 不变）。测试：
+    `tests/test_version.py` 的 `test_docs_only_commit_does_not_invalidate_a_recorded_run`、
+    `test_code_fingerprint_is_a_content_digest_not_the_head_sha`、
+    `test_code_fingerprint_ignores_bytecode_and_cache_artifacts`；同时把 3 条旧断言
+    （`== "abc1234"` / `.endswith("-dirty")`）改写成内容口径——**不是放宽**：仍然逐条钉住
+    「改什么会变、改什么不会变」。
+  - **`F30` 已修（2026-09-25，本切片）**：`business_trend` 的基准写进两处规格并加契约测试——
+    `shared/qualitative/agents/modules/period_delta.md` 明确「比较**同一财报口径下的上年同期**
+    （`report_period` vs `comparable_period`），**不是**与上一次 run 的相对变化（那是
+    `conclusion_change`）、也**不是**与上一轮结论比好坏；上年同期列不可得时写 `不确定` 并记
+    `quality.missing_inputs`」，`shared/qualitative/references/output_schema.md` 的
+    `business_trend` 行同步；测试见 `tests/test_period_delta_module.py::
+    test_business_trend_basis_is_the_year_ago_period`。
   - `AC-2.2` 已实现：`scripts/tushare_modules/other_data.py:get_pledge_stat` 去掉三个股数字段的
     `divider=1e4`（接口本就是万股），并新增「§1 总市值 ÷ 现价 反推股数 ≈ §16 总股本（相对误差 <1%）」
     与「质押比例 == 质押股数 / 总股本」两条一致性校验；`pledge_stat.json` 夹具换成 2026-09-18 真实响应。
@@ -287,9 +309,18 @@ supersedes: TBD
       「run 间相对口径」记 `稳定`，本轮按 D7 定义（2026H1 vs 2025H1）记 `恶化`，规格没写
       「同期重跑」时该以谁为基准 → 需在 `shared/qualitative/agents/modules/period_delta.md`
       写明基准，否则跨 run 比对必然误判（本轮已在 `quality.warnings` 两种口径都说明）。
+      **→ 已在本切片修复（基准写进规格 + schema 参考 + 契约测试）。**
     - **F31（新，低）bundle 元数据开销挤压正文**：`contexts/period_delta.json` 共 22,254 字符，
       `context_text` 只占 6,255，其余是 `selection`/`coverage_states`/`section_states`；
       预算循环为容纳这些元数据把 `content_budget` 压到约 9k，是上面「必选行丢失」的放大器。
+      **→ 已在本切片按「量化 + 不变量」收口**：元数据开销的**危害**（挤掉必选节/必选行）
+      由 AC-2.5 的结构保底解决，本切片给出实测口径（`period_delta`
+      total 31,533 字符中 `context_text` 12,335（39%）、引文 7,193、其余元数据 ≈12,005（38%）；
+      `governance` 分别为 23,935 / 8,437（35%）/ 6,818 / ≈8,680（36%）），
+      并用测试钉住不变量「元数据再怎么占，必选节与必选行仍交付、总字数不超预算、
+      正文+引文合计不低于总字数 40%」。**未做**：进一步压缩元数据本身（如
+      `evidence[].locator` 每条重复完整绝对路径，实测占 5%）——收益有限且要动 schema，
+      留作后续。
   - PR #49（进度切片，squash 合入 `0a5beac`）、**F29 修复切片（`F29` 的期次登记/判定/可见性三层）**；
     跟踪 Issue
     [#50](https://github.com/CHU-2002/Value_analysis_framework/issues/50)（**未收口**，剩余项见该 Issue）。

@@ -106,25 +106,31 @@ def test_code_fingerprint_falls_back_to_hashing_scripts(tmp_path):
     assert code_fingerprint(root) != first
 
 
-def test_code_fingerprint_uses_git_when_available(tmp_path, monkeypatch):
+def test_code_fingerprint_is_a_content_digest_not_the_head_sha(tmp_path, monkeypatch):
+    """AC-2.7 / F28：指纹是**内容摘要**，与 git HEAD 无关。
+
+    旧实现 `code_fingerprint` 直接取 `git rev-parse HEAD`，于是「记录实跑的那次文档提交」
+    本身就把 run 判成 `framework_changed`。现在 `git_commit` 仍是独立的溯源字段，
+    `code_fingerprint` 只反映 `DIRTY_TRACKED_PATHS` 下的文件内容。
+    """
+
     root = _make_root(tmp_path)
 
-    def fake_git(_root, *arguments):
-        if arguments == ("rev-parse", "HEAD"):
-            return "abc1234"
-        if arguments[:2] == ("status", "--porcelain"):
-            return ""
-        return None
-
-    monkeypatch.setattr(version, "_git", fake_git)
-    assert code_fingerprint(root) == "abc1234"
-
+    # HEAD 变来变去都不影响内容摘要。
     monkeypatch.setattr(
-        version,
-        "_git",
-        lambda _root, *arguments: "abc1234" if arguments == ("rev-parse", "HEAD") else " M scripts/engine.py",
+        version, "_git", lambda _root, *arguments: "abc1234" if arguments == ("rev-parse", "HEAD") else ""
     )
-    assert code_fingerprint(root) == "abc1234-dirty"
+    first = code_fingerprint(root)
+    monkeypatch.setattr(
+        version, "_git", lambda _root, *arguments: "def5678" if arguments == ("rev-parse", "HEAD") else ""
+    )
+    assert code_fingerprint(root) == first
+    assert first.startswith("sha256:")
+
+    # 溯源字段照旧记录 HEAD。
+    block = framework_block(root)
+    assert block["git_commit"] == "def5678"
+    assert block["code_fingerprint"] == first
 
 
 def _git_repo(tmp_path):
@@ -155,49 +161,104 @@ def _git_repo(tmp_path):
     return root, git
 
 
-def test_code_fingerprint_dirty_scopes_to_code_prompts_and_skills(tmp_path):
-    """S7 + NEW-1: unrelated files are ignored, real prompt/skill edits count."""
+def test_code_fingerprint_scopes_to_code_prompts_and_skills(tmp_path):
+    """S7 + NEW-1 + F28：只有被分析读取的文件内容才改变指纹。"""
 
     root, git = _git_repo(tmp_path)
     clean = code_fingerprint(root)
-    assert not clean.endswith("-dirty")
 
-    # A scratch file at the repo root is irrelevant to the framework identity.
+    # 仓库根目录的随手记与框架身份无关。
     (root / "NOTES_scratch.md").write_text("scratch\n", encoding="utf-8")
     assert code_fingerprint(root) == clean
 
-    # NEW-1: prompts/phase2_PDF解析.md is still read by business-analysis commands.
+    # F28：**只改 docs/** 的提交不得改变指纹**（旧实现会因 HEAD 变化而改变）。
+    (root / "docs").mkdir()
+    (root / "docs" / "requirements").mkdir()
+    (root / "docs" / "requirements" / "REQ-006.md").write_text("req v1\n", encoding="utf-8")
+    git("add", "-A")
+    assert git("commit", "-m", "docs only").returncode == 0
+    assert code_fingerprint(root) == clean
+
+    # NEW-1：prompts/phase2_PDF解析.md 仍被 business-analysis 命令读取，改它必须变。
     (root / "prompts" / "phase2_PDF解析.md").write_text("prompt v2\n", encoding="utf-8")
-    assert code_fingerprint(root).endswith("-dirty")
+    assert code_fingerprint(root) != clean
     git("checkout", "--", ".")
     assert code_fingerprint(root) == clean
 
-    # NEW-1: .claude/skills is part of the Agent-facing surface too.
+    # NEW-1：.claude/skills 也属于 Agent 面向的接口。
     (root / ".claude" / "skills" / "demo" / "SKILL.md").write_text("skill v2\n", encoding="utf-8")
-    assert code_fingerprint(root).endswith("-dirty")
+    assert code_fingerprint(root) != clean
     git("checkout", "--", ".")
     assert code_fingerprint(root) == clean
 
-    # Editing a fingerprinted code path counts.
+    # 改被指纹覆盖的代码路径同样要变。
     (root / "scripts" / "engine.py").write_text("print('changed')\n", encoding="utf-8")
-    assert code_fingerprint(root).endswith("-dirty")
+    assert code_fingerprint(root) != clean
 
 
-def test_framework_block_dirty_matches_code_fingerprint(tmp_path):
-    """NEW-2: framework_block().dirty must use the same scoped pathspec."""
+def test_framework_block_dirty_stays_a_git_scoped_flag(tmp_path):
+    """NEW-2：`framework_block().dirty` 仍用同一套 pathspec，与内容摘要各司其职。"""
 
     root, _git = _git_repo(tmp_path)
     block = framework_block(root)
     assert block["dirty"] is False
-    assert not block["code_fingerprint"].endswith("-dirty")
 
     (root / "NOTES_scratch.md").write_text("scratch\n", encoding="utf-8")
     assert framework_block(root)["dirty"] is False
 
+    # 改了内容：dirty 为真，且内容摘要随之改变（不再是 `-dirty` 后缀）。
+    clean = block["code_fingerprint"]
     (root / "scripts" / "engine.py").write_text("print('changed')\n", encoding="utf-8")
     block = framework_block(root)
     assert block["dirty"] is True
-    assert block["code_fingerprint"].endswith("-dirty")
+    assert block["code_fingerprint"] != clean
+
+
+def test_docs_only_commit_does_not_invalidate_a_recorded_run(tmp_path):
+    """F28 原始场景：记录 run 的那次**纯文档提交**不能让 run 变 `framework_changed`。
+
+    旧实现 `code_fingerprint` 取 HEAD sha，于是在 `56a7d48`（只改 docs）上 `analysis_status`
+    由 exit 1 变 exit 3/`full-rerun` —— 记录实跑本身令该 run 失效。这里用真实 git 提交复现：
+    改动只落在 `docs/**` 时 HEAD 变了但指纹不变；改动 `scripts/**` 时指纹必须变。
+    """
+
+    root, git = _git_repo(tmp_path)
+    before = framework_block(root)
+
+    (root / "docs" / "run-records").mkdir(parents=True)
+    (root / "docs" / "run-records" / "2026-09-25-run.md").write_text("实跑记录\n", encoding="utf-8")
+    assert git("add", "-A").returncode == 0
+    assert git("commit", "-m", "docs: record the run").returncode == 0
+
+    after = framework_block(root)
+    assert after["git_commit"] != before["git_commit"], "测试前提：HEAD 必须真的变了"
+    assert after["code_fingerprint"] == before["code_fingerprint"]
+    assert after["prompt_fingerprint"] == before["prompt_fingerprint"]
+    assert after["dirty"] is False
+
+    (root / "scripts" / "engine.py").write_text("print('engine v2')\n", encoding="utf-8")
+    assert git("add", "-A").returncode == 0
+    assert git("commit", "-m", "fix: engine").returncode == 0
+    changed = framework_block(root)
+    assert changed["code_fingerprint"] != after["code_fingerprint"]
+    assert changed["prompt_fingerprint"] == after["prompt_fingerprint"]
+
+
+def test_code_fingerprint_ignores_bytecode_and_cache_artifacts(tmp_path):
+    """指纹只反映框架内容：`__pycache__` / `*.pyc` / `.DS_Store` 的出现不得改变它。"""
+
+    root = _make_root(tmp_path)
+    clean = code_fingerprint(root)
+
+    cache = root / "scripts" / "__pycache__"
+    cache.mkdir()
+    (cache / "engine.cpython-312.pyc").write_bytes(b"\x00\x01")
+    (root / "scripts" / ".DS_Store").write_bytes(b"\x00")
+    assert code_fingerprint(root) == clean
+
+    # 真内容改了还是要变。
+    (root / "scripts" / "engine.py").write_text("print('changed')\n", encoding="utf-8")
+    assert code_fingerprint(root) != clean
 
 
 def test_framework_block_degrades_without_root(tmp_path):
@@ -260,8 +321,8 @@ def test_runs_as_package_and_as_script(tmp_path):
     assert json.loads(as_script.stdout)["version"] == FRAMEWORK_VERSION
 
 
-def test_contract_file_is_part_of_the_dirty_scope(tmp_path):
-    """An uncommitted edit to the buy/sell contract must count as framework drift."""
+def test_contract_file_is_part_of_the_fingerprint_and_dirty_scope(tmp_path):
+    """买卖合约既是框架输入（改内容 → 指纹变），也在 dirty 的 pathspec 里。"""
 
     root, git = _git_repo(tmp_path)
     (root / "docs").mkdir()
@@ -270,10 +331,11 @@ def test_contract_file_is_part_of_the_dirty_scope(tmp_path):
     assert git("add", "-A").returncode == 0
     assert git("commit", "-m", "add contract").returncode == 0
 
-    assert version.framework_block(root)["dirty"] is False
+    clean = version.framework_block(root)
+    assert clean["dirty"] is False
 
     contract.write_text("# contract (edited)\n", encoding="utf-8")
 
     block = version.framework_block(root)
     assert block["dirty"] is True
-    assert block["code_fingerprint"].endswith("-dirty")
+    assert block["code_fingerprint"] != clean["code_fingerprint"]

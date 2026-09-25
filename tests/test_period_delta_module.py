@@ -119,6 +119,25 @@ class TestPeriodDeltaContract:
             assert parameter in prompt, parameter
         assert "prior_analysis" in prompt
 
+    def test_business_trend_basis_is_the_year_ago_period(self):
+        """AC-2.7 / F30：`business_trend` 的基准必须写明是「本期 vs 上年同期」。
+
+        实测同一份 2026H1 数据，上一版按「run 间相对口径」记 `稳定`、本轮按 D7 定义记
+        `恶化`，而 `reconcile_results` 0 冲突——因为规格没写基准。规格与 schema 参考
+        两处都必须把基准钉死，且不得把它与 `conclusion_change`（对上次结论的调整）混同。
+        """
+
+        prompt = (ROOT / "shared/qualitative/agents/modules/period_delta.md").read_text(encoding="utf-8")
+        assert "business_trend" in prompt
+        for needle in ("上年同期", "comparable_period", "conclusion_change"):
+            assert needle in prompt, needle
+        assert "不是" in prompt
+
+        schema = (ROOT / "shared/qualitative/references/output_schema.md").read_text(encoding="utf-8")
+        row = next(line for line in schema.splitlines() if line.startswith("| business_trend "))
+        assert "上年同期" in row, row
+        assert "上一次 run" in row, row
+
     def test_change_report_prompt_exists(self):
         prompt = (ROOT / "shared/qualitative/agents/change_report.md").read_text(encoding="utf-8")
         assert "change_report_{period}.md" in prompt

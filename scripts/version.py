@@ -39,10 +39,18 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "context_bundle": "1.0",
 }
 
-#: Paths whose working-tree changes count as "dirty" for :func:`code_fingerprint`
-#: and :func:`framework_block`. Covers everything an analysis run actually reads
-#: (code, prompts, commands, skills); unrelated untracked files (scratch notes,
-#: local output) must not invalidate a run.
+#: Paths that define the framework identity. Two consumers share this list so
+#: they can never disagree about what "the framework" is:
+#:
+#: * :func:`code_fingerprint` folds the **file contents** below these paths into
+#:   a content digest — that is what ``analysis_status`` compares to decide
+#:   ``framework_changed``, so a commit that only touches ``docs/**`` must not
+#:   invalidate a recorded run (REQ-006.2 AC-2.7 / 发现 F28).
+#: * :func:`_is_dirty` uses the same paths as a git pathspec for the ``dirty``
+#:   flag (uncommitted changes to code/prompts/commands/skills).
+#:
+#: Covers everything an analysis run actually reads; unrelated untracked files
+#: (scratch notes, local output) must not invalidate a run.
 DIRTY_TRACKED_PATHS: tuple[str, ...] = (
     "scripts",
     "strategies",
@@ -146,28 +154,53 @@ def _is_dirty(root: Path) -> bool:
     return bool(_git(root, "status", "--porcelain", "--", *DIRTY_TRACKED_PATHS))
 
 
-def code_fingerprint(root: str | Path | None = None) -> str:
-    """Return a stable identity for the code that produced a run.
+def _iter_fingerprint_files(root: Path) -> list[tuple[str, Path]]:
+    """Collect ``(root-relative path, path)`` for every file below the fingerprinted paths.
 
-    Prefers git (``<commit>`` or ``<commit>-dirty``) and degrades to a sha256
-    over ``scripts/**/*.py`` when git is unavailable or ``root`` is not a
-    repository. ``dirty`` only considers changes to :data:`DIRTY_TRACKED_PATHS`
-    (code, prompts, ``strategies``/``shared`` and command/skill definitions):
-    unrelated untracked files such as scratch notes must not invalidate every
-    run. Raises ``ValueError`` when ``root`` does not exist.
+    缓存与编辑器产物（``__pycache__`` / ``*.pyc`` / ``.DS_Store``）不算框架内容：
+    它们随运行出现或消失，会把「同一份代码」的指纹搅得不稳定。
+    """
+
+    ignored_dirs = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+    ignored_suffixes = {".pyc", ".pyo"}
+    ignored_names = {".DS_Store"}
+    pairs: list[tuple[str, Path]] = []
+    for relative_root in DIRTY_TRACKED_PATHS:
+        base = root / relative_root
+        if base.is_file():
+            pairs.append((relative_root, base))
+        elif base.is_dir():
+            for path in _iter_files(base):
+                relative_parts = path.relative_to(base).parts[:-1]
+                if any(part in ignored_dirs for part in relative_parts):
+                    continue
+                if path.suffix in ignored_suffixes or path.name in ignored_names:
+                    continue
+                pairs.append((path.relative_to(root).as_posix(), path))
+    pairs.sort(key=lambda item: item[0])
+    return pairs
+
+
+def code_fingerprint(root: str | Path | None = None) -> str:
+    """Return a **content** digest of the code that produced a run.
+
+    The digest covers every file below :data:`DIRTY_TRACKED_PATHS` (code,
+    prompts, commands, skills, the buy/sell contract) as ``sha256:`` over
+    ``relative-path NUL content NUL``. It deliberately does **not** follow the
+    git HEAD: a commit that only changes ``docs/**`` leaves the fingerprint
+    untouched, while an uncommitted edit to ``scripts/**`` changes it
+    immediately — i.e. the fingerprint tracks *the code an analysis reads*,
+    not *when the tree was committed* (REQ-006.2 AC-2.7 / 发现 F28: the
+    HEAD-sha implementation flipped a recorded run to ``framework_changed``
+    just because the run record itself was committed).
+
+    ``git_commit`` and ``dirty`` remain separate fields of
+    :func:`framework_block` for provenance. Raises ``ValueError`` when ``root``
+    does not exist.
     """
 
     resolved = _require_directory(repo_root() if root is None else root)
-    commit = _git(resolved, "rev-parse", "HEAD")
-    if commit:
-        return f"{commit}-dirty" if _is_dirty(resolved) else commit
-    pairs = [
-        (path.relative_to(resolved).as_posix(), path)
-        for path in _iter_files(resolved / "scripts")
-        if path.suffix == ".py"
-    ]
-    pairs.sort(key=lambda item: item[0])
-    return _hash_files(pairs)
+    return _hash_files(_iter_fingerprint_files(resolved))
 
 
 def framework_block(root: str | Path | None = None) -> dict[str, Any]:

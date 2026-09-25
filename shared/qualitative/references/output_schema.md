@@ -117,7 +117,7 @@
 |------|------|------|------|
 | report_period | string | 本期期次，如 2026H1 | 本期报告的期次标识 |
 | comparable_period | string | 上年同期，如 2025H1 | 同比对比期次 |
-| business_trend | enum | 改善 / 稳定 / 恶化 / 不确定 | 经营状况相对上期的方向 |
+| business_trend | enum | 改善 / 稳定 / 恶化 / 不确定 | 经营状况的**同比**方向：本期累计 vs 上年同期累计（如 2026H1 vs 2025H1）；不是与上一次 run 的相对变化 |
 | conclusion_change | enum | 维持 / 上调 / 下调 / 证据不足 | 对上次结论的调整判断 |
 | change_significance | enum | 重大 / 一般 / 轻微 | 变化对投资判断的重要性 |
 | guidance_delivery | enum | 兑现 / 部分兑现 / 未兑现 / 无法验证 / 无指引 | 上次指引与承诺的兑现情况 |
