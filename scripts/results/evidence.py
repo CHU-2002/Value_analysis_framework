@@ -15,6 +15,35 @@ from typing import Any, Iterable
 DEFAULT_CHUNK_CHARS = 1200
 DEFAULT_OVERLAP_CHARS = 120
 
+#: Agent 专属段落（行业/竞争、MD&A、网络补充、治理定性信息）在**采集侧**只会留下占位符。
+#: 按 REQ-006.2 AC-2.3 的策略（owner 2026-09-25 决定）：这些段落只由**全量分析**填充，
+#: 增量更新流程不填；因此占位符**不得**被当成模块证据槽位（D3 曾把「待补充」当作行业证据）。
+PLACEHOLDER_RE = re.compile(r"\*\[§[^\]]*待Agent WebSearch补充[^\]]*\]\*")
+_HEADING_RE = re.compile(r"^[ \t]*#{1,6}[ \t].*$", re.MULTILINE)
+_RULE_RE = re.compile(r"^[ \t]*-{3,}[ \t]*$", re.MULTILINE)
+UNFILLED_REASON = (
+    "该段落是 Agent 专属占位符，本 run 未填充（策略：仅全量分析填充，增量更新流程不填）；"
+    "不得作为模块证据引用"
+)
+
+
+def unfilled_placeholder_markers(text: str) -> list[str]:
+    """段落**只含**占位符（外加标题/分隔线）时返回占位符，否则返回空列表。"""
+
+    markers = PLACEHOLDER_RE.findall(text)
+    if not markers:
+        return []
+    residual = PLACEHOLDER_RE.sub("", text)
+    residual = _HEADING_RE.sub("", residual)
+    residual = _RULE_RE.sub("", residual)
+    return markers if not residual.strip() else []
+
+
+def strip_placeholder_lines(text: str) -> str:
+    """去掉占位符行，留下段落里的真实内容（§13 这种混合段落用）。"""
+
+    return PLACEHOLDER_RE.sub("", text)
+
 
 def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
@@ -103,6 +132,7 @@ def build_evidence_index(
 
     entries: list[dict[str, Any]] = []
     source_manifest: list[dict[str, Any]] = []
+    unfilled_sections: list[dict[str, Any]] = []
     for source in sources:
         source_id = source["source_id"]
         path = Path(source["path"])
@@ -128,6 +158,22 @@ def build_evidence_index(
 
         section_counts: dict[str, int] = {}
         for section, section_text in _read_sections(path):
+            markers = unfilled_placeholder_markers(section_text)
+            if markers:
+                # 占位符不进索引：否则模块会把它当成真实证据（REQ-006.2 AC-2.3）。
+                unfilled_sections.append(
+                    {
+                        "source_id": source_id,
+                        "section": section,
+                        "reason": UNFILLED_REASON,
+                        "markers": markers,
+                        "locator": {"path": str(path), "section": section},
+                    }
+                )
+                continue
+            # 混合段落（如 §13：有真实 13.1 + 占位符 13.2）只去掉占位符行，
+            # 真实内容照常入索引，占位符不会出现在任何 quote 里。
+            section_text = strip_placeholder_lines(section_text)
             for chunk in chunk_text(section_text, max_chars=chunk_chars, overlap=overlap_chars):
                 chunk_number = section_counts.get(section, 0) + 1
                 section_counts[section] = chunk_number
@@ -154,6 +200,7 @@ def build_evidence_index(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "sources": source_manifest,
         "entries": entries,
+        "unfilled_sections": unfilled_sections,
     }
     if run_id is not None:
         index["run"] = {"run_id": run_id}

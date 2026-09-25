@@ -217,6 +217,32 @@ python3 scripts/download_report.py --stock-code 600887 --report-type auto --sinc
       10. 标记下游 stale（value_computed / buy_sell_basis），不自动改买卖计划
 ```
 
+#### 7.1.1 Agent 专属段落（§7 / §8 / §10 / §13.2）的填充策略
+
+`data_pack_market.md` 里有一类段落**采集侧拿不到**、只能由 Agent 补充，采集时只写占位符
+`*[§N 待Agent WebSearch补充]*`：
+
+| 段落 | 内容 | 证据来源 |
+|------|------|----------|
+| §7（部分） | 控股股东、管理层变更、违规记录等定性信息 | D4 `governance` |
+| §8 | 行业与竞争格局 | D3 `environment` |
+| §10 | 管理层讨论与分析（外部视角） | D3 `environment` / D5 `mda_quality` |
+| §13.2 | 风险警示的网络补充 | D4 `governance` |
+
+**策略（2026-09-25 owner 决定，REQ-006.2 AC-2.3）：**
+
+1. **只有全量分析填**（首建基线、`stale:framework` 全量重跑、`/business-analysis`）。
+2. **增量更新流程不填**：增量 run 的 Step 1~10 **不含** WebSearch 补段，这三节保持占位符。
+   理由：行业/政策信息变化慢，而增量更新的目标是快与可复现；每次联网搜索会让同一份财报
+   跑出不同的行业结论。
+3. **占位符不得当证据**：`build_evidence_index` 会把「只含占位符」的段落记进
+   `evidence_index.unfilled_sections` 并从 `entries` 里剔除；模块 bundle 对这些槽位给出
+   `evidence_coverage: unavailable` 与 `unavailable_inputs`（带原因），而不是一段假的 quote。
+4. **证据时点要写清楚**：增量 run 里行业/治理类判断若沿用上一轮，必须在报告里标明
+   「沿用 <日期> 那轮的行业证据」，不得写成本期新证据。
+5. 增量 run 若发现行业/政策出现**实质变化**，按既有升级规则走 `stale:framework` 全量重跑，
+   而不是在增量流程里临时补段。
+
 ### 7.2 新模块 `period_delta`
 
 - 契约：`scripts/results/schema.py:RESULT_TYPE_CONTRACTS` 增 `qualitative.period_delta`，scope `["D7"]`。

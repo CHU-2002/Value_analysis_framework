@@ -21,6 +21,8 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
+from results.context import build_module_context
+from results.evidence import build_evidence_index
 from tushare_collector import TushareClient
 
 MOCK_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "mock_tushare_responses")
@@ -169,3 +171,126 @@ class TestFinaIndicatorRevenueYoy:
         values = _revenue_yoy_row(result)
         assert values[0] == "1.11", values
         assert all(value != "—" for value in values), values
+
+
+# --- AC-2.3：Agent 专属占位段落的填充策略（owner 2026-09-25：增量流程不填） ----
+
+#: 与真实数据包同构的最小片段：§8/§10 只有占位符，§13 有真实的 13.1 内容 + 13.2 占位符。
+PLACEHOLDER_PACK = """# 数据包 — 600887.SH
+
+## 3. 合并利润表
+
+| 项目 (百万元) | 2026H1 |
+| --- | ---: |
+| 营业收入 | 64,330.94 |
+
+## 8. 行业与竞争
+
+*[§8 待Agent WebSearch补充]*
+
+## 10. 管理层讨论与分析 (MD&A)
+
+*[§10 待Agent WebSearch补充]*
+
+## 13. 风险警示
+
+### 13.1 脚本自动检测
+
+**高风险:**
+- [YOY_ANOMALY|高] 合并利润表/assets_impair_loss: 2025H1→2026H1 同比变化 628% 超过 300% 阈值
+
+### 13.2 Agent WebSearch 补充
+
+*[§13.2 待Agent WebSearch补充]*
+"""
+
+
+class TestAgentOnlyPlaceholderPolicy:
+    """AC-2.3：占位符不得作为模块证据槽位；策略是「增量流程不填」。"""
+
+    def _index(self, tmp_path):
+        pack = tmp_path / "data_pack_market.md"
+        pack.write_text(PLACEHOLDER_PACK, encoding="utf-8")
+        index = build_evidence_index([{"source_id": "market_data", "path": str(pack)}])
+        return pack, index
+
+    def test_placeholder_sections_are_not_indexed_as_evidence(self, tmp_path):
+        _, index = self._index(tmp_path)
+        sections = {entry["section"] for entry in index["entries"]}
+
+        assert "8" not in sections
+        assert "10" not in sections
+        assert "13" in sections, "§13 有真实 13.1 内容，仍应进索引"
+        for entry in index["entries"]:
+            assert "待Agent WebSearch补充" not in entry["quote"]
+
+        unfilled = {(item["source_id"], item["section"]) for item in index["unfilled_sections"]}
+        assert ("market_data", "8") in unfilled
+        assert ("market_data", "10") in unfilled
+
+    def test_module_bundle_marks_them_unavailable_with_a_reason(self, tmp_path):
+        pack, index = self._index(tmp_path)
+        index_path = tmp_path / "index.json"
+        index_path.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+
+        bundle = build_module_context(
+            "environment",
+            data_pack_path=str(pack),
+            evidence_index_path=str(index_path),
+        )
+
+        coverage = bundle["selection"]["evidence_coverage"]
+        assert coverage["market_data:8"] == "unavailable"
+        assert coverage["market_data:10"] == "unavailable"
+        reasons = {(item["source_id"], item["section"]): item["reason"]
+                   for item in bundle["unavailable_inputs"]}
+        assert ("market_data", "8") in reasons
+        assert ("market_data", "10") in reasons
+        assert all(reason for reason in reasons.values()), "unavailable 必须带原因"
+        assert "待Agent WebSearch补充" not in json.dumps(bundle, ensure_ascii=False)
+
+
+# --- AC-2.3：§13.1 的异常检测期次必须包含本期 -------------------------------
+
+
+def _income_df() -> pd.DataFrame:
+    """最小 income 历史：含 2007/2008 的远古噪声、最新年报、以及本期 2026H1。"""
+    return pd.DataFrame(
+        [
+            # end_date, revenue, n_income_attr_p, assets_impair_loss
+            ("20260630", 64330.94, 6172.79, 2455.88),
+            ("20250630", 61776.75, 7720.36, 337.45),
+            ("20251231", 115636.23, 10400.00, 1000.00),
+            ("20241231", 115393.31, 8450.00, 100.00),
+            ("20081231", 216586.00, 82.00, 0.00),
+            ("20071231", 193597.00, 1.00, 0.00),
+        ],
+        columns=["end_date", "revenue", "n_income_attr_p", "assets_impair_loss"],
+    )
+
+
+class TestSection131PeriodSelection:
+    """AC-2.3：§13.1 只比较「最新一期 vs 上年同期」与「最新年报 vs 上一年报」。"""
+
+    def test_pairs_include_the_latest_period(self):
+        client = _make_client()
+        pairs = client._yoy_period_pairs(_income_df())
+
+        assert pairs[0] == ("20260630", "20250630"), "最新财报期必须在检测窗口里"
+        assert ("20251231", "20241231") in pairs, "最新年报口径也要看"
+        assert all("2008" not in pair[0] and "2007" not in pair[1] for pair in pairs)
+
+    def test_section_131_reports_the_current_period_not_ancient_noise(self):
+        client = _make_client()
+        income = _income_df()
+
+        def safe_call(api_name, **kwargs):
+            return {"income": income}.get(api_name, pd.DataFrame())
+
+        with patch("tushare_collector.time.sleep"):
+            client._safe_call = MagicMock(side_effect=safe_call)
+            result = client.assemble_data_pack("600887.SH")
+
+        warnings = result.split("### 13.1 脚本自动检测", 1)[1].split("### 13.2", 1)[0]
+        assert "2026H1" in warnings, f"§13.1 必须包含本期：{warnings}"
+        assert "2008" not in warnings, f"§13.1 不应再落在 18 年前的数据上：{warnings}"

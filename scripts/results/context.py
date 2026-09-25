@@ -9,7 +9,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-from .evidence import select_evidence
+from .evidence import UNFILLED_REASON, select_evidence, unfilled_placeholder_markers
 
 
 MODULE_CONFIG: dict[str, dict[str, Any]] = {
@@ -149,6 +149,14 @@ def _module_evidence(
     )
     selected: list[dict[str, Any]] = []
     coverage = {}
+    # Agent 专属占位段落（§7/§8/§10/§13.2）不进索引，这里的槽位必须显示为
+    # ``unavailable``（按策略本 run 不填）而不是 ``missing``（看起来像数据丢了）
+    # —— REQ-006.2 AC-2.3。
+    unfilled = {
+        (item.get("source_id"), item.get("section"))
+        for item in index.get("unfilled_sections", []) or []
+        if isinstance(item, dict)
+    }
     for source, section in groups:
         candidates = [
             item for item in index.get("entries", [])
@@ -169,6 +177,8 @@ def _module_evidence(
         choice = (ranked or candidates)[:1]
         key = f"{source}:{section}"
         coverage[key] = "missing" if not choice else "omitted"
+        if not choice and (source, section) in unfilled:
+            coverage[key] = "unavailable"
         if choice and len(selected) < limit:
             selected.extend(choice)
             coverage[key] = choice[0]["evidence_id"]
@@ -200,6 +210,9 @@ def build_module_context(
     config = MODULE_CONFIG[module]
     inputs: list[str] = []
     market: list[tuple[str, str]] = []
+    #: 数据包里「只含占位符」的段落（§8/§10 等）：按 AC-2.3 的策略本 run 不填，
+    #: 既不进证据槽位，也不作为原始上下文塞给模块。
+    agent_only_sections: list[dict[str, Any]] = []
     if data_pack_path:
         data_path = Path(data_pack_path)
         inputs.append(str(data_path))
@@ -207,8 +220,13 @@ def build_module_context(
             parsed = _parse_markdown_sections(data_path.read_text(encoding="utf-8"))
             for prefix in config["data_sections"]:
                 match = _find_section(parsed, prefix)
-                if match:
-                    market.append(match)
+                if not match:
+                    continue
+                title, section_text = match
+                if unfilled_placeholder_markers(section_text):
+                    agent_only_sections.append({"section": title, "reason": UNFILLED_REASON})
+                    continue
+                market.append(match)
 
     pdf_path = Path(pdf_sections_path) if pdf_sections_path else None
     if pdf_path:
@@ -222,6 +240,33 @@ def build_module_context(
         if evidence_path.exists():
             index = json.loads(evidence_path.read_text(encoding="utf-8"))
     selected_evidence, coverage = _module_evidence(index, config, max_evidence) if evidence_index_path else ([], {})
+    unfilled_by_key = {
+        (item.get("source_id"), item.get("section")): item
+        for item in index.get("unfilled_sections", []) or []
+        if isinstance(item, dict)
+    }
+    unavailable_inputs = [
+        {
+            "source_id": source,
+            "section": section,
+            "reason": unfilled_by_key[(source, section)].get("reason", ""),
+        }
+        for source, sections in (
+            ("market_data", config["market_evidence"]),
+            ("pdf_sections", config["pdf_sections"]),
+            ("pdf_footnotes", config["footnote_evidence"]),
+        )
+        for section in sections
+        if (source, section) in unfilled_by_key
+    ]
+    unavailable_inputs.extend(
+        {
+            "source_id": "data_pack",
+            "section": item["section"],
+            "reason": item["reason"],
+        }
+        for item in agent_only_sections
+    )
     content_budget = int(max_chars * 0.75)
     while True:
         # Independent pools prevent a long financial table from starving PDF
@@ -271,6 +316,7 @@ def build_module_context(
             "data_sections": section_metadata[0],
             "pdf_sections": section_metadata[1],
             "evidence": evidence,
+            "unavailable_inputs": unavailable_inputs,
             "context_text": context_text,
             "budget": {
                 "max_chars": max_chars,
