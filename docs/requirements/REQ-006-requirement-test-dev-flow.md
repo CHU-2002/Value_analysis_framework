@@ -1,7 +1,7 @@
 ---
 id: REQ-006
 title: 工程化开发流程（建立与持续维护）
-status: in-progress
+status: verified
 priority: P1
 owner: CHU-2002
 created: 2026-09-20
@@ -99,12 +99,10 @@ supersedes: TBD
 
 ### REQ-006.2 实跑暴露的数据包与证据层缺陷修复
 
-- 状态：`in-progress`
+- 状态：`verified`
 - 状态说明：2026-09-25 由使用者受理，发现全部来自 REQ-006.1 的 AC-1.9 实跑（不另立 Issue，随父需求 REQ-006）。
-  写成 `in-progress` 而非 `accepted` 是**追溯门禁的强制结果**：父需求 REQ-006 已是 `in-progress`，
-  而门禁要求「父需求不得比它最慢的子需求更靠前」，所以新登记的子需求不能停在 `accepted`。
-  实际完成度以 `AC-2.1`~`AC-2.8` 的证据与 PR 为准。
-- 进度（2026-09-25，**未收口**，全量门禁 `1625 passed, 3 skipped`、覆盖率 79.11%）：
+  本子需求已由独立 agent 按 `AC-2.1`~`AC-2.8` 完成收口验收；实际完成度以真实 run、验收报告与 PR 为准。
+- 历史进度（2026-09-25，尚未收口；最终收口见下方 2026-09-27 记录）：
   - **`F29` 已修（2026-09-25，本切片）**：附注源的**期次**从「完全没有标记」变成
     「登记 + 判定 + 对模块可见」三层落地——
     ① 附注包头部新增机器可读的 `> 报告期：YYYYH1` 契约（`prompts/phase2_PDF解析.md`
@@ -248,7 +246,7 @@ supersedes: TBD
     测试：`tests/test_pdf_preprocessor.py` 增 2 例（合成多行列头去重、正文不误删）、
     `tests/test_results_pipeline.py` 增 5 例（`chunk_text` 表格不劈窗、合成担保明细 + 汇总
     两块进 bundle ×2 模块、真实中报 p.37 端到端 ×2 模块，后者 `skipif` 于本地 PDF 存在）。
-  - `AC-2.7` **代码实现完成，待最终产品级实跑复核**：① `run.as_of` 有了明确规则并由 `validate_result` 校验——
+  - `AC-2.7` **已完成并通过独立验收**：① `run.as_of` 有了明确规则并由 `validate_result` 校验——
     必须是 `YYYY-MM-DD` 且不得晚于 `run.generated_at`（`schema.py:_validate_as_of`）；
     ② 输入指纹不再受重解析的易变字段影响：`describe_input` 对 JSON 输入按「去掉
     `extract_time` / `generated_at` 后」的规范化内容哈希（`manifest.py:input_content_sha256`），
@@ -260,15 +258,15 @@ supersedes: TBD
     F26 的「同输入同判断」伴随字段已由 `reconcile_results --prior-input` 产出
     `same_input_judgement` 冲突；跨 run 评级对账、卡片压缩与旧引用剥离也已分别写入
     `cross_dimension_findings`、`compaction` / `evidence_status` 元数据。F28 的内容指纹
-    修复已完成，见上文。剩余工作只有在真实 LLM 产品入口可用后，对修复后的完整产品 run
-    做一次独立产品级复核；在此之前不把本子需求推进为 `verified`。
+    修复已完成，见上文。独立验收报告 [`2026-09-27-REQ-006.2-acceptance.md`](../verification/2026-09-27-REQ-006.2-acceptance.md)
+    逐条确认通过。
   - 测试：新增 `tests/test_tushare_pack_sections.py`（13 例，夹具取真实响应、不做网络调用）；
     `tests/test_results_pipeline.py` 增 2 例（AC-2.6）+ 4 例（AC-2.5）+ 3 例（AC-2.7：
     指纹不受 extract_time 影响、非 JSON 仍按字节、as_of 规则）；`tests/test_tushare_client.py`
     增 2 例（权限错误只调一次 / 普通错误仍重试）；`tests/test_pdf_preprocessor.py` 增 5 例；
     `tests/test_prepare_primary_period.py` / `tests/test_prepare_prior_analysis.py`
     的夹具补上附注源，让「干净 run 无 warning」的断言继续成立。
-  - **AC-2.8 实跑（确定性半程，2026-09-25，owner 授权「可以真跑」）**：真实 token 重新采集
+  - **AC-2.8 实跑（2026-09-27 收口）**：真实 token 重新采集
     （`tushare_collector.py --code 600887.SH`，exit 0，日志首行即
     `yc_cb: permanent error …; not retrying`）→ 新数据包实测修复：
     §16 `总股本 632,536.07` / `无限售质押 39,775.10` 万股（原 63.25 / 3.98）；
@@ -341,8 +339,11 @@ supersedes: TBD
       `evidence[].locator` 每条重复完整绝对路径，实测占 5%）——收益有限且要动 schema，
       留作后续。
   - PR #49（进度切片，squash 合入 `0a5beac`）、**F29 修复切片（`F29` 的期次登记/判定/可见性三层）**；
-    跟踪 Issue
-    [#50](https://github.com/CHU-2002/Value_analysis_framework/issues/50)（**未收口**，剩余项见该 Issue）。
+    跟踪 Issue [#50](https://github.com/CHU-2002/Value_analysis_framework/issues/50)。
+
+  - **2026-09-27 收口**：PR #60 的修复版本使用真实 token 重采集并完成完整增量闭环；独立验收报告
+    [`2026-09-27-REQ-006.2-acceptance.md`](../verification/2026-09-27-REQ-006.2-acceptance.md)
+    逐条通过 AC-2.1～AC-2.8，子需求推进为 `verified`。
 - 目标：把 2026-09-25 的 AC-1.9 复跑（run `20260925T042255414048Z`）暴露的**数据包生成、PDF 抽取、
   证据索引与 bundle 预算、输入接线、跨 run 一致性**五类缺陷一次性收干净，并让每一类都留下**可判定**的回归判据
   ——这些缺陷全部是 mock 测试看不见的（真实载荷规模、真实接口字段、真实表格脏值、真实权限错误）。
