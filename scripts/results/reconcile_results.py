@@ -12,6 +12,21 @@ from typing import Any, Iterable
 from .schema import load_result, require_consistent_result_set, require_valid_result, result_set_digest
 
 
+# These fields are judgement-bearing ratings.  A change between runs must be
+# visible to the synthesis agent rather than silently overwritten by the newer
+# result set.
+CROSS_RUN_RATING_PARAMETERS = frozenset({
+    "entry_barrier",
+    "moat_rating",
+    "moat_sustainability",
+    "supply_side_rating",
+    "demand_side_rating",
+    "scale_economy_rating",
+    "management_rating",
+    "integrity_rating",
+})
+
+
 def _conflict(
     conflict_id: str,
     conflict_type: str,
@@ -31,7 +46,10 @@ def _conflict(
     }
 
 
-def reconcile_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
+def reconcile_results(
+    results: Iterable[dict[str, Any]],
+    prior_results: Iterable[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     result_list = require_consistent_result_set(require_valid_result(result) for result in results)
     identity = result_list[0]
     conflicts: list[dict[str, Any]] = []
@@ -92,6 +110,92 @@ def reconcile_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
                 required_action="Final synthesis must explain why governance affects valuation confidence.",
             )
         )
+
+    # Compare only judgement-bearing fields with the previous run.  Numeric
+    # metrics and transient quality fields are intentionally excluded: they
+    # are expected to change when a new report period arrives.
+    cross_run_findings: list[dict[str, Any]] = []
+    prior_list = list(prior_results or [])
+    if prior_list:
+        prior_by_type = {result.get("result_type"): result for result in prior_list}
+        for result_type, current in by_type.items():
+            previous = prior_by_type.get(result_type)
+            if previous is None:
+                continue
+            current_input = current.get("run", {}).get("input_digest")
+            prior_input = previous.get("run", {}).get("input_digest")
+            if current_input and current_input == prior_input:
+                current_params = current.get("parameters") or {}
+                prior_params = previous.get("parameters") or {}
+                deterministic_fields = {
+                    "run.status": current.get("run", {}).get("status"),
+                }
+                prior_deterministic_fields = {
+                    "run.status": previous.get("run", {}).get("status"),
+                }
+                if result_type == "qualitative.period_delta":
+                    for key in ("business_trend", "change_significance"):
+                        deterministic_fields[key] = current_params.get(key)
+                        prior_deterministic_fields[key] = prior_params.get(key)
+                changed = {
+                    key: {
+                        "prior": prior_deterministic_fields[key],
+                        "current": deterministic_fields[key],
+                    }
+                    for key in deterministic_fields
+                    if deterministic_fields[key] != prior_deterministic_fields[key]
+                }
+                if changed:
+                    cross_run_findings.append({
+                        "result_type": result_type,
+                        "kind": "same_input_judgement",
+                        "input_digest": current_input,
+                        "prior_run_id": previous.get("run", {}).get("run_id"),
+                        "current_run_id": current.get("run", {}).get("run_id"),
+                        "changed": changed,
+                    })
+                    conflicts.append(
+                        _conflict(
+                            f"SAME-INPUT-{result_type}",
+                            "same_input_judgement",
+                            [result_type],
+                            f"相同 input_digest 下判断字段发生变化: {changed}。",
+                            severity="high",
+                            required_action=(
+                                "Final synthesis must resolve the same-input judgement change "
+                                "against the supplied evidence before publishing conclusions."
+                            ),
+                        )
+                    )
+            current_params = current.get("parameters") or {}
+            prior_params = previous.get("parameters") or {}
+            for parameter in sorted(CROSS_RUN_RATING_PARAMETERS):
+                current_value = current_params.get(parameter)
+                prior_value = prior_params.get(parameter)
+                if current_value is None or prior_value is None or current_value == prior_value:
+                    continue
+                finding = {
+                    "result_type": result_type,
+                    "parameter": parameter,
+                    "prior_value": prior_value,
+                    "current_value": current_value,
+                    "prior_run_id": previous.get("run", {}).get("run_id"),
+                    "current_run_id": current.get("run", {}).get("run_id"),
+                }
+                cross_run_findings.append(finding)
+                conflicts.append(
+                    _conflict(
+                        f"CROSS-RUN-{result_type}-{parameter}",
+                        "cross_run_parameter",
+                        [result_type],
+                        f"跨 run 评级参数 {parameter} 从 {prior_value!r} 变为 {current_value!r}。",
+                        severity="high",
+                        required_action=(
+                            "Final synthesis must explain the evidence for this rating change "
+                            "and must not silently carry forward the prior rating."
+                        ),
+                    )
+                )
     if integrity in {"存疑", "不可靠"} and moat in {"强", "较强"}:
         conflicts.append(
             _conflict(
@@ -116,7 +220,7 @@ def reconcile_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
         "as_of": as_of_values,
         "conflicts": conflicts,
         "warnings": warnings,
-        "cross_dimension_findings": [],
+        "cross_dimension_findings": cross_run_findings,
         "overall_confidence": (
             "low"
             if degraded_status or any(item["severity"] == "high" for item in conflicts)
@@ -136,13 +240,23 @@ def main() -> None:
         default=[],
         help="optional result.json path; missing files are recorded rather than failing",
     )
+    parser.add_argument(
+        "--prior-input",
+        action="append",
+        default=[],
+        help=(
+            "previous-run module result.json for cross-run judgement consistency checks; "
+            "pass the corresponding file for each current module"
+        ),
+    )
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
     results = [load_result(path) for path in args.input]
     missing_optional = [path for path in args.optional_input if not Path(path).exists()]
     results.extend(load_result(path) for path in args.optional_input if Path(path).exists())
-    reconciliation = reconcile_results(results)
+    prior_results = [load_result(path) for path in args.prior_input]
+    reconciliation = reconcile_results(results, prior_results=prior_results)
     if missing_optional:
         reconciliation["missing_information"].extend(
             {"path": path, "status": "not_applicable_or_not_produced"} for path in missing_optional

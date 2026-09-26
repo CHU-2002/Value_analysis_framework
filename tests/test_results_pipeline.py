@@ -373,6 +373,77 @@ def test_reconciliation_flags_date_and_parameter_conflicts():
     assert reconciliation["requires_llm_review"] is True
 
 
+def test_reconciliation_flags_cross_run_rating_changes():
+    """REQ-006.2 AC-2.7：评级跨 run 变化必须显式进入 conflict。"""
+    current = make_result(
+        "qualitative.business_moat",
+        parameters={"moat_rating": "较强"},
+        run_id="current-run",
+    )
+    prior = make_result(
+        "qualitative.business_moat",
+        parameters={"moat_rating": "强"},
+        run_id="prior-run",
+    )
+
+    reconciliation = reconcile_results([current], prior_results=[prior])
+
+    assert any(
+        conflict["type"] == "cross_run_parameter"
+        and conflict["conflict_id"].endswith("-moat_rating")
+        for conflict in reconciliation["conflicts"]
+    )
+    assert reconciliation["cross_dimension_findings"] == [{
+        "result_type": "qualitative.business_moat",
+        "parameter": "moat_rating",
+        "prior_value": "强",
+        "current_value": "较强",
+        "prior_run_id": prior["run"]["run_id"],
+        "current_run_id": current["run"]["run_id"],
+    }]
+
+
+def test_reconciliation_flags_same_input_judgement_changes():
+    """REQ-006.2 AC-2.7 / F26：相同输入的判断变化必须显式告警。"""
+    current = make_result(
+        "qualitative.period_delta",
+        parameters={"business_trend": "恶化", "change_significance": "重大"},
+        run_id="current-run",
+    )
+    prior = make_result(
+        "qualitative.period_delta",
+        parameters={"business_trend": "稳定", "change_significance": "一般"},
+        run_id="prior-run",
+    )
+    current["run"]["input_digest"] = "same-input"
+    prior["run"]["input_digest"] = "same-input"
+
+    reconciliation = reconcile_results([current], prior_results=[prior])
+
+    finding = next(item for item in reconciliation["cross_dimension_findings"] if item.get("kind") == "same_input_judgement")
+    assert finding["changed"]["business_trend"] == {"prior": "稳定", "current": "恶化"}
+    assert any(item["type"] == "same_input_judgement" for item in reconciliation["conflicts"])
+
+
+def test_compact_result_discloses_omitted_claims_and_evidence():
+    """REQ-006.2 AC-2.7 / F21-F27：压缩损失必须可见且不能悬空引用。"""
+    result = make_result(parameters={"moat_rating": "强"})
+    result["claims"] = [
+        {"claim_id": "c1", "statement": "one", "type": "fact", "confidence": "high", "evidence_ids": ["e1"]},
+        {"claim_id": "c2", "statement": "two", "type": "fact", "confidence": "high", "evidence_ids": ["e2"]},
+    ]
+    result["evidence"] = [
+        {"evidence_id": "e1", "source_id": "s", "locator": {"x": 1}, "quote": "one"},
+        {"evidence_id": "e2", "source_id": "s", "locator": {"x": 2}, "quote": "two"},
+    ]
+
+    card = compact_result(result, max_claims=1, max_evidence=1)
+
+    assert card["claims"][0]["evidence_ids"] == ["e1"]
+    assert card["compaction"]["omitted_claims"] == [{"claim_id": "c2", "reason": "claim_budget"}]
+    assert card["compaction"]["omitted_evidence_ids"] == ["e2"]
+
+
 def test_evidence_json_sections_keep_section_locator(tmp_path):
     source = tmp_path / "pdf_sections.json"
     source.write_text(json.dumps({"metadata": {}, "MDA": "management discussion"}), encoding="utf-8")
@@ -445,7 +516,7 @@ def test_large_market_tables_cannot_starve_pdf_or_citable_sections(tmp_path, mod
     # Metadata must describe the actual serialized excerpts after final fitting.
     for item in bundle["pdf_sections"]:
         text = bundle["context_text"].split(f"[PDF {item['section']}]\n", 1)[1]
-        text = text.split("\n\n[PDF ", 1)[0]
+        text = text.split("\n\n[", 1)[0]
         assert len(text) == item["selected_chars"]
 
 
@@ -1496,7 +1567,7 @@ def test_as_of_must_be_a_date_and_not_in_the_future():
 
 
 def test_bundle_marks_quotes_that_cannot_be_verified_in_context_text(tmp_path):
-    """AC-2.5 / F13：不能在 context_text 里核对的引文必须被显式标出。"""
+    """AC-2.5 / F13：每条交付引文都必须能在 context_text 中逐字核对。"""
     pack = tmp_path / "data_pack.md"
     pack.write_text("## 3. 合并利润表\n" + "".join(f"| 行{i} | {i} |\n" for i in range(160)), encoding="utf-8")
     notes = tmp_path / "data_pack_report.md"
@@ -1514,13 +1585,16 @@ def test_bundle_marks_quotes_that_cannot_be_verified_in_context_text(tmp_path):
 
     marked = {item["evidence_id"]: item["in_context"] for item in bundle["evidence"]}
     assert marked, bundle["selection"]["evidence_coverage"]
-    assert bundle["selection"]["quotes_not_in_context"] == sorted(
-        evidence_id for evidence_id, ok in marked.items() if not ok
-    )
-    # 附注源本来就不在 context_text 里，必须出现在披露清单里
+    assert bundle["selection"]["quotes_not_in_context"] == []
+    assert all(marked.values()), marked
+    # 附注源也必须在 bundle 自己的 context_text 里，而不是要求下游回索引查证。
     footnote_ids = [eid for eid in marked if eid.startswith("pdf_footnotes:")]
     if footnote_ids:
-        assert all(eid in bundle["selection"]["quotes_not_in_context"] for eid in footnote_ids)
+        assert all(
+            next(item["quote"] for item in bundle["evidence"] if item["evidence_id"] == eid)
+            in bundle["context_text"]
+            for eid in footnote_ids
+        )
 
 
 # --- REQ-006.2 F29：附注源的期次必须登记、可判定、对模块可见 -------------------

@@ -153,6 +153,11 @@ python3 -m scripts.results.reconcile_results \
   --input "{run_dir}/modules/mda_quality/result.json" \
   --input "{run_dir}/modules/period_delta/result.json" \
   --optional-input "{run_dir}/modules/holding_structure/result.json" \
+  --prior-input "{company_dir}/runs/<previous run_id>/modules/business_moat/result.json" \
+  --prior-input "{company_dir}/runs/<previous run_id>/modules/environment/result.json" \
+  --prior-input "{company_dir}/runs/<previous run_id>/modules/governance/result.json" \
+  --prior-input "{company_dir}/runs/<previous run_id>/modules/mda_quality/result.json" \
+  --prior-input "{company_dir}/runs/<previous run_id>/modules/period_delta/result.json" \
   --output "{run_dir}/synthesis/reconciliation.json"
 
 python3 -m scripts.results.synthesis \
@@ -168,6 +173,10 @@ python3 -m scripts.results.synthesis \
 ```
 
 `synthesis/context.json` 的 `upstream_digest` 必须与 `reconciliation.json` 的 `result_digest` 同源（同一组模块结果）。
+
+若本次启用了 `holding_structure`，再追加上一轮对应的
+`modules/holding_structure/result.json`；不要把 `synthesis/result.json` 作为
+`--prior-input`，因为跨 run 对账按模块的 `result_type` 配对。
 
 ## Step 7：更新既有结论
 
