@@ -1116,7 +1116,8 @@ class TestRiskFreeRate:
         with patch("tushare_collector.time.sleep"):
             client._safe_call = MagicMock(side_effect=RuntimeError("no permission"))
             result = client.get_risk_free_rate()
-        assert "无权限" in result or "数据缺失" in result
+        assert "yc_cb 接口未授权" in result
+        assert "当前账号权限不足" in result
 
     def test_rf_us_uses_treasury(self):
         """US stocks should use US 10-year Treasury yield, not Chinese bonds."""

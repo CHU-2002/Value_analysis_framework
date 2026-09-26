@@ -248,7 +248,7 @@ supersedes: TBD
     测试：`tests/test_pdf_preprocessor.py` 增 2 例（合成多行列头去重、正文不误删）、
     `tests/test_results_pipeline.py` 增 5 例（`chunk_text` 表格不劈窗、合成担保明细 + 汇总
     两块进 bundle ×2 模块、真实中报 p.37 端到端 ×2 模块，后者 `skipif` 于本地 PDF 存在）。
-  - `AC-2.7` **部分实现**：① `run.as_of` 有了明确规则并由 `validate_result` 校验——
+  - `AC-2.7` **代码实现完成，待最终产品级实跑复核**：① `run.as_of` 有了明确规则并由 `validate_result` 校验——
     必须是 `YYYY-MM-DD` 且不得晚于 `run.generated_at`（`schema.py:_validate_as_of`）；
     ② 输入指纹不再受重解析的易变字段影响：`describe_input` 对 JSON 输入按「去掉
     `extract_time` / `generated_at` 后」的规范化内容哈希（`manifest.py:input_content_sha256`），
@@ -257,10 +257,11 @@ supersedes: TBD
     `_safe_call` 都已接入（F3）；④ 规格与 schema 的枚举一致：environment 的
     `cyclicality` / `cycle_position` / `regulatory_risk` 增加 `unknown`，
     `shared/qualitative/references/output_schema.md` 同步（契约测试逐字比较）（F24）。
-    **未做**：`reconcile_results` 的跨 run 评级类参数一致性检查、卡片压缩后的悬空引用与
-    被剥离引用的显式标注（F21/F27）、F26 的「同输入同判断」伴随字段、
-    **F28（`code_fingerprint` = HEAD sha → 纯文档提交也让 run 变 `framework_changed`，
-    需改为与 `DIRTY_TRACKED_PATHS` 同源的内容摘要）**。
+    F26 的「同输入同判断」伴随字段已由 `reconcile_results --prior-input` 产出
+    `same_input_judgement` 冲突；跨 run 评级对账、卡片压缩与旧引用剥离也已分别写入
+    `cross_dimension_findings`、`compaction` / `evidence_status` 元数据。F28 的内容指纹
+    修复已完成，见上文。剩余工作只有在真实 LLM 产品入口可用后，对修复后的完整产品 run
+    做一次独立产品级复核；在此之前不把本子需求推进为 `verified`。
   - 测试：新增 `tests/test_tushare_pack_sections.py`（13 例，夹具取真实响应、不做网络调用）；
     `tests/test_results_pipeline.py` 增 2 例（AC-2.6）+ 4 例（AC-2.5）+ 3 例（AC-2.7：
     指纹不受 extract_time 影响、非 JSON 仍按字节、as_of 规则）；`tests/test_tushare_client.py`

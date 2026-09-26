@@ -162,6 +162,12 @@ def build_change_report_context(
             references = claim.get("evidence_ids", [])
             if not isinstance(references, list):
                 continue
+            unavailable = [ref for ref in references if ref not in verifiable_ids]
+            if unavailable:
+                claim["evidence_status"] = (
+                    "partially_unavailable" if any(ref in verifiable_ids for ref in references) else "unavailable"
+                )
+                claim["unavailable_evidence_ids"] = unavailable
             claim["evidence_ids"] = [
                 ref
                 for ref in references

@@ -8,6 +8,7 @@ import sys
 import pandas as pd
 
 from format_utils import format_number, format_table, format_header
+from tushare_modules.infrastructure import is_permanent_api_error
 
 
 def _yf():
@@ -301,8 +302,11 @@ class OtherDataMixin:
                                  start_date=(pd.Timestamp.now() - pd.DateOffset(months=1)).strftime("%Y%m%d"),
                                  end_date=today,
                                  fields="trade_date,yield")
-        except RuntimeError:
-            lines.append("数据缺失 (接口可能无权限)\n")
+        except RuntimeError as exc:
+            if is_permanent_api_error(exc):
+                lines.append("数据缺失（Tushare yc_cb 接口未授权；当前账号权限不足）\n")
+            else:
+                lines.append("数据缺失 (接口请求失败)\n")
             return "\n".join(lines)
 
         if df.empty:
