@@ -32,7 +32,7 @@
 | ID | 父需求 | 标题 | 状态 | 实现 PR | 关联测试 |
 |----|--------|------|------|---------|----------|
 | [REQ-006.1](REQ-006-requirement-test-dev-flow.md) | REQ-006 | 财报分析端到端实跑加固与实跑验收规则 | `verified` | #36, #37, #46, #48 | `tests/test_release_gates.py` `tests/test_update_docs_contract.py` |
-| [REQ-006.2](REQ-006-requirement-test-dev-flow.md) | REQ-006 | 实跑暴露的数据包与证据层缺陷修复 | `in-progress` | #49（进度切片，未收口） | `tests/test_tushare_pack_sections.py` `tests/test_pdf_preprocessor.py` `tests/test_results_pipeline.py` `tests/test_change_report.py` `tests/test_runs_ledger.py` |
+| [REQ-006.2](REQ-006-requirement-test-dev-flow.md) | REQ-006 | 实跑暴露的数据包与证据层缺陷修复 | `in-progress` | #49, #60（确定性修复与实跑闭环，待独立收口） | `tests/test_tushare_pack_sections.py` `tests/test_pdf_preprocessor.py` `tests/test_results_pipeline.py` `tests/test_change_report.py` `tests/test_runs_ledger.py` |
 | [REQ-009.1](REQ-009-local-gui-console.md) | REQ-009 | 按键执行器与任务生命周期 | `accepted` | TBD | `tests/test_webui_server.py` |
 | [REQ-009.2](REQ-009-local-gui-console.md) | REQ-009 | 报告浏览、图表与迭代台账视图 | `accepted` | TBD | `tests/test_webui_views.py` |
 | [REQ-009.3](REQ-009-local-gui-console.md) | REQ-009 | 可扩展框架与本地数据层（微内核 / 插件注册表 / 面板协议 / 数据缓存 / API 契约 / 安全中间件） | `verified` | #44, #45 | `tests/test_webui_framework.py` |
