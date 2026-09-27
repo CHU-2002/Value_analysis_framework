@@ -404,3 +404,26 @@ def test_job_history_survives_restart_and_redacts_tokens(tmp_path):
     reloaded = restarted.get(job_id)
     assert reloaded["status"] == "finished" and reloaded["exit_code"] == 0
     assert "***" in reloaded["log"][-1]
+
+
+def test_gui_command_defaults_keep_conditional_required_flags_runnable(tmp_path):
+    """界面默认值不能把「点下去必然 usage error」的按键暴露给用户（用户实机体验发现）。
+
+    `analysis_status.py` 的 `--company-dir` 是**条件必填**（给了 `--root --all` 就不用），
+    argparse 静态扫描只能看到 `required=False`——所以按键表里它没有任何必填项，
+    用户点「更新判定」只会拿到 `exit 2` 加一行 usage。GUI_DEFAULTS 补上可运行的默认值，
+    且默认值必须真的拼进 argv（不是只写在表单里好看）。
+    """
+    from webui.core.jobs import build_argv
+
+    spec = next(item for item in commands_plugin.command_specs() if item.id == "analysis_status")
+    params = {param.name: param for param in spec.params}
+    assert params["root"].default == "output"
+    assert params["all"].default is True
+    defaults = {
+        param.name: param.default
+        for param in spec.params
+        if param.default not in (None, "", False)
+    }
+    argv = build_argv(spec, defaults)
+    assert "--root" in argv and "output" in argv and "--all" in argv

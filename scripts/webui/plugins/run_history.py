@@ -17,7 +17,7 @@ from ..core import envelope
 from ..core.errors import ArtifactMissing
 from ..core.models import DatasetSpec, NavItem, PanelSpec, Param
 from ..datastore import parsers
-from .companies import company_base
+from .companies import company_base, company_caption, resolve_company
 
 
 def _read_jsonl(path: Path) -> tuple:
@@ -129,6 +129,7 @@ def _runs(ctx, company=None) -> tuple:
 
 
 def _timeline_panel(ctx, company=None, **_):
+    company = resolve_company(ctx, company)
     data, meta = _runs(ctx, company)
     items = []
     for run in data["runs"]:
@@ -151,10 +152,12 @@ def _timeline_panel(ctx, company=None, **_):
                 "link": f"#report?company={company}&run={run['run_id']}",
             }
         )
-    return {"items": items, "meta": meta, "warnings": data.get("warnings", [])}
+    return {"items": items, "meta": meta, "warnings": data.get("warnings", []),
+            "caption": company_caption(company)}
 
 
 def _status_panel(ctx, company=None, **_):
+    company = resolve_company(ctx, company)
     data, _ = _runs(ctx, company)
     items = [
         {"label": "run 数", "value": data["count"]},
@@ -162,7 +165,7 @@ def _status_panel(ctx, company=None, **_):
          "state": "ok" if data["latest_run"] else "warn"},
         {"label": "当前期次", "value": data["primary_period"] or "—"},
     ]
-    return {"items": items}
+    return {"items": items, "caption": company_caption(company)}
 
 
 def _runs_route(ctx, dir, **_):

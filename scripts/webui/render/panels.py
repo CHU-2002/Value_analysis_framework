@@ -146,6 +146,16 @@ def _empty(message: str) -> str:
     return f'<p class="panel-empty">{_escape(message)}</p>'
 
 
+def _caption(data) -> str:
+    """面板数据里的可选 `caption`：说明「这块在看哪个对象」，插在正文最前面。
+
+    为什么放在渲染层：默认选中（例如未选公司时退回第一家）不能是静默的，
+    但每个 kind 各自拼一遍既重复又容易漏——统一在这里处理，服务端 kind 都有。
+    """
+    text = (data or {}).get("caption") if isinstance(data, dict) else ""
+    return f'<p class="panel-caption">{_escape(text)}</p>' if text else ""
+
+
 def render_panel(spec, data, *, meta=None) -> dict:
     """把一个面板渲染成前端可直接插入的载荷。
 
@@ -166,7 +176,7 @@ def render_panel(spec, data, *, meta=None) -> dict:
             "markdown": render_markdown,
             "fallback": lambda _data: render_fallback(spec),
         }[spec.kind]
-        payload["html"] = renderer(data or {})
+        payload["html"] = _caption(data) + renderer(data or {})
         payload["render"] = "server"
         if spec.kind == "fallback":
             payload["fallback"] = True

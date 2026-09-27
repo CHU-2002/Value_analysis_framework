@@ -17,7 +17,7 @@ from ..core.errors import ArtifactMissing
 from ..core.models import DatasetSpec, NavItem, PanelSpec, Param
 from ..datastore import parsers
 from ..datastore.parsers import markdown_tables
-from .companies import company_base
+from .companies import company_base, company_caption, resolve_company
 
 _METRIC_ORDER = ("ROE (%)", "毛利率 (%)", "净利率 (%)", "资产负债率 (%)")
 MONTH_SECTION = "年度行情汇总"
@@ -116,9 +116,10 @@ def charts_for(ctx, company_dir: str) -> tuple:
 
 def _chart_panel(dataset: str):
     def provider(ctx, company=None, **_):
+        company = resolve_company(ctx, company)
         base = company_base(ctx, company)
         data, meta = ctx.registry.datastore.get(dataset, base=base, params={})
-        return {**data, "meta": meta}
+        return {**data, "meta": meta, "caption": company_caption(company)}
 
     return provider
 

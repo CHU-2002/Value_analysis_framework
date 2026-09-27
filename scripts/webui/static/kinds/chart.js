@@ -123,6 +123,13 @@ export async function render(container, panel, data) {
     container.textContent = "暂无数据";
     return;
   }
+  // 服务端解析出的「当前公司」必须可见，默认选中不能是静默的。
+  if (data.caption) {
+    const caption = document.createElement("p");
+    caption.className = "panel-caption";
+    caption.textContent = data.caption;
+    container.append(caption);
+  }
   const canvas = document.createElement("canvas");
   canvas.width = 720;
   canvas.height = 260;

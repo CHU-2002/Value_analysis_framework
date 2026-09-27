@@ -144,12 +144,42 @@ def register_parsers() -> None:
 # --------------------------------------------------------------- 取数辅助
 
 
-def company_base(ctx, company_dir: str) -> Path:
-    """公司目录 → 真实路径；越界一律 403（AC-2.2）。"""
+def resolve_company(ctx, company_dir: str | None) -> str:
+    """当前公司目录：显式给的就用；没给就退回**最近有 run 的那家**（都没有 run 则退回目录序第一家）。
+
+    为什么要有默认值：`图表` / `报告` / `迭代记录` 三页的面板都声明
+    `source=selection.company`，从左侧导航直接进来时还没有任何选择——此前整页会渲染成
+    `BAD_REQUEST：缺少公司目录参数 company` 的错误卡片（用户实机体验发现）。
+    默认取「最近有 run 的那家」而不是目录序第一家：控制台一打开就该看到你最近在跟进的公司，
+    否则 `迭代记录` 很可能落在一条 run 都没有的公司上、显示空时间线。
+    给一个**确定的**默认值、并在面板上写明当前公司，比「先报错、让用户去公司页点一下」
+    更符合控制台的用法；`output/` 下没有任何公司时仍然是明确的错误（不假装有数据）。
+    """
+    if company_dir:
+        return company_dir
+    try:
+        data, _ = companies_dataset(ctx)
+    except ArtifactMissing:
+        return ""
+    companies = data["companies"]
+    with_run = [item for item in companies if item.get("last_run")]
+    if with_run:  # run_id 形如 20260925T042255414048Z，按字典序即按时间
+        return max(with_run, key=lambda item: item["last_run"])["dir"]
+    return companies[0]["dir"] if companies else ""
+
+
+def company_caption(company: str) -> str:
+    """面板上「当前在看哪家公司」的说明——默认选中不能是静默的。"""
+    return f"当前公司：{company}（可在「公司」页切换）"
+
+
+def company_base(ctx, company_dir: str | None) -> Path:
+    """公司目录 → 真实路径；越界一律 403（AC-2.2）。未给目录时退回第一家（见 `resolve_company`）。"""
+    company_dir = resolve_company(ctx, company_dir)
     if not company_dir:
         raise BadRequest(
-            "缺少公司目录参数 company",
-            hint="先在「公司」页选一家公司（页面链接会带上 ?company=…）。",
+            "output/ 下还没有可展示的公司目录",
+            hint="先跑一次分析产出 output/<公司>/…，或确认 webui.config.json 的 output_root 指向正确。",
         )
     return safe_join(ctx.config.output_root, company_dir)
 
@@ -212,6 +242,7 @@ _COMPANY_COLUMNS = [
 
 
 def _artifacts_panel(ctx, company=None, **_):
+    company = resolve_company(ctx, company)
     base = company_base(ctx, company)
     data, meta = artifacts_dataset(ctx, base)
     rows = [
@@ -233,6 +264,7 @@ def _artifacts_panel(ctx, company=None, **_):
         ],
         "rows": rows,
         "meta": meta,
+        "caption": company_caption(company),
     }
 
 
@@ -255,6 +287,7 @@ def _list_artifacts(ctx, dir, **_):
 
 
 def _report_payload(ctx, company, artifact_id, run_id=None) -> dict:
+    company = resolve_company(ctx, company)
     base = company_base(ctx, company)
     data, meta = artifacts_dataset(ctx, base)
     chosen = None
@@ -287,6 +320,7 @@ def _report_payload(ctx, company, artifact_id, run_id=None) -> dict:
         "title": chosen["name"],
         "html": markdown_safe.render(text),
         "meta": meta,
+        "caption": company_caption(company),
     }
 
 
@@ -336,6 +370,6 @@ def contribute(registry):
 
 
 __all__ = [
-    "contribute", "parse_companies", "parse_artifacts", "company_base",
-    "artifacts_dataset", "companies_dataset", "COMPANY_MARKERS",
+    "contribute", "parse_companies", "parse_artifacts", "company_base", "resolve_company",
+    "company_caption", "artifacts_dataset", "companies_dataset", "COMPANY_MARKERS",
 ]

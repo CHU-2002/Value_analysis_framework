@@ -498,6 +498,17 @@ supersedes: TBD
     （收口后改代码会使本次 `verified` 失效，故不在本 PR 动）。
   - **R3（低，复验新增）**：`--only-gaps` 在「没有缺口」时仍先要求 token（`resolve_token()` 在缺口判断
     之前调用）——不影响 AC-4.1 的「未配 token 给 `NO_TOKEN`」判据，**登记为后续顺序调整**。
+- **实机体验发现（2026-09-27，使用者打开控制台时发现）**：从左侧导航直接进「图表」「报告」
+  「迭代记录」时还没有选中公司，页面上**整块面板**都渲染成
+  `面板渲染失败：台账概览 / BAD_REQUEST / 缺少公司目录参数 company` 的错误卡片——
+  这三页的 AC（`AC-2.1`~`AC-2.5`）只按「带上 `?company=` 的接口/页面」验收，所以门② 全绿
+  也没拦住它；`REQ-009.1` 的按键表也有同类盲区：「更新判定」的 `analysis_status.py` 是
+  **条件必填**（`--company-dir` 或 `--root --all`），argparse 静态扫描只看得到
+  `required=False`，点下去必然 `exit 2`。**处置**：登记为 `REQ-006` 任务 **T9** 并当次修复
+  （未选择时退回「最近有 run 的公司」并在面板上写明当前公司；按键补界面默认值），
+  回归测试落在 `tests/test_webui_views.py` 与 `tests/test_webui_server.py`；不新开需求编号
+  （是既有页面的可用性修复，不是新能力）。**面板参数选择器**（公司/期次/run 的显式切换控件）
+  仍按设计文档 §「待定」保留为后续能力，需要时由 owner 决定是否立需求。
 - **登记 PR**：#41（`docs(req): register REQ-009 local GUI console`）；REQ-009.4 实现 PR 为 #63、#64，
   门② 缺口修复 PR 为 #67。
 - **Issue**：[#42](https://github.com/CHU-2002/Value_analysis_framework/issues/42)（`[REQ-009]` 功能请求）。

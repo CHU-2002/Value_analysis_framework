@@ -322,3 +322,59 @@ def test_runs_timeline_is_reverse_ordered_and_marks_the_current_run(tmp_path):
     broken = call_route(registry, "GET", "/api/v1/companies/111111_甲/runs")
     assert any("损坏" in warning for warning in broken["warnings"])
     assert len(broken["data"]["runs"]) == 1
+
+
+# ------------------------------------------------- 未选择公司时的页面（用户实机体验修复）
+
+
+def _degraded(panels):
+    return [
+        panel["id"] for panel in panels
+        if panel.get("fallback") or (panel.get("meta") or {}).get("degraded")
+    ]
+
+
+def test_nav_pages_render_without_a_selected_company(tmp_path):
+    """从左侧导航直接进 `图表`/`报告`/`迭代记录` 时还没有选中公司。
+
+    此前这三个页面的**全部面板**都渲染成
+    `BAD_REQUEST：缺少公司目录参数 company` 的错误卡片（用户实机体验发现）；
+    现在退回「最近有 run 的那家」并在每块面板上写明当前公司，页面不再有降级项。
+    """
+    _, registry = make_app(tmp_path)
+    company_dir(tmp_path, "111111_甲")                      # 有产物、没有 run
+    company_dir(tmp_path, "222222_乙")
+    base = company_dir(tmp_path, "333333_丙")               # 最近有 run + 有报告
+    (base / "qualitative_report.md").write_text(REPORT_MD, encoding="utf-8")
+    (base / "latest.json").write_text(
+        json.dumps({"run_id": "20260101T000000000000Z", "primary_period": "2026H1"}),
+        encoding="utf-8",
+    )
+
+    for page_id in ("charts", "report", "runs"):
+        panels = call_route(registry, "GET", f"/api/v1/pages/{page_id}")["data"]["panels"]
+        assert panels, page_id
+        assert _degraded(panels) == [], f"{page_id} 仍有面板降级：{_degraded(panels)}"
+        for panel in panels:
+            shown = (panel.get("html") or "") + ((panel.get("data") or {}).get("caption") or "")
+            assert "333333_丙" in shown, f"{page_id}/{panel['id']} 没写明当前公司"
+
+    # 显式给公司时不能被默认值顶掉；时间线里的站内链接也必须带**解析后**的公司。
+    explicit = call_route(registry, "GET", "/api/v1/pages/charts", company="111111_甲")["data"]["panels"]
+    assert all(
+        "111111_甲" in (panel.get("html") or "") + ((panel.get("data") or {}).get("caption") or "")
+        for panel in explicit
+    )
+    timeline = next(
+        panel for panel in call_route(registry, "GET", "/api/v1/pages/runs", company="333333_丙")
+        ["data"]["panels"] if panel["id"] == "runs.timeline"
+    )
+    assert "company=None" not in (timeline.get("html") or "")
+
+
+def test_company_pages_with_empty_output_stay_actionable(tmp_path):
+    """`output/` 下一个公司目录都没有时：仍然是可读的降级卡片（给出去哪看），不是 500。"""
+    _, registry = make_app(tmp_path)
+    panels = call_route(registry, "GET", "/api/v1/pages/charts")["data"]["panels"]
+    assert panels and _degraded(panels) == [panel["id"] for panel in panels]
+    assert "output/" in panels[0]["html"]

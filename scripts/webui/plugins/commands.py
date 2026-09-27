@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from ..config import REPO_ROOT
@@ -66,6 +67,13 @@ ENTRIES: tuple = (
 )
 
 _TYPE_MAP = {"int": "int", "float": "float", "Path": "path", "str": "string"}
+# 少量脚本的「条件必填」argparse 静态扫描看不出来，照默认值点下去必然 exit 2：
+# `analysis_status.py` 要求 `--company-dir` 或 `--root --all` 二选一（用户实机体验发现
+# 「更新判定」按键点了只会打印 usage）。这里只补**界面默认值**，不改脚本 CLI、也不谎报
+# required——默认值会显示在表单里，用户随时可改；脚本的真实 CLI 仍是唯一事实来源。
+GUI_DEFAULTS = {
+    "analysis_status": {"root": "output", "all": True},
+}
 # 凭据类参数**不进按键表**：token 只从环境变量 / `.env` 读取（REQ-009 约束），
 # 让面板接收它就会把明文写进任务历史与日志——那是「回显/落盘 token」的另一条路径。
 # 这些 flag 都不是 required，所以 AC-1.2 的「required 必须在表里」不受影响。
@@ -229,13 +237,18 @@ def command_specs() -> list:
             scan_target = SCRIPT_DIR / "results" / f"{script.split('.', 1)[1]}.py"
         else:
             scan_target = SCRIPT_DIR / script
+        params = scan_cli_params(scan_target, subcommand)
+        defaults = GUI_DEFAULTS.get(ident, {})
+        if defaults:
+            params = [replace(param, default=defaults[param.name]) if param.name in defaults else param
+                      for param in params]
         specs.append(
             CommandSpec(
                 id=ident,
                 argv=_argv_for(script, subcommand),
                 title=title,
                 group=group,
-                params=tuple(scan_cli_params(scan_target, subcommand)),
+                params=tuple(params),
                 danger=danger,
                 description=description,
             )
