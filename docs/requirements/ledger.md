@@ -17,6 +17,7 @@
 | [REQ-007](REQ-007-governance-hardening.md) | 门禁与治理工具加固 | `superseded` | P2 | N/A | #29 | 已并入 REQ-006 任务 T2（文件与报告留作证据） |
 | [REQ-008](REQ-008-coverage-debt.md) | 覆盖率洼地补测 | `superseded` | P2 | TBD | TBD | 已并入 REQ-006 任务 T4（本文件即 T4 的规格） |
 | [REQ-009](REQ-009-local-gui-console.md) | 本地图形化控制台（可扩展框架 + 按键执行 + 股票图表 + 报告与迭代记录浏览） | `accepted` | P1 | #42 | TBD | `tests/test_webui_framework.py` `tests/test_webui_archive.py` `tests/test_webui_server.py` `tests/test_webui_views.py` |
+| [REQ-010](REQ-010-latest-valuation-publication.md) | 最新价值分析报告发布与历史版本保留 | `accepted` | P1 | #61 | TBD | `tests/test_latest_valuation_publication.py` |
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
 
