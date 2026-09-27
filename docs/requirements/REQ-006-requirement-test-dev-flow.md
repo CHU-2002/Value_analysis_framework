@@ -55,6 +55,7 @@ supersedes: TBD
 | T4 | 覆盖深度补强：`valuation_engine` 34%→60%、`portfolio_engine` 47%→70%、三个 0% 脚本逐个判定、总覆盖率→80% 并把门禁提到 ≥78% | 不做（2026-09-20 使用者决定：工程化流程到此为止，不补测） | 任务说明见 [`REQ-008`](REQ-008-coverage-debt.md)（该编号已并入本需求，文件保留作规格；覆盖率维持 76.8%、门禁维持 ≥74%） |
 | T7 | 测试 scope 预算上调（40→48 文件、1600→1800 用例），为图形化控制台（REQ-009）及其后续 GUI 需求留出余量；同步 `scripts/test_scope.py`、`docs/TESTING.md` §5、`docs/DEVELOPMENT.md` §14 与本需求 AC-7 的例外通道 | 完成 | **PR #48**（收口 PR 回填）。本项是**门禁阈值调整**，按 AC-3 的评审粒度在 REQ-006.1 收口时由独立评审者复核：见 [`docs/verification/2026-09-25-REQ-006.1.md`](../verification/2026-09-25-REQ-006.1.md) 的 **T7 复核**小节（48/1800 预算、owner 批准留痕、AC-7 例外通道均成立），不为它单独拉一轮评审 |
 | T8 | **REQ-006.1 AC-1.5 的收口前置**：`synthesis` 默认预算按真实载荷设定（40,000 → 120,000）与丢弃记账修正（列表条目逐条计数、标签可读）；补真实规模回归测试 | 完成 | **PR #46**（已合入 `b23270b`）。依据两轮实跑实测（完整载荷 96,496 / 97,359 字符；旧默认下丢 148 项，含每个模块的 `quality.missing_inputs`；同预算下丢弃计数 148 → 220）。代码 `scripts/results/synthesis.py`（`DEFAULT_MAX_CHARS`、`_list_item_label`），测试 `tests/test_results_pipeline.py` 的 `test_default_budget_*` 与 `test_dropped_accounting_counts_every_list_item` |
+| T9 | 测试 scope 预算再次上调（48→52 文件、1800→2000 用例），为数据层重构（`REQ-011`）与控制台 2.0（`REQ-012`）共 7 个新测试文件留出余量；同步 `scripts/test_scope.py`、`docs/TESTING.md` §5、`docs/DEVELOPMENT.md` §14、`docs/TEST_SCOPE.md` 与本需求 AC-7 的变更记录 | 完成（阈值与文档已在本次 docs 改动中同步） | 依据：两条需求**共用** 10 文件 / 147 条用例余量（38/48、1653/1800），按 `REQ-009` 的实测消耗（4 文件 / 64 条）估算需要 140~180 条。使用者在 2026-09-28 会话中被明确告知「先清理再谈上调」的纪律与「本次改为直接上调」的区别后，选择**直接上调到 52 文件 / 2000 用例**。变更记录见本文件 AC-7 下的 2026-09-28 条目。**本项是门禁阈值调整**，按 AC-3 的评审粒度，在下一个子需求/大特性收口时由独立评审者复核，不为它单独拉一轮评审 |
 
 ## 子需求
 
@@ -63,8 +64,8 @@ supersedes: TBD
 - 状态：`verified`
 - 状态说明：`AC-1.1`~`AC-1.10` 全部落地；`AC-1.9` 于 2026-09-25 完成**两轮**真实复跑
   （第二轮在 `main b23270b` 上**全程默认参数、零覆盖**），命令与观察见
-  [`docs/run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md`](../../run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md)，
-  发现清单见[同目录的发现清单](../../run-records/2026-09-25-REQ-006.1-AC-1.9-实跑发现清单.md)。
+  [`docs/run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md`](../run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md)，
+  发现清单见[同目录的发现清单](../run-records/2026-09-25-REQ-006.1-AC-1.9-实跑发现清单.md)。
   该次实跑暴露的 `AC-1.5` 缺口已由任务 T8（PR #46）修复；其余发现登记为 `REQ-006.2`。
   **独立验收通过（2026-09-25）**：由未参与实现的独立评审者在 `main 56a7d48` 上逐条核对
   `AC-1.1`~`AC-1.10`（全量门禁 `1564 passed, 3 skipped`、覆盖率 78.31%），并独立复核两轮实跑产物，
@@ -95,7 +96,7 @@ supersedes: TBD
   - **AC-1.8**：**流程闭环**：验收标准里写了「实跑」的编号，其收口报告必须带「## 实跑记录」（含可复制命令、环境与观察），由 `scripts/acceptance_gate.py` 强制；实跑发现的问题当次登记（子需求或任务），不允许只用运行时补丁绕过。
   - **AC-1.10**：`TushareScreener._safe_call` 的重试必须作用在**重建后**的客户端上（原实现把 `pro` 取在循环外，三次尝试都打在同一个坏客户端上，重试等于没做）；有回归测试证明「第一次失败、第二次成功」。
   - **AC-1.9**：在只读 HOME + 真实 token 下**复跑**一次迭代，不使用任何运行时补丁，产出完整 run（台账、manifest、结构化结果、两篇报告），命令与观察写进实跑记录。
-- 追溯：`tests/test_discover_report.py`、`tests/test_tushare_client.py`、`tests/test_screener.py`、`tests/test_runs_ledger.py`、`tests/test_results_pipeline.py`、`tests/test_change_report.py`、`tests/test_update_docs_contract.py`、`tests/test_release_gates.py`；PR #36（登记与规则）、PR #37（6 个实跑问题的修复，`4450863`）、PR #46（任务 T8）、PR #48（独立验收收口，`verified`）；实跑记录 [`docs/run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md`](../../run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md)；独立验收报告 [`docs/verification/2026-09-25-REQ-006.1.md`](../verification/2026-09-25-REQ-006.1.md)
+- 追溯：`tests/test_discover_report.py`、`tests/test_tushare_client.py`、`tests/test_screener.py`、`tests/test_runs_ledger.py`、`tests/test_results_pipeline.py`、`tests/test_change_report.py`、`tests/test_update_docs_contract.py`、`tests/test_release_gates.py`；PR #36（登记与规则）、PR #37（6 个实跑问题的修复，`4450863`）、PR #46（任务 T8）、PR #48（独立验收收口，`verified`）；实跑记录 [`docs/run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md`](../run-records/2026-09-25-REQ-006.1-AC-1.9-实跑记录.md)；独立验收报告 [`docs/verification/2026-09-25-REQ-006.1.md`](../verification/2026-09-25-REQ-006.1.md)
 
 ### REQ-006.2 实跑暴露的数据包与证据层缺陷修复
 
@@ -171,7 +172,7 @@ supersedes: TBD
   - `AC-2.3` 已实现：`§13.1` 的异常检测窗口改为「最新财报期 vs 上年同期」+「最新年报 vs 上一年报」
     （`assembly.py:_yoy_period_pairs`，并把 `assets_impair_loss` 纳入被检字段），不再拿 2007 年的
     历史逐对比较；占位段落的填充策略按 owner 决定落成**「只由全量分析填、增量 run 不填」**
-    （需求内 AC-2.3 的策略引用块 + [`docs/PERIODIC_UPDATE_PLAN.md` §7.1.1](../../PERIODIC_UPDATE_PLAN.md)），
+    （需求内 AC-2.3 的策略引用块 + [`docs/PERIODIC_UPDATE_PLAN.md` §7.1.1](../PERIODIC_UPDATE_PLAN.md)），
     并由 `evidence.py`（占位符段落进 `unfilled_sections`、不进 `entries`；混合段落只删占位符行）与
     `context.py`（`evidence_coverage: unavailable` + `unavailable_inputs`，原始上下文也不塞占位符）落地。
   - `AC-2.6` 已实现：附注源两个文件名都认（`data_pack_report.md` / 中报
@@ -383,7 +384,7 @@ supersedes: TBD
     > **增量更新流程不填**，占位符不得作为任何模块的证据槽位。落地方式：
     > `evidence.py` 把「只含占位符」的段落记入 `evidence_index.unfilled_sections` 并从 `entries` 剔除；
     > 模块 bundle 对这些槽位给 `evidence_coverage: unavailable` + `unavailable_inputs`（带原因）。
-    > 文档见 [`docs/PERIODIC_UPDATE_PLAN.md` §7.1.1](../../PERIODIC_UPDATE_PLAN.md)；
+    > 文档见 [`docs/PERIODIC_UPDATE_PLAN.md` §7.1.1](../PERIODIC_UPDATE_PLAN.md)；
     > 理由：增量更新的目标是快与可复现，行业信息变化慢，每次联网搜索会让同一份财报跑出不同结论
     > （参见 F26 的教训）；若行业/政策出现实质变化，走既有的 `stale:framework` 全量重跑。
     > 本条只把**既有判据**落到实现与文档，未改动 AC 文字。
@@ -471,6 +472,25 @@ supersedes: TBD
          工作包登记为任务 **T7**。
        批准人：需求 owner CHU-2002（2026-09-21）。
        独立评审：按 AC-3 的评审粒度，在下一个子需求/大特性（REQ-006.1）收口时由独立评审者复核。 -->
+
+  <!-- 需求变更记录（2026-09-28，测试 scope 预算第二次上调）
+       原条款（2026-09-21 修订后的阈值）：测试 scope 预算 48 文件 / 1800 用例。
+       变更原因：`REQ-011`（数据获取与存储重构）与控制台 2.0（`REQ-012`）各需新开测试文件
+         （3 + 4 = 7 个），两者**共用**当时的 10 文件 / 147 条用例余量（实测 38/48、1653/1800）；
+         按 `REQ-009` 的实测消耗（4 文件 / 64 条）估算，两家合计约需 140~180 条，大概率顶破。
+         使用者在 2026-09-28 会话中被明确告知两条路（「先做一次冗余用例清理，清完不够再上调」
+         与「现在就上调」）及其纪律差异后，选择**直接上调到 52 文件 / 2000 用例**。
+       新条款：测试 scope 预算 52 文件 / 2000 用例。判定逻辑不变（超预算即失败）。
+       代价（上调时实测）：用例数上限 +11.1%（1800→2000）、文件数上限 +8.3%（48→52）；
+         上调前全量测试实测 1650 passed / 3 skipped、并行墙钟 85.7s（覆盖率 77.41%）。
+         **纪律不变**：这是本仓库第二次上调，**仍不构成「遇到上限就上调」的先例**；
+         下次接近上限仍按 `docs/TESTING.md` §5「先清理，再谈上调」处理，且本次**未做**清理，
+         该债务登记在 `ledger.md` 的「待登记想法（Inbox）」里。
+       本次实施：`scripts/test_scope.py` 的 `MAX_TEST_FILES` 48→52、`MAX_COLLECTED_CASES` 1800→2000；
+         `docs/TESTING.md` §5、`docs/DEVELOPMENT.md` §14、`docs/TEST_SCOPE.md` 同步；
+         工作包登记为任务 **T9**。
+       批准人：需求 owner CHU-2002（2026-09-28）。
+       独立评审：按 AC-3 的评审粒度，在下一个子需求/大特性收口时由独立评审者复核。 -->
 
   <!-- 需求变更记录（2026-09-20，AC-3 评审粒度）
        原条款（2026-09-20 登记）：「特性分支 → main」的 PR 必须附带独立验收报告。
