@@ -224,6 +224,8 @@ Issue 在**验收通过后**才关闭（`verified`），不在 PR 合并时自�
 | [REQ-005](REQ-005-periodic-update-docs.md) | 增量更新文档与下游接线 | `verified` |
 | [REQ-006](REQ-006-requirement-test-dev-flow.md) | 工程化开发流程（建立与持续维护） | `verified`（子需求 `REQ-006.1`、`REQ-006.2` 均已 `verified`） |
 | [REQ-009](REQ-009-local-gui-console.md) | 本地图形化控制台（可扩展框架 + 按键执行 + 股票图表 + 报告与迭代记录浏览） | `in-progress` |
+| [REQ-010](REQ-010-latest-valuation-publication.md) | 最新价值分析报告发布与历史版本保留 | `accepted` |
+| [REQ-011](REQ-011-moomoo-us-data-provider.md) | 美股分析可使用 moomoo 数据源 | `in-progress` |
 | ~~REQ-007~~ | 门禁与治理工具加固 → 并入 REQ-006 的 T2 | `superseded` |
 | ~~REQ-008~~ | 覆盖率洼地补测 → 并入 REQ-006 的 T4 | `superseded` |
 

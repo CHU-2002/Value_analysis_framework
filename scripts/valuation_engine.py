@@ -1482,16 +1482,21 @@ def main():
     parser = argparse.ArgumentParser(description="Valuation computation engine")
     parser.add_argument("--code", required=True, help="Stock code (e.g., 600887)")
     parser.add_argument("--output-dir", required=True, help="Output directory")
+    parser.add_argument("--provider", choices=("tushare", "moomoo"),
+                        help="Data source (default: DATA_PROVIDER or tushare)")
     args = parser.parse_args()
 
     ts_code = validate_stock_code(args.code)
-    token = get_token()
-
-    # Import TushareClient here to keep module importable without tushare for testing
-    from tushare_collector import TushareClient
+    from data_providers import close_data_client, configured_provider, create_data_client
 
     print(f"[valuation_engine] 正在采集 {ts_code} 数据...", file=sys.stderr)
-    client = TushareClient(token)
+    provider = configured_provider(args.provider)
+    if provider == "moomoo":
+        client = create_data_client(provider, ts_code)
+    else:
+        # Preserve the existing Tushare entry point for callers and tests.
+        from tushare_collector import TushareClient
+        client = TushareClient(get_token())
     client.assemble_data_pack(ts_code)
 
     print(f"[valuation_engine] 正在计算估值...", file=sys.stderr)
@@ -1504,6 +1509,7 @@ def main():
         f.write(output_md)
 
     print(f"[valuation_engine] 完成: {out_path}", file=sys.stderr)
+    close_data_client(client)
 
 
 if __name__ == "__main__":

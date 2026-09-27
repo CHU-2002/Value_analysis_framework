@@ -152,7 +152,7 @@ class AssemblyMixin:
             format_header(1, f"数据包 — {ts_code}"),
             "",
             f"*生成时间: {timestamp}*",
-            f"*数据来源: Tushare Pro*",
+            f"*数据来源: {getattr(self, '_source_label', 'Tushare Pro')}*",
             f"*金额单位: {unit_label} (除特殊标注)*",
         ]
         if currency == "HKD":

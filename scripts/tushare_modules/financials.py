@@ -1631,7 +1631,7 @@ class FinancialsMixin:
                                 df.at[idx, "holder_profit_yoy"] = (curr_np - prior_np) / abs(prior_np) * 100
 
                 # pe_ttm / pb_ttm: from us_daily (latest period only)
-                if pd.isna(row.get("pe_ttm")) or pd.isna(row.get("pb_ttm")):
+                if idx == df.index[0] and (pd.isna(row.get("pe_ttm")) or pd.isna(row.get("pb_ttm"))):
                     bi = self._store.get("basic_info")
                     if bi is not None and not bi.empty:
                         d = bi.iloc[0]

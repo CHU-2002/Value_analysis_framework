@@ -1848,15 +1848,20 @@ def main():
     parser.add_argument("--code", required=True, help="Stock code (e.g. 600887, 00700.HK, AAPL)")
     parser.add_argument("--output-dir", required=True, help="Output directory")
     parser.add_argument("--valuation-cycle", help="Explicit valuation review ID/reason (e.g. 2026Q3-review)")
+    parser.add_argument("--provider", choices=("tushare", "moomoo"),
+                        help="Data source (default: DATA_PROVIDER or tushare)")
     args = parser.parse_args()
 
     ts_code = validate_stock_code(args.code)
-    token = get_token()
-
-    from tushare_collector import TushareClient
+    from data_providers import close_data_client, configured_provider, create_data_client
 
     print(f"[value_analysis_engine] 正在采集 {ts_code} 数据...", file=sys.stderr)
-    client = TushareClient(token)
+    provider = configured_provider(args.provider)
+    if provider == "moomoo":
+        client = create_data_client(provider, ts_code)
+    else:
+        from tushare_collector import TushareClient
+        client = TushareClient(get_token())
     client.assemble_data_pack(ts_code)
 
     print("[value_analysis_engine] 正在计算价值分析锚点...", file=sys.stderr)
@@ -1873,6 +1878,7 @@ def main():
     export_value(engine, cycle=args.valuation_cycle)
 
     print(f"[value_analysis_engine] 完成: {out_path}", file=sys.stderr)
+    close_data_client(client)
 
 
 if __name__ == "__main__":

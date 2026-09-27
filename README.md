@@ -64,6 +64,18 @@ export TUSHARE_TOKEN='your_token_here'
 
 > `.env` 已被 `.gitignore` 忽略，请不要把 Token 提交到仓库。
 
+### 用 moomoo 分析美股
+
+先安装更新后的 `requirements.txt`，并在本机启动、登录 moomoo OpenD。程序默认连接 `127.0.0.1:11111`，也可用 `MOOMOO_HOST` / `MOOMOO_PORT` 指定地址。选择 moomoo 时不需要 `TUSHARE_TOKEN`：
+
+```bash
+.venv/bin/python scripts/tushare_collector.py --code AAPL --provider moomoo --output output/AAPL/data_pack_market.md
+.venv/bin/python scripts/valuation_engine.py --code AAPL --provider moomoo --output-dir output/AAPL
+.venv/bin/python scripts/value_analysis_engine.py --code AAPL --provider moomoo --output-dir output/AAPL
+```
+
+也可以设置 `DATA_PROVIDER=moomoo`，让以上脚本默认选择 moomoo；不设置时仍使用 Tushare。`buy_sell_plan.py` 同样接受 `--provider moomoo`，其买卖计划仍要求已有估值基准和有效的新行情。当前 moomoo 适配仅支持美股，完整采集模式下读取行情、财报、历史周线、分红和主营构成；美股回购接口不支持，股东与美债收益率仍可使用现有 yfinance 辅助来源。图形控制台的 Tushare 原始数据存档功能不受此选项影响。
+
 ### 验证是否装好
 
 ```bash

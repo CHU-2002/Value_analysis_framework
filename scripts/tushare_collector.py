@@ -230,6 +230,8 @@ Examples:
         default=None,
         help="Tushare API token (defaults to TUSHARE_TOKEN env var)",
     )
+    parser.add_argument("--provider", choices=("tushare", "moomoo"),
+                        help="Data source (default: DATA_PROVIDER or tushare)")
     parser.add_argument(
         "--output",
         default="output/data_pack_market.md",
@@ -255,6 +257,8 @@ Examples:
 
 def main():
     args = parse_args()
+    from data_providers import close_data_client, configured_provider, create_data_client
+    provider = configured_provider(args.provider)
 
     # Validate and normalize stock code
     try:
@@ -266,14 +270,17 @@ def main():
     if args.dry_run:
         print("=== Dry Run ===")
         print(f"  Stock code: {args.code} -> {ts_code}")
-        print(f"  Token: {'provided via --token' if args.token else 'from TUSHARE_TOKEN env'}")
+        print(f"  Provider: {provider}")
+        if provider == "tushare":
+            print(f"  Token: {'provided via --token' if args.token else 'from TUSHARE_TOKEN env'}")
         print(f"  Output: {args.output}")
         print(f"  Extra fields: {args.extra_fields or 'none'}")
         return
 
-    # Get token
-    token = args.token or get_token()
-    client = TushareClient(token)
+    if provider == "moomoo" and (args.refresh_market or args.extra_fields):
+        raise ValueError("moomoo 暂不支持 --refresh-market 或 --extra-fields，请执行完整采集")
+    client = (create_data_client(provider, ts_code) if provider == "moomoo"
+              else TushareClient(args.token or get_token()))
 
     if args.refresh_market:
         from pathlib import Path
@@ -324,6 +331,7 @@ def main():
         f.write(data_pack)
     print(f"Output written to {args.output}")
     print(f"File size: {os.path.getsize(args.output):,} bytes")
+    close_data_client(client)
 
 
 if __name__ == "__main__":

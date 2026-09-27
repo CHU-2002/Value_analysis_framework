@@ -23,15 +23,22 @@ def main(argv=None):
     parser.add_argument("--code", required=True, help="Stock code (e.g. 600887, 00700.HK, AAPL)")
     parser.add_argument("--output-dir", required=True, help="Existing analysis output directory")
     parser.add_argument("--as-of", help="Offline replay session date YYYY-MM-DD; defaults to current exchange-local date")
+    parser.add_argument("--provider", choices=("tushare", "moomoo"),
+                        help="Data source (default: DATA_PROVIDER or tushare)")
     args = parser.parse_args(argv)
 
     ts_code = validate_stock_code(args.code)
 
-    from tushare_collector import TushareClient
+    from data_providers import close_data_client, configured_provider, create_data_client
     from value_analysis_engine import ValueAnalysisEngine
 
     print(f"[buy_sell_plan] 正在采集 {ts_code} 行情...", file=sys.stderr)
-    client = TushareClient(get_token())
+    provider = configured_provider(args.provider)
+    if provider == "moomoo":
+        client = create_data_client(provider, ts_code)
+    else:
+        from tushare_collector import TushareClient
+        client = TushareClient(get_token())
     client.assemble_data_pack(ts_code)
     engine = ValueAnalysisEngine(ts_code, args.output_dir, client)
     export_market(engine)
@@ -41,6 +48,7 @@ def main(argv=None):
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         parser.exit(2, f"buy_sell_plan: {exc}\n")
     print(f"buy_sell_plan.json + buy_sell_plan.md: {plan['execution']['action']}")
+    close_data_client(client)
     return 3 if plan["execution"]["action"] == "BLOCKED" else 0
 
 
