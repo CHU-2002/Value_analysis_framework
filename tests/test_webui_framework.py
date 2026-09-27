@@ -585,7 +585,7 @@ def test_safe_join_blocks_traversal_absolute_paths_and_symlinks(tmp_path):
         pytest.skip("本平台不支持创建符号链接")
 
     assert security.safe_join(root, "ok", "a.txt").read_text(encoding="utf-8") == "hi"
-    # 父需求验收复验 V6/N2：**不可用的片段**与越界同级，必须是可预期的 `PathOutsideRoot`（403），
+    # 父需求验收复验 V6/V7/N3：**不可用的片段**与越界同级，必须是可预期的 `PathOutsideRoot`（403），
     # 不能是 500。三类各自的失败方式不同，所以三条都要钉：
     #   NUL      → `resolve()` 抛 ValueError: embedded null character
     #   符号链接环 → CPython 3.12 的 `check_eloop` 把它换成 **RuntimeError**（不是 OSError）
@@ -600,16 +600,36 @@ def test_safe_join_blocks_traversal_absolute_paths_and_symlinks(tmp_path):
     except (OSError, NotImplementedError):  # pragma: no cover - 平台不支持符号链接
         pass
     else:
+        # 环作为中间组件与作为最后一段都要拦（后者由 `resolve()` 的 RuntimeError 兜住）
         with pytest.raises(PathOutsideRoot):
             security.safe_join(root, "loop", "x.txt")
+        with pytest.raises(PathOutsideRoot):
+            security.safe_join(root, "loop")
     name_max = os.pathconf(tmp_path, "PC_NAME_MAX")
     path_max = os.pathconf(tmp_path, "PC_PATH_MAX")
-    for bad in (("a" * (name_max + 1),), ):
-        with pytest.raises(PathOutsideRoot):
-            security.safe_join(root, *bad)
-    # 总长超 PATH_MAX：每段都合法，拼起来超限（MAC 与 Linux 的 PATH_MAX 差 4 倍，故按实测值算）
+    with pytest.raises(PathOutsideRoot):
+        security.safe_join(root, "a" * (name_max + 1))
+    # 总长超 PATH_MAX：每段都合法，拼起来超限（macOS 与 Linux 的 PATH_MAX 差 4 倍，按实测值算）
     with pytest.raises(PathOutsideRoot):
         security.safe_join(root, *(["d" * 20] * (path_max // 20 + 2)))
+    # 符号链接的**目标**超长/不可用时，只有解析之后的探测看得见（复验 N3b）
+    sneaky = root / "sneaky"
+    try:
+        sneaky.symlink_to("z" * (path_max * 2))
+    except (OSError, NotImplementedError):  # pragma: no cover - 平台不支持符号链接
+        pass
+    else:
+        with pytest.raises(PathOutsideRoot):
+            security.safe_join(root, "sneaky")
+    # 合法长名不能被误杀：限额必须问内核，不能按字节猜——APFS 按**字符**计（100 个汉字 = 300 字节
+    # 也是合法目录名），ext4 按**字节**计（这种名字根本建不出来），所以这条按平台自适应（复验 N3c）
+    multibyte = "伊" * 100
+    try:
+        (root / multibyte).mkdir()
+    except OSError:
+        pass  # 该文件系统按字节限长：建不出来就不必断言
+    else:
+        assert security.safe_join(root, multibyte).is_dir()
     for bad in (
         ("..", "outside", "secret.txt"),
         (str(outside / "secret.txt"),),
