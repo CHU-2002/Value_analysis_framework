@@ -121,7 +121,7 @@ export TUSHARE_TOKEN='your_token_here'
 make gui
 
 # 日常低配额档案；标的和期次可重复传入
-make gui-collect ARGS='--profile frugal --ticker 600887.SH --period 20260630'
+make gui-collect ARGS='--profile frugal --ticker 600887.SH --period 20260630 --yes'
 
 # bulk 会先显示请求数并要求确认；确认后显式加 --yes
 make gui-collect ARGS='--profile bulk --ticker 600887.SH --period 20260630 --yes --tier-label 租用账号'

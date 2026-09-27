@@ -292,11 +292,11 @@ supersedes: TBD
     报告里给出可复制的命令、token 档位标签（**不写 token 本身**）、观察结果与本次发现的问题去处。
 - **2026-09-27 实跑记录（年包低配额档）**：token 从本机 `.env` 读取，未写入命令、批次 JSON 或存档；
   存档根为 `~/turtle_archive`。H1 批次命令：
-  `make gui-collect ARGS='--profile frugal --ticker 600887.SH --period 20260630 --batch-id req0094-real-frugal-20260927'`。
+  `make gui-collect ARGS='--profile frugal --ticker 600887.SH --period 20260630 --batch-id req0094-real-frugal-20260927 --yes'`。
   观察：6/6 目标成功（`stock_basic`、`daily`、`income`、`balancesheet`、`cashflow`、`fina_indicator`），
   0 次权限/频率缺口，新增请求 6 次。
 - **断点续跑记录**：年报批次命令：
-  `make gui-collect ARGS='--profile frugal --ticker 600887.SH --period 20251231 --batch-id req0094-real-resume-signal-20260927'`；
+  `make gui-collect ARGS='--profile frugal --ticker 600887.SH --period 20251231 --batch-id req0094-real-resume-signal-20260927 --yes'`；
   进度到 3/6 时发送 SIGINT，批次落盘为 `paused`，随后以完全相同命令恢复。
   最终 6/6 完成；批次摘要记录存档命中 2、新请求尝试 5、失败 0、无权限 0，已完成目标没有重拉。
   本轮未使用高配额账号，未执行缺口补齐；低配额实跑未发现需另登记的问题。
@@ -439,11 +439,11 @@ supersedes: TBD
   据此预算已调整：留痕见 `scripts/test_scope.py` 的注释、REQ-006 的 AC-7 变更记录与任务 T7、
   `docs/TESTING.md` §5、`docs/DEVELOPMENT.md` §14。本需求预计落在 **1586/1800（88%）、37/48**。
   **纪律不变**：不得为了让新测试挤进预算而删断言、加 `skip` 或放宽门禁；下次接近新上限仍先清理。
-- **交付进度**：`REQ-009.3`（框架与数据层）已由 PR #44 合入，但门② 独立验收**不通过**
-  （AC-3.3 不成立，见「独立验收缺口登记」），状态已回退 `in-progress`，修复中；
-  `REQ-009.4` / `.1` / `.2` 未开始。父需求在四片全部 `verified` 且 AC-8 实跑留档之前不推进。
-- **登记 PR**：#41（`docs(req): register REQ-009 local GUI console`）——本需求条目与子需求在此 PR 登记；
-  实现 PR 仍为 TBD，合并后回填台账「实现 PR」列。
+- **交付进度**：`REQ-009.3`（框架与数据层）已由 PR #44 合入并验收；`REQ-009.4` 已由 PR #63
+  合入，独立复核发现 AC-4.2 的批次接口与调用量确认路径仍需补齐；`.1` / `.2` 尚未开始。
+  父需求在四片全部 `verified` 且 AC-8 实跑留档之前不推进。
+- **登记 PR**：#41（`docs(req): register REQ-009 local GUI console`）；REQ-009.4 实现 PR 为 #63，
+  当前仍为 `in-progress`，待补齐复核发现的 AC 缺口后再推进状态。
 - **Issue**：[#42](https://github.com/CHU-2002/Value_analysis_framework/issues/42)（`[REQ-009]` 功能请求）。
   按 `README.md` §9，Issue 在**验收通过后**才关闭，不在 PR 合并时自动关闭。
 - **交付顺序**：`REQ-009.3`（框架）→ `REQ-009.4`（采集与存档）→ `REQ-009.1`（按键执行器）→

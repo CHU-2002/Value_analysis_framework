@@ -41,9 +41,9 @@ class ArchiveBatch:
             raise ValueError("采集目标清单不能为空")
         batch_id = batch_id or self.create_id()
         estimate = len(self.targets)
-        if self.profile == "bulk" and not confirm:
+        if not confirm:
             raise QuotaConfirmRequired(
-                f"本批预计 {estimate} 次请求，需要显式确认。",
+                f"本批（{self.profile}）预计 {estimate} 次请求，需要显式确认。",
                 hint="复核调用量后使用 --yes 确认。",
             )
         batch = self.store.load_batch(batch_id) or {

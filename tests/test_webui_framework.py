@@ -889,7 +889,7 @@ def test_check_mode_lists_registered_panels(tmp_path, capsys):
     plugin_dir = write_plugin(tmp_path / "plugins", "demo.py", DEMO_PLUGIN).parent
     assert main(["--check", "--no-browser", "--plugins", str(plugin_dir)]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["panels"] == ["collect.archive", "demo.future", "demo.table"]
+    assert payload["panels"] == ["collect.archive", "collect.batches", "demo.future", "demo.table"]
     assert payload["nav"] == ["collect", "demo"]
 
 
