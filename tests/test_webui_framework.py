@@ -217,7 +217,7 @@ def test_check_mode_assembles_without_binding_a_port(capsys):
     assert payload["version"] == __version__
     assert "GET /api/v1/healthz" in payload["routes"]
     assert payload["host"] == "127.0.0.1"
-    assert payload["plugins"] == []
+    assert payload["plugins"] == [{"origin": "builtin:collect", "error": False}]
 
 
 def test_cli_rejects_a_non_loopback_host_argument(capsys):
@@ -307,7 +307,7 @@ def test_demo_plugin_from_a_directory_takes_effect(tmp_path):
     """AC-3.2 / AC-9：临时目录里的插件（不碰核心）注册的导航/面板/路由/数据集自动生效。"""
     registry = make_app(make_config(tmp_path))
     report = load_plugins(registry, extra_dirs=(write_plugin(tmp_path / "plugins", "demo.py",
-                                                             DEMO_PLUGIN).parent,))
+                                                             DEMO_PLUGIN).parent,), builtin=())
     assert [error for _, error in report] == [None]
 
     assert [item.id for item in registry.nav_items()] == ["demo"]
@@ -327,14 +327,14 @@ def test_broken_plugin_is_isolated_but_conflict_fails_startup(tmp_path):
     write_plugin(plugin_dir, "broken.py", BROKEN_PLUGIN)
     write_plugin(plugin_dir, "demo.py", DEMO_PLUGIN)
 
-    report = dict(load_plugins(registry, extra_dirs=(plugin_dir,)))
+    report = dict(load_plugins(registry, extra_dirs=(plugin_dir,), builtin=()))
     assert any("这个插件坏了" in (error or "") for error in report.values())
     assert registry.has_panel("demo.table")          # 好的插件照常生效
 
     conflict_dir = tmp_path / "conflict"
     write_plugin(conflict_dir, "clash.py", DEMO_PLUGIN)
     with pytest.raises(PluginLoadError):
-        load_plugins(registry, extra_dirs=(conflict_dir,))
+        load_plugins(registry, extra_dirs=(conflict_dir,), builtin=())
 
 
 def test_adding_a_feature_does_not_touch_the_core(tmp_path):
@@ -342,7 +342,7 @@ def test_adding_a_feature_does_not_touch_the_core(tmp_path):
     registry = make_app(make_config(tmp_path))
     plugin_dir = write_plugin(tmp_path / "plugins", "demo.py", DEMO_PLUGIN).parent
     before = fingerprint()
-    load_plugins(registry, extra_dirs=(plugin_dir,))
+    load_plugins(registry, extra_dirs=(plugin_dir,), builtin=())
     assert fingerprint() == before
 
 
@@ -889,8 +889,8 @@ def test_check_mode_lists_registered_panels(tmp_path, capsys):
     plugin_dir = write_plugin(tmp_path / "plugins", "demo.py", DEMO_PLUGIN).parent
     assert main(["--check", "--no-browser", "--plugins", str(plugin_dir)]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["panels"] == ["demo.future", "demo.table"]
-    assert payload["nav"] == ["demo"]
+    assert payload["panels"] == ["collect.archive", "demo.future", "demo.table"]
+    assert payload["nav"] == ["collect", "demo"]
 
 
 def test_unexpected_exceptions_reach_stderr_and_the_log_is_bounded(tmp_path, capsys):
@@ -956,7 +956,7 @@ def test_plugin_value_error_is_not_fatal_but_a_real_conflict_is(tmp_path):
     write_plugin(plugin_dir, "sloppy.py", "def contribute(registry):\n    int('not-a-number')\n")
     write_plugin(plugin_dir, "demo.py", DEMO_PLUGIN)
 
-    report = dict(load_plugins(registry, extra_dirs=(plugin_dir,)))
+    report = dict(load_plugins(registry, extra_dirs=(plugin_dir,), builtin=()))
     sloppy = next(error for origin, error in report.items() if "sloppy" in origin)
     assert sloppy and "ValueError" in sloppy
     assert registry.has_panel("demo.table"), "坏插件不该影响好插件"
@@ -964,7 +964,7 @@ def test_plugin_value_error_is_not_fatal_but_a_real_conflict_is(tmp_path):
     conflict_dir = tmp_path / "conflict"
     write_plugin(conflict_dir, "clash.py", DEMO_PLUGIN)
     with pytest.raises(PluginLoadError) as excinfo:
-        load_plugins(registry, extra_dirs=(conflict_dir,))
+        load_plugins(registry, extra_dirs=(conflict_dir,), builtin=())
     assert "注册冲突" in str(excinfo.value)
 
 

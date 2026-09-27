@@ -19,6 +19,8 @@
 
 ### Added
 
+- REQ-009.4 首批采集归档能力：显式 `make gui-collect` 批次入口、frugal/bulk 请求量估算、仓库外原始响应存档、token 指纹、成功存档去重、暂停恢复与权限/频率缺口分类（全 mock 测试；真实 token 实跑仍待人工验收）
+
 - 流程补上「实跑」这一环：验收标准里写了「实跑」的编号，收口报告必须带「## 实跑记录」
   （含可复制命令），`scripts/acceptance_gate.py` 强制；实跑发现的问题当次登记为子需求或任务，
   不允许只用运行时补丁绕过（见 `docs/requirements/README.md` §7.1、`docs/DEVELOPMENT.md` §4.1）

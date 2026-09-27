@@ -18,8 +18,8 @@ from pathlib import Path
 
 from ..core.errors import RegistrationConflict
 
-# 首版还没有功能插件；随 REQ-009.1（按键）/ .2（视图）/ .4（采集）逐个加一行。
-BUILTIN: tuple = ()
+# 各功能独立为插件，核心路由与分发逻辑无需改动。
+BUILTIN: tuple = ("collect",)
 
 
 class PluginLoadError(RuntimeError):
