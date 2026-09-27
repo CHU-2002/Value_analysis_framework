@@ -233,6 +233,95 @@ def test_read_current_refuses_a_tampered_report(tmp_path):
     assert current["reason"]["code"] == "digest_mismatch"
 
 
+def test_pointer_must_be_tied_to_a_frozen_revision(tmp_path):
+    """回归（独立验收 O5）：指针不能改指到历史目录之外的可变报告再「自签」。
+
+    旧实现只比对「指针里那份文件 == 指针里那个摘要」，于是把指针指向公司目录里的活报告、
+    并用该文件自己的 sha256 填入 `report_sha256`，一份随时可改的报告就会被读成 `fresh`
+    —— 而它并不是 `value_reports/<run_id>/<sha12>/report.md` 这份冻结产物（AC-5）。
+    """
+
+    company = _company(tmp_path)
+    _run(company, run_id="run-A")
+    _product(company)
+    vp.publish(company)
+    published = json.loads((company / vp.POINTER_NAME).read_text(encoding="utf-8"))
+
+    live = company / "伊利股份_600887_价值分析报告.md"
+    self_signed = {**published, "report": str(live), "report_sha256": vp.sha256_file(live)}
+    (company / vp.POINTER_NAME).write_text(
+        json.dumps(self_signed, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+    current = vp.read_current(company)
+
+    assert current["state"] == "unavailable"
+    assert current["reason"]["code"] == "snapshot_mismatch"
+    assert vp.main(["read", "--company-dir", str(company)]) == 3
+
+
+def test_pointer_pointing_outside_value_reports_is_refused(tmp_path):
+    """回归（O5）：`report` 与 `snapshot_dir` 都在 `value_reports/` 之外时一律不可信。"""
+
+    company = _company(tmp_path)
+    _run(company, run_id="run-A")
+    _product(company)
+    vp.publish(company)
+
+    fake = company / "not_a_snapshot"
+    fake.mkdir()
+    report = fake / "report.md"
+    report.write_text("# 自签报告\n" + "x" * 400, encoding="utf-8")
+    digest = vp.sha256_file(report)
+    (fake / vp.SNAPSHOT_MANIFEST_NAME).write_text(
+        json.dumps({"report_sha256": digest}), encoding="utf-8"
+    )
+    pointer = json.loads((company / vp.POINTER_NAME).read_text(encoding="utf-8"))
+    pointer.update({"report": str(report), "report_sha256": digest, "snapshot_dir": str(fake)})
+    (company / vp.POINTER_NAME).write_text(
+        json.dumps(pointer, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+    current = vp.read_current(company)
+
+    assert current["state"] == "unavailable"
+    assert current["reason"]["code"] == "snapshot_mismatch"
+
+
+def test_pointer_with_a_rehashed_manifest_is_refused(tmp_path):
+    """回归（O5）：冻结目录里的 manifest 摘要被改写后，指针不再被信任。"""
+
+    company = _company(tmp_path)
+    _run(company, run_id="run-A")
+    _product(company)
+    published = vp.publish(company)
+    manifest_path = Path(published["snapshot_dir"]) / vp.SNAPSHOT_MANIFEST_NAME
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["report_sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    current = vp.read_current(company)
+
+    assert current["state"] == "unavailable"
+    assert current["reason"]["code"] == "snapshot_mismatch"
+
+
+def test_published_pointer_is_tied_to_its_own_revision(tmp_path):
+    """正面用例：`publish` 写出的指针必须满足 O5 的绑定关系。"""
+
+    company = _company(tmp_path)
+    _run(company, run_id="run-A")
+    _product(company)
+    published = vp.publish(company)
+
+    current = vp.read_current(company)
+
+    assert current["state"] == "fresh"
+    assert current["snapshot_dir"] == published["snapshot_dir"]
+    assert Path(current["report"]).parent == Path(current["snapshot_dir"])
+    assert Path(current["snapshot_dir"]).is_relative_to(company / vp.VALUE_DIR_NAME / "run-A")
+
+
 def test_read_current_reports_a_missing_report(tmp_path):
     company = _company(tmp_path)
     _run(company, run_id="run-A")

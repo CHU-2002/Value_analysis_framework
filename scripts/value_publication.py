@@ -88,6 +88,7 @@ REASON_POINTER_UNREADABLE = "pointer_unreadable"
 REASON_REPORT_MISSING = "report_missing"
 REASON_DIGEST_MISSING = "digest_missing"
 REASON_DIGEST_MISMATCH = "digest_mismatch"
+REASON_SNAPSHOT_MISMATCH = "snapshot_mismatch"
 REASON_NO_RUN_STORE = "no_run_store"
 REASON_NO_SUCCESSFUL_RUN = "no_successful_run"
 REASON_RUN_NOT_CONSUMABLE = "run_not_consumable"
@@ -563,6 +564,62 @@ def resolve_revision(
 # ---------------------------------------------------------------------------
 
 
+def _resolve_snapshot_dir(company_path: Path, pointer: dict[str, Any]) -> Path | None:
+    """Return the frozen revision a pointer is tied to, or ``None`` (AC-5).
+
+    A pointer is only trusted when **all** of these hold:
+
+    - it carries a digest and a ``snapshot_dir``;
+    - that directory sits under ``value_reports/<source_run>/``;
+    - its ``manifest.json`` records the same digest;
+    - the ``report`` it names is exactly that revision's ``report.md``.
+
+    Anything else means the pointer is not tied to an immutable artifact, so the
+    bytes it names can be rewritten at will — the read entry must refuse it.
+    """
+
+    recorded = pointer.get("report_sha256")
+    snapshot_raw = pointer.get("snapshot_dir")
+    if not isinstance(recorded, str) or not recorded:
+        return None
+    if not isinstance(snapshot_raw, str) or not snapshot_raw:
+        return None
+
+    snapshot = Path(snapshot_raw)
+    if not snapshot.is_absolute():
+        snapshot = company_path / snapshot
+    try:
+        snapshot = snapshot.resolve()
+        expected_root = (company_path / VALUE_DIR_NAME / str(pointer.get("source_run"))).resolve()
+        report_resolved = _resolved_report_path(company_path, pointer)
+    except OSError:  # pragma: no cover - defensive: unreadable/long paths
+        return None
+    if report_resolved is None or not snapshot.is_relative_to(expected_root):
+        return None
+    if report_resolved.parent != snapshot:
+        return None
+
+    manifest = _read_json(snapshot / SNAPSHOT_MANIFEST_NAME)
+    if manifest is None or manifest.get("report_sha256") != recorded:
+        return None
+    return snapshot
+
+
+def _resolved_report_path(company_path: Path, pointer: dict[str, Any]) -> Path | None:
+    """Absolute path of the report a pointer names (``None`` when it has none)."""
+
+    raw = pointer.get("report")
+    if not isinstance(raw, str) or not raw:
+        return None
+    report = Path(raw)
+    if not report.is_absolute():
+        report = company_path / report
+    try:
+        return report.resolve()
+    except OSError:  # pragma: no cover - defensive
+        return None
+
+
 def _period_is_newer(candidate: Any, baseline: Any) -> bool:
     if not isinstance(candidate, str) or not isinstance(baseline, str):
         return False
@@ -597,6 +654,7 @@ def read_current(company_dir: str | Path) -> dict[str, Any]:
         "primary_period": None,
         "report": None,
         "report_sha256": None,
+        "snapshot_dir": None,
         "latest_successful_run": latest,
         "reason": None,
     }
@@ -624,11 +682,6 @@ def read_current(company_dir: str | Path) -> dict[str, Any]:
     base["report"] = str(report_path)
     base["report_sha256"] = pointer.get("report_sha256")
 
-    if not report_path.is_file():
-        return {
-            **base,
-            "reason": _reason(REASON_REPORT_MISSING, f"published report is missing: {report_path}"),
-        }
     recorded = pointer.get("report_sha256")
     if not isinstance(recorded, str) or not recorded:
         # 指针必须自带摘要：否则「指针摘要 == 历史产物摘要」（AC-5）无从校验，
@@ -639,6 +692,28 @@ def read_current(company_dir: str | Path) -> dict[str, Any]:
                 REASON_DIGEST_MISSING,
                 "pointer carries no report digest, so the published bytes cannot be trusted",
             ),
+        }
+
+    # AC-5 的不变量是「指针指向的报告 == 它自己的冻结历史产物」，所以指针必须能被
+    # 钉到 value_reports/<source_run>/<sha12>/ 上，且那份 manifest 的摘要与指针一致。
+    # 只校验「这份文件 == 指针里那个摘要」是不够的：把指针改指到历史目录之外的
+    # 可变报告、再用该文件的自洽摘要「自签」，就能让一份随时可改的报告被读成 fresh。
+    snapshot = _resolve_snapshot_dir(company_path, pointer)
+    if snapshot is None:
+        return {
+            **base,
+            "reason": _reason(
+                REASON_SNAPSHOT_MISMATCH,
+                "pointer is not tied to a frozen revision under "
+                f"{VALUE_DIR_NAME}/{pointer.get('source_run')}/",
+            ),
+        }
+    base["snapshot_dir"] = str(snapshot)
+
+    if not report_path.is_file():
+        return {
+            **base,
+            "reason": _reason(REASON_REPORT_MISSING, f"published report is missing: {report_path}"),
         }
     actual = sha256_file(report_path)
     if actual != recorded:
