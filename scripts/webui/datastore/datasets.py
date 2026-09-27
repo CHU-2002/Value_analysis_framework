@@ -155,11 +155,13 @@ class DataStore:
             found.extend(sorted(base_path.glob(pattern)))
         existing = [path for path in found if path.is_file()]
         for path in existing:
-            # 源文件**自身**也可能是指向树外的符号链接（复验 N3）。
-            if not is_within(path.resolve(), base_path):
+            # 源文件**自身**也可能是指向树外的符号链接（复验 N3）。边界是 **output 根**而不是
+            # `base`：`output/` 之内跨公司目录的符号链接是合法布局，用 base 当边界会误伤
+            # （REQ-009.3 验收预登记的 Q1，独立验收在收口 `.2` 时再次实测到）。
+            if not is_within(path.resolve(), root):
                 raise PathOutsideRoot(
-                    f"源文件 {path.name!r} 指向 base 目录之外（疑似符号链接越界）",
-                    hint="数据层只读 base 目录内的真实文件。",
+                    f"源文件 {path.name!r} 指向 output 根之外（疑似符号链接越界）",
+                    hint="数据层只读 output 根（config.output_root）内的真实文件。",
                 )
         if not existing:
             raise ArtifactMissing(

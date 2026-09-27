@@ -69,6 +69,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--yes", action="store_true", help="确认 bulk 采集调用量预估")
     parser.add_argument("--force", action="store_true", help="显式覆盖已有原始存档")
     parser.add_argument(
+        "--only-gaps",
+        action="store_true",
+        help="只补缺口目标：先按存档结果收敛目标清单（AC-4.6），不重拉已 ok/empty 的部分",
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="只装配（配置 + 插件 + 注册表），打印摘要后退出，不绑定端口",
@@ -127,7 +132,9 @@ def main(argv=None) -> int:
         if not args.profile or not args.ticker:
             print("采集错误：--collect 需要 --profile 与至少一个 --ticker。", file=sys.stderr)
             return 2
-        from .archive import ArchiveBatch, ArchiveStore, resolve_token, targets_for_profile
+        from .archive import (
+            ArchiveBatch, ArchiveStore, gap_targets, resolve_token, targets_for_profile,
+        )
         from .archive.adapters.tushare import TushareAdapter
         from .core.errors import BatchRunning, NoToken, QuotaConfirmRequired
 
@@ -135,7 +142,16 @@ def main(argv=None) -> int:
         try:
             if not token:
                 raise NoToken("未配置 Tushare token", hint="设置 TUSHARE_TOKEN 或在项目 .env 中配置后重试。")
+            store = ArchiveStore(config.archive_root)
             targets = targets_for_profile(args.ticker, args.period or ("latest",), args.profile)
+            if args.only_gaps:
+                # AC-4.6：先按存档结果收敛到缺口，再报调用量——预估与进度都只反映缺口。
+                before = len(targets)
+                targets = gap_targets(targets, store.result_of)
+                print(f"只补缺口：{before} 个目标中 {len(targets)} 个仍需补齐", flush=True)
+                if not targets:
+                    print("没有缺口目标需要补齐（全部已 ok/empty）。", flush=True)
+                    return 0
             estimate = len(targets)
             print(f"调用量预估：{estimate} 次请求（{args.profile}）", flush=True)
             if not args.yes:
@@ -146,7 +162,7 @@ def main(argv=None) -> int:
             batch_id = args.batch_id or ArchiveBatch.create_id()
             print(f"采集批次：{batch_id}", flush=True)
             batch = ArchiveBatch(
-                ArchiveStore(config.archive_root), targets, args.profile,
+                store, targets, args.profile,
                 TushareAdapter(token), token=token, tier_label=args.tier_label,
             ).run(batch_id=batch_id, confirm=args.yes, force=args.force)
         except (BatchRunning, NoToken, QuotaConfirmRequired) as exc:

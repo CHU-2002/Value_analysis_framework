@@ -3,13 +3,16 @@ import hashlib
 import json
 from types import SimpleNamespace
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
 from webui.archive import (
     ArchiveBatch, ArchiveStore, classify_result, completeness, estimate_calls,
-    resolve_token, targets_for_profile, token_fingerprint,
+    gap_targets, resolve_token, targets_for_profile, token_fingerprint,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 from webui.core.errors import NoToken, QuotaConfirmRequired
 from webui.core.context import RequestContext
 from webui.core.registry import build_registry
@@ -75,6 +78,15 @@ def test_missing_token_stops_before_adapter_call(tmp_path):
     with pytest.raises(NoToken):
         batch.run()
     assert adapter.calls == []
+
+    # AC-4.1 的「不存在自动采集路径」判据（独立验收 S5）：采集只能由显式动作触发，
+    # 框架里不许出现定时器 / 调度器 / 启动即采集。
+    framework_source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((REPO_ROOT / "scripts" / "webui").rglob("*.py"))
+    )
+    for banned in ("threading.Timer", "sched.scheduler", "apscheduler", "crontab", "schedule.every"):
+        assert banned not in framework_source, f"框架里出现了自动触发路径：{banned}"
 
 
 def test_bulk_requires_confirmation_before_fetch(tmp_path):
@@ -162,3 +174,18 @@ def test_archive_plugin_shows_completeness_and_machine_readable_gaps(tmp_path):
     response = gaps_route.handler(context, ticker="600887.SH")
     assert response["data"]["counts"]["no_permission"] == 1
     assert response["data"]["gaps"][0]["dataset"] == "yc_cb"
+
+    # AC-4.6（独立验收缺口）：缺口原因必须**接到面板**上，不能只有一条没人引用的路由。
+    gaps_panel = registry.panel_spec("collect.gaps").provider(context)
+    assert gaps_panel["rows"] == [{"ticker": "600887.SH", "period": "20260630",
+                                   "dataset": "yc_cb", "result": "no_permission",
+                                   "reason": "无权限"}]
+    assert gaps_panel["meta"] == {"complete": 1, "total": 2, "gaps": 1}
+
+    # AC-4.6 另一半：只补缺口目标——已 ok/empty 的目标不再进批次。
+    assert gap_targets([_target("income"), denied], store.result_of) == [denied]
+    gap_batch = ArchiveBatch(store, gap_targets([_target("income"), denied], store.result_of),
+                             "frugal", FakeAdapter(), token="secret").run(
+        batch_id="gaps-only", confirm=True)
+    assert gap_batch["progress"] == {"completed": 1, "total": 1}
+    assert gap_batch["usage"]["new_requests"] == 1

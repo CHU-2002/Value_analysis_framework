@@ -894,9 +894,9 @@ def test_check_mode_lists_registered_panels(tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["panels"] == [
         "charts.annual_price", "charts.metrics", "charts.revenue_profit",
-        "collect.archive", "collect.batches", "commands.catalog", "commands.jobs",
-        "companies.artifacts", "companies.list", "demo.future", "demo.table",
-        "report.view", "runs.status", "runs.timeline",
+        "collect.archive", "collect.batches", "collect.gaps", "commands.catalog",
+        "commands.jobs", "companies.artifacts", "companies.list", "demo.future",
+        "demo.table", "report.view", "runs.status", "runs.timeline",
     ]
     assert payload["nav"] == ["collect", "companies", "charts", "report", "runs", "commands", "demo"]
 
@@ -1037,7 +1037,8 @@ def test_table_parser_output_feeds_the_table_panel_contract():
 
 
 def test_datastore_jails_source_level_symlinks_and_uses_samefile(tmp_path):
-    """N3 + N5 回归：源文件级符号链接要被拒；`base` 判定用 samefile，不误伤大小写变体。"""
+    """N3 + N5 + Q1 回归：源文件符号链接**指向 output/ 之外**要被拒；`output/` 之内跨公司目录的
+    合法符号链接不能被误伤（Q1 预登记项，收口 `.2` 时独立验收再次实测）。"""
     config = make_config(tmp_path)
     registry = make_app(config)
     store = DataStore(config, spec_lookup=registry.dataset_spec)
@@ -1056,6 +1057,13 @@ def test_datastore_jails_source_level_symlinks_and_uses_samefile(tmp_path):
                                         parser="test.link", parser_version=1))
     with pytest.raises(PathOutsideRoot):
         store.get("test.link", base=base)
+
+    # Q1：符号链接的真实目标仍在 output/ 之内（例如跨公司目录复用同一份数据包）→ 允许。
+    inner = base / "inner.md"
+    inner.symlink_to(base / "data_pack_market.md")
+    registry.dataset(models.DatasetSpec(name="test.link.inside", sources=("inner.md",),
+                                        parser="test.link", parser_version=1))
+    assert store.get("test.link.inside", base=base)[0] == {"n": 1}
 
     assert security.is_within(base, config.output_root)
     existing_outside = tmp_path / "outside-dir"

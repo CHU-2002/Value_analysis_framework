@@ -72,10 +72,13 @@ def _render_table(rows: list) -> str:
     header = _split_row(rows[0])
     body_rows = rows[2:] if len(rows) > 1 and _TABLE_SEP_RE.match(rows[1]) else rows[1:]
     head_html = "".join(f"<th>{_inline(escape(cell))}</th>" for cell in header)
+    # 表体行也必须先 `_split_row()` 切成单元格再渲染：直接把整行当可迭代对象会**逐字符**
+    # 变成一个 `<td>`（`| ROE | 20 |` → 12 个单字符单元格），表格在面板里根本读不了。
+    # 独立验收 B1 抓到的就是这个（当时的测试只断言 `"<table>" in html`，掩盖了它）。
     body_html = "".join(
-        "<tr>" + "".join(f"<td>{_inline(escape(cell))}</td>" for cell in row) + "</tr>"
-        for row in body_rows
-        if row
+        "<tr>" + "".join(f"<td>{_inline(escape(cell))}</td>" for cell in _split_row(line)) + "</tr>"
+        for line in body_rows
+        if line.strip()
     )
     return f"<table><thead><tr>{head_html}</tr></thead><tbody>{body_html}</tbody></table>"
 
