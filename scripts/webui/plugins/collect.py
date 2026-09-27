@@ -24,13 +24,45 @@ def _manifest(ctx):
     return entries
 
 
-def _archive_summary(ctx):
+def _latest_entries(ctx):
+    """每个（标的, 期次, 数据集）只取最近一条台账 —— 完备度与缺口都按它算。"""
     latest = {}
     for item in _manifest(ctx):
         key = (item.get("ticker", ""), item.get("period", ""), item.get("dataset", ""))
         latest[key] = item
+    return list(latest.values())
+
+
+def _gaps_panel(ctx, **_):
+    """逐缺口原因（AC-4.6）：面板直接列出 no_permission / rate_limited / error 的接口原文摘要，
+    不再只给计数——这段之前只有路由、没有面板引用（独立验收判为死代码）。"""
+    report = completeness(_latest_entries(ctx))
+    rows = [
+        {
+            "ticker": gap.get("ticker", ""),
+            "period": gap.get("period", ""),
+            "dataset": gap.get("dataset", ""),
+            "result": gap.get("result", ""),
+            "reason": gap.get("error_excerpt") or "",
+        }
+        for gap in report["gaps"]
+    ]
+    counts = report["counts"]
+    return {
+        "columns": [
+            {"key": "ticker", "title": "标的"}, {"key": "period", "title": "期次"},
+            {"key": "dataset", "title": "接口"}, {"key": "result", "title": "结果"},
+            {"key": "reason", "title": "原因（接口原文摘要）"},
+        ],
+        "rows": rows,
+        "meta": {"complete": counts["complete"], "total": counts["total"],
+                 "gaps": len(rows)},
+    }
+
+
+def _archive_summary(ctx):
     grouped = {}
-    for item in latest.values():
+    for item in _latest_entries(ctx):
         key = (item.get("ticker", ""), item.get("period", ""))
         grouped.setdefault(key, []).append(item)
     rows = []
@@ -101,8 +133,13 @@ def contribute(registry):
         provider=_batches, size="full",
         description="仅读取本地批次进度与配额消耗；不会触发远程请求。",
     ))
+    registry.panel(PanelSpec(
+        id="collect.gaps", kind="table", title="缺口清单（逐条原因）",
+        provider=_gaps_panel, size="full",
+        description="列出每个缺口接口的结果分类与错误原文摘要；补齐请用 --only-gaps 收敛目标。",
+    ))
     registry.nav(NavItem(id="collect", title="采集存档", group="数据", order=5,
-                         panels=("collect.archive", "collect.batches")))
+                         panels=("collect.archive", "collect.batches", "collect.gaps")))
     registry.route("GET", "/api/v1/collect/batches", lambda ctx, **_: envelope.ok(_batches(ctx)),
                    name="archive batches")
     registry.route("GET", "/api/v1/collect/batches/{batch_id}", _batch_detail, name="archive batch")

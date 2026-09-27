@@ -198,6 +198,9 @@ def test_report_renders_markdown_and_escapes_injection(tmp_path):
     data = call_route(registry, "GET", "/api/v1/companies/111111_甲/report", id=report_id)["data"]
     assert "<h1>标题</h1>" in data["html"]
     assert "<table>" in data["html"] and "<strong>" not in data["html"]
+    # B1 回归（独立验收阻断项）：表格**表体**必须逐单元格渲染，而不是把整行当字符串逐字符拆。
+    assert "<td>ROE</td><td>20</td>" in data["html"]
+    assert "<td>R</td>" not in data["html"] and "<td>O</td>" not in data["html"]
     assert "<script>" not in data["html"] and "&lt;script&gt;alert(1)&lt;/script&gt;" in data["html"]
     assert "javascript:" not in data["html"]           # 危险协议不生成链接
     assert "点我" in data["html"]

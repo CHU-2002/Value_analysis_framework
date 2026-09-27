@@ -38,3 +38,13 @@ def completeness(results):
     counts["total"] = sum(counts.values())
     counts["complete"] = counts["ok"] + counts["empty"]
     return {"counts": counts, "gaps": gaps}
+
+
+def gap_targets(targets, result_of):
+    """从目标清单里**只留缺口**：没有存档、或上次结果不是 `ok`/`empty` 的目标（AC-4.6）。
+
+    这是「按缺口清单只补缺口目标」的入口：高配额账号下先把目标集合收敛到缺口，
+    调用量预估与批次进度就都只反映缺口，补齐后完备度直接收敛。
+    之前只有「重跑整份档案 + 存档去重」这一条近似路径（独立验收 AC-4.6 判为部分成立）。
+    """
+    return [target for target in targets if result_of(target) not in ("ok", "empty")]

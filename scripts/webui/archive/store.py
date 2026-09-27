@@ -54,6 +54,20 @@ class ArchiveStore:
         data_path, meta_path = self._paths(target)
         return json.loads(data_path.read_text(encoding="utf-8")), json.loads(meta_path.read_text(encoding="utf-8"))
 
+    def result_of(self, target):
+        """上次抓取的结果枚举；没有存档或存档损坏时返回 `None`（= 缺口）。
+
+        `None` 与 `empty` 是两回事：前者是「还没拉过」，后者是「拉到了但确实为空」。
+        两者都不该在「补齐缺口」时被当成已完成——但 `empty` 已经在存档里，默认去重会跳过它。
+        """
+        if not self.has(target):
+            return None
+        try:
+            _, meta = self.read(target)
+        except (OSError, ValueError):
+            return None
+        return meta.get("result")
+
     def save(self, target, data, *, result="ok", token_fingerprint="", tier_label="", quota_profile="", error_excerpt=None, token=""):
         data_path, meta_path = self._paths(target)
         raw = _json_bytes(data)

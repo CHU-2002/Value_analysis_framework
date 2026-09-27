@@ -244,7 +244,7 @@ supersedes: TBD
 
 | 编号 | 程度 | 现象 | 去处 |
 |------|------|------|------|
-| **Q1** | 低 | 源文件级 jail 用 `base` 而不是 `output_root` 作为边界，会**误伤** `output/` 之内但跨 `base` 的合法符号链接 | **登记为后续项**（一行改动）：`REQ-009.2` 实现 `charts?dir=` 之前处理，或在 `REQ-006` 任务清单里登记；改完需重跑相关 AC |
+| **Q1** | 低 | 源文件级 jail 用 `base` 而不是 `output_root` 作为边界，会**误伤** `output/` 之内但跨 `base` 的合法符号链接 | **已修复**（2026-09-27，收口 `.1`/`.2` 之前）：`datastore/datasets.py` 的源文件 jail 改为对 `output_root` 判定；N3 用例补了「`output/` 之内合法符号链接放行」断言。独立验收在 `.2` 收口复验时确认 |
 | **Q2** | 低（观察） | `octet-stream`/未知扩展名的静态资源不参与响应脱敏（仓库自带 `static/` 无凭据文件，今天不可达） | **登记为观察**，不修；若将来静态目录可能放敏感内容须重新评估 |
 | **Q3** | 低（观察） | `webbrowser` 是框架里唯一会拉起外部进程的模块（只在启动时打开环回地址，且失败被吞） | **登记为观察**，不修 |
 
@@ -296,15 +296,18 @@ supersedes: TBD
     ③ 条件允许时用高配额账号按缺口清单补齐，记录补齐前后的完备度与调用量统计。
     报告里给出可复制的命令、token 档位标签（**不写 token 本身**）、观察结果与本次发现的问题去处。
 - **2026-09-27 实跑记录（年包低配额档）**：token 从本机 `.env` 读取，未写入命令、批次 JSON 或存档；
-  存档根为 `~/turtle_archive`。H1 批次命令：
-  `make gui-collect ARGS='--profile frugal --ticker 600887.SH --period 20260630 --batch-id req0094-real-frugal-20260927 --yes'`。
+  存档根为 `~/turtle_archive`。H1 批次命令（2026-09-27 补记 `--tier-label`）：
+  `make gui-collect ARGS='--profile frugal --ticker 600887.SH --period 20260630 --batch-id req0094-real-frugal-20260927 --tier-label 年包账号 --yes'`。
   观察：6/6 目标成功（`stock_basic`、`daily`、`income`、`balancesheet`、`cashflow`、`fina_indicator`），
   0 次权限/频率缺口，新增请求 6 次。
-- **断点续跑记录**：年报批次命令：
-  `make gui-collect ARGS='--profile frugal --ticker 600887.SH --period 20251231 --batch-id req0094-real-resume-signal-20260927 --yes'`；
+- **断点续跑记录**：年报批次命令（2026-09-27 补记 `--tier-label`）：
+  `make gui-collect ARGS='--profile frugal --ticker 600887.SH --period 20251231 --batch-id req0094-real-resume-signal-20260927 --tier-label 年包账号 --yes'`；
   进度到 3/6 时发送 SIGINT，批次落盘为 `paused`，随后以完全相同命令恢复。
   最终 6/6 完成；批次摘要记录存档命中 2、新请求尝试 5、失败 0、无权限 0，已完成目标没有重拉。
   本轮未使用高配额账号，未执行缺口补齐；低配额实跑未发现需另登记的问题。
+- **存档盘点补记（2026-09-27，门② 只读核对时发现）**：`~/turtle_archive/batches/` 另有 2 个
+  已 `done` 但未写入本记录的批次（`000858.SZ/20260630`、`600887.SH/20260331`）；
+  不影响上述两条实跑记录的结论，登记于此以免「磁盘状态与记录不符」。
 - 追溯：`tests/test_webui_archive.py`；PR #TBD
 
 ## 范围
@@ -459,6 +462,27 @@ supersedes: TBD
   从页面链接带过来；`core/registry.py` / `router.py` / `routes.py` / `index.html` 的内容
   **未改动**（指纹测试可证），`tests/fixtures/webui_core_fingerprint.json` 已同步更新。
   业务代码全部落在新插件与 `render/markdown_safe.py`、`core/jobs.py` 里。
+- **门② 独立验收发现与处置（2026-09-27，两个独立 agent，均未参与实现）**：`.1`/`.2` 与 `.4` 各出一份
+  报告（`docs/verification/2026-09-28-REQ-009.1-2.md`、`docs/verification/2026-09-28-REQ-009.4.md`）。
+  首轮结论：`.1` 4/4 成立；`.2` 因 B1 不通过；`.4` 因 AC-4.6 部分成立而不通过。发现与去处：
+  - **B1（阻断，`.2` 的 AC-2.3 不成立）**：`render/markdown_safe.py` 的表格**表体**把整行当字符串
+    逐字符渲染（`| ROE | 20 |` → 12 个单字符 `<td>`），面板内表格不可读。**已修**：表体行走
+    `_split_row()`；`tests/test_webui_views.py` 补 `<td>ROE</td><td>20</td>` 契约断言——原来只断言
+    `"<table>" in html`，所以「全绿」掩盖了它。
+  - **AC-4.6（`.4` 部分成立）**：缺口清单「只出不进」——CLI/面板没有「只补缺口目标」入口，
+    逐缺口原因路由是没人引用的死代码。**已修**：`archive.gaps.gap_targets` + `ArchiveStore.result_of`、
+    CLI `--only-gaps`（先按存档结果把目标收敛到缺口，再报调用量与进度）、面板 `collect.gaps`
+    （逐条列出结果分类与错误原文摘要）。
+  - **Q1（`.3` 预登记项）**：按上表修复——源文件 jail 边界改为 `output_root`，不再误伤 `output/`
+    之内的合法符号链接。
+  - **S1（低）**：只含 PDF、无产物 marker 的公司目录不出现在 `/api/v1/companies`——登记为观察，不修
+    （公司目录的判定依据是产物 marker，PDF-only 属异常布局）。
+  - **S2（低）**：短于 8 字符的 token 不参与脱敏（Tushare token 实际长度远超）——沿用既有取舍。
+  - **S4（低）**：用同一 `batch_id` 恢复一个已 `done` 的批次时，已完成目标会按 resume 语义跳过，
+    看起来像「静默空转」——补齐缺口请用 `--only-gaps` + **新的** `batch_id`（或 `--force`）；
+    该约定已写进 `--only-gaps` 的 help 与 `collect.gaps` 面板说明。
+  - **S5（低）**：原先缺「不存在自动采集路径」的断言——**已补**：`tests/test_webui_archive.py` 扫描
+    框架源码，不得出现 `threading.Timer` / `sched.scheduler` / `apscheduler` / `crontab` 等。
 - **登记 PR**：#41（`docs(req): register REQ-009 local GUI console`）；REQ-009.4 实现 PR 为 #63、#64。
 - **Issue**：[#42](https://github.com/CHU-2002/Value_analysis_framework/issues/42)（`[REQ-009]` 功能请求）。
   按 `README.md` §9，Issue 在**验收通过后**才关闭，不在 PR 合并时自动关闭。
