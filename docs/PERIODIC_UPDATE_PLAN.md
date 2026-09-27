@@ -18,6 +18,7 @@
 | 3 | `feat/run-history-ledger` | `version.py` 框架指纹、`runs.py` run-store 与台账、`analysis_status.py` 状态判定 | `scripts/runs.py`、`docs/ARCHITECTURE.md` |
 | 4 | `feat/period-delta-analysis` | `qualitative.period_delta`（D7）、`prior_analysis` 证据源、变化报告与 `/update-analysis` | `shared/qualitative/coordinator_update.md` |
 | 5 | `docs/periodic-update` | 架构/README/CHANGELOG 与下游新鲜度接线 | `docs/ARCHITECTURE.md`、`README.md`、`CHANGELOG.md`、`.claude/commands/value-analysis.md`、`.opencode/commands/value-analysis.md` |
+| 6 | `feat/req010-latest-valuation-publication` | 当前价值报告发布与历史版本保留（REQ-010，见 §8.7） | `scripts/value_publication.py`、`scripts/analysis_status.py`、`tests/test_latest_valuation_publication.py` |
 
 > 各 PR 在合入前都经过**无上下文独立子 agent 的对抗式评审**；评审发现的问题已复现并修复，逐条记录在各 PR 描述中。
 >
@@ -377,6 +378,29 @@ legacy 扁平目录（无 manifest）标 `legacy_layout`；`/business-analysis` 
 - 「整组原子回退」不变：`resolve_qualitative` 仍只认一个 run，`source=legacy/unavailable` 与退出码不变。
 - 新增硬约束：**跨 run 只通过 `supersedes` 台账与变化报告发生关系，绝不混用两个 run 的参数**。
 - `output/` 已 gitignore，台账随输出留本地；如需跨机共享，`scripts/runs.py export --format md` 只导出轻量摘要（不含 PDF 与报告全文）。
+
+### 8.7 当前价值报告发布（REQ-010）
+
+`latest.json` 只描述分析 run；`/update-analysis` 把 `value_computed` 标成 stale 之后，公司目录里的价值报告仍可能被当成最新。REQ-010 为此增加一个**独立的发布指针与不可变历史**，实现落在 `scripts/value_publication.py`：
+
+```
+company_dir/
+  value_report.json                 # 唯一指针：source_run / primary_period / report / report_sha256 / completeness
+  value_reports/
+    {run_id}/revisions.jsonl        # 该 run 的发布日志（追加）
+    {run_id}/{sha12}/report.md      # 组装好的报告（不可变副本，指针指向它）
+    {run_id}/{sha12}/manifest.json  # 来源 run、财报期、完整性摘要、发布时刻
+    {run_id}/{sha12}/artifacts/     # value_computed.{md,json} 的不可变副本
+    failures.jsonl                  # 失败的刷新尝试（追加，永不覆盖成功版本）
+```
+
+- **输入解析（AC-3）**：`publish` 从 `history.jsonl` 取最后一个 `status=complete` 的 run（`latest.json` 可能指向失败 run），并要求该 run 目录仍有 `run_manifest.json`——与消费方 `resolve_qualitative` 的口径一致，避免「发布了一份下游读不到的报告」。解析不到就退出码 3，绝不猜。
+- **产物校验（AC-3/AC-4）**：报告必须存在且非占位，`value_computed.md` / `value_computed.json` 必须存在，后者须能解析且 `schema=investment.value_snapshot`、带 `values.V_base`。校验不通过 → 写一条 `failures.jsonl` 后退出码 2，**指针、报告字节、历史一个都不动**。
+- **发布（AC-3/AC-5）**：报告与确定性产物按 `{run_id}/{sha12}` 冻结（同摘要复用、不同摘要另存），指针用「临时文件 + `os.replace`」原子替换；指针摘要恒等于对应历史产物的摘要。既有 run 目录从不被写入——发布产物只落在 `value_reports/` 下。
+- **读取（AC-1/AC-2）**：`read` 是唯一入口，返回 `state`（`fresh`/`stale`/`unavailable`）+ 来源 run + 财报期 + 报告路径与摘要，退出码 `0`/`1`/`3`。判 stale 的三条：最新成功 run 变了、最新分析财报期晚于价值基准、`record.json:downstream.value_computed=true`；判 unavailable 的：无指针、报告丢失、摘要不一致（被就地改写）。
+- **与 `analysis_status` 的关系（AC-1）**：`evaluate_company` 的输出新增 `latest_successful_run`（台账里最后一个 `complete`）与 `value`（上面那份状态）两块；`downstream_stale` 仍由 `scripts/runs.py downstream --fresh value_computed` 清除，两条线各自表达新鲜度。
+- **失败留痕（AC-4）**：engine 崩溃、没有产物可校验时用 `value_publication.py fail` 只追加一条失败记录，指针不变；状态继续显示 `stale` / `unavailable`。
+- **legacy 目录**：没有 run-store 就没有可归属的 run，`publish` 退出码 3；命令文档要求在这种情况下跳过发布并在报告里声明，**不伪造指针**。
 
 ---
 

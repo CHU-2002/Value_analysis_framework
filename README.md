@@ -111,6 +111,25 @@ export TUSHARE_TOKEN='your_token_here'
 - 变化报告（`change_report_{period}.md`）是独立交付物：只说明最近一段时间经营状况发生了怎样的改变，以及上一版结论是否改变。
 - 增量更新后 `value_computed.json` / `buy_sell_basis.json` 仍属旧财报期，`analysis_status` 会返回 `stale:downstream_stale`（退出码 1）；重跑 `/value-analysis` 与 `/buy-sell-plan` 后用 `scripts/runs.py downstream --company-dir "{company_dir}" --fresh all` 清除标记，状态才回到 `up_to_date`。买卖计划不会自动改写。
 
+### 当前价值报告（REQ-010）
+
+`latest.json` 只指向分析 run；价值报告另有一个指针 `value_report.json`，它记录来源 run、财报期与报告摘要，指向 `value_reports/{run_id}/{sha12}/report.md` 这份不可变副本。
+
+```bash
+# 读取「当前价值分析报告」的唯一入口；退出码 0 最新 / 1 已过期 / 3 不可用
+.venv/bin/python scripts/value_publication.py read --company-dir output/600887_伊利 --json
+
+# /value-analysis 收尾：校验产物 → 冻结历史副本 → 原子更新指针
+.venv/bin/python scripts/value_publication.py publish --company-dir output/600887_伊利
+
+# 按 run 追溯历史版本（同一 run 重算会另存一份，旧版本字节不变）
+.venv/bin/python scripts/value_publication.py resolve --company-dir output/600887_伊利 --run-id <run_id>
+```
+
+- 发布前会解析到**最新成功且可消费**的分析 run；产物不完整（报告缺失/占位、`value_computed.json` 不可解析）时只写 `value_reports/failures.jsonl`，指针与前一份报告**一个字节都不改**。
+- 失败但没有产物可校验时用 `scripts/value_publication.py fail --company-dir ... --reason ...` 登记本次失败。
+- `analysis_status.py` 的输出带上 `latest_successful_run` 与 `value` 两个块：最新分析财报期晚于价值基准时 `value.state=stale`。
+
 ### 本地控制台采集归档（REQ-009.4）
 
 采集只会在显式执行时访问数据源。原始响应默认长期存到仓库外的 `~/turtle_archive/`，可用
@@ -264,6 +283,7 @@ Value_analysis_framework/
 │   ├── version.py                # 框架版本与提示词/代码指纹
 │   ├── runs.py                   # run-store：new/resolve/finish/adopt/export/downstream
 │   ├── analysis_status.py        # 更新判定：最新 / 需增量 / 需全量重跑
+│   ├── value_publication.py      # 当前价值报告：publish/read/resolve/fail + 指针与历史
 │   ├── pdf_preprocessor.py       # 年报章节提取（按期次产出）
 │   ├── value_analysis_engine.py  # 价值分析预计算
 │   ├── buy_sell_plan.py          # 触发式买卖计划：采集当时行情 + 离线生成

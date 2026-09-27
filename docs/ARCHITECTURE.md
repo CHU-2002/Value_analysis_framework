@@ -128,7 +128,7 @@ runs.py finish ─▶ history.jsonl + latest.json + record.json；标记下游 s
 
 - `period_delta`（D7）区分累计与单季口径，核对上次指引/承诺/watchlist 的兑现情况，并在 `requires_full_rerun=true` 时提示上一结论的基础已被推翻。
 - 变化报告是**独立于更新后结论**的交付物：只讲清了什么变化，不重复完整分析。
-- 下游新鲜度：增量 run 完成后 `value_computed.json` / `buy_sell_basis.json` 仍属旧财报期，`record.json:downstream.stale=true`；`analysis_status` 据此返回 `stale:downstream_stale`（退出码 1）。重跑 `/value-analysis`、`/buy-sell-plan` 后用 `python3 scripts/runs.py downstream --company-dir <dir> --fresh value_computed,buy_sell_basis`（或 `--fresh all`）清除标记，状态才会回到 `up_to_date`。买卖计划本身不会被自动改写。
+- 下游新鲜度：增量 run 完成后 `value_computed.json` / `buy_sell_basis.json` 仍属旧财报期，`record.json:downstream.stale=true`；`analysis_status` 据此返回 `stale:downstream_stale`（退出码 1）。重跑 `/value-analysis`、`/buy-sell-plan` 后用 `python3 scripts/runs.py downstream --company-dir <dir> --fresh value_computed,buy_sell_basis`（或 `--fresh all`）清除标记，状态才会回到 `up_to_date`。买卖计划本身不会被自动改写。价值报告一侧另有自己的新鲜度与发布指针，见 §2D。
 
 ### 2C. 运行台账与框架指纹（run-store）
 
@@ -137,6 +137,8 @@ company_dir/
   latest.json      # 当前生效 run 指针
   record.json      # 分析记录卡（覆盖期次、框架、下游新鲜度）
   history.jsonl    # 追加式台账，每个 run 一行
+  value_report.json          # 当前生效价值报告指针（REQ-010）
+  value_reports/             # 不可变价值报告历史 + 失败记录（REQ-010）
   sources/pdf/     # 原始输入（PDF、`pdf_sections_{period}.json`、`sources_index.json`）
   runs/{run_id}/
     run.json       # kind / primary_period / supersedes / framework
@@ -149,6 +151,29 @@ company_dir/
 - `scripts/runs.py adopt` 把既有的扁平目录接管为基线 run（默认非破坏，`--prune` 才清理旧布局），并同步重写 manifest / `evidence/index.json` / `contexts/*.json` 中的输入摘要、仅对被改写的产物重盖哈希；若源目录的产物与 manifest 记录不一致则**拒绝接管**（不洗白既有篡改）。接管后仍可被 `resolve_qualitative` 消费。
 - `scripts/analysis_status.py` 是「要不要重跑、跑哪一级」的唯一决策点：退出码 `0` 最新、`1` 需增量更新、`3` 需全量重跑、`2` 参数错误；`--root --all --json` 输出全仓重跑清单。
 - `scripts/runs.py downstream --fresh` 是唯一能清除 `downstream.stale` 的入口；缺少它时增量工作流会永久停留在退出码 1（该缺口由实现期评会发现并补齐）。
+
+### 2D. 当前价值报告发布（`/value-analysis` 的收尾，REQ-010）
+
+`latest.json` 只描述分析 run，不描述价值报告：公司目录里可能同时存在一份基于旧财报期的价值报告和一份新 run 的分析结论。`scripts/value_publication.py` 把两者分开，并提供「当前价值报告」的唯一入口：
+
+```
+company_dir/
+  value_report.json              # 唯一指针：来源 run / 财报期 / 报告 sha256 / 完整性摘要
+  value_reports/
+    {run_id}/
+      revisions.jsonl            # 该 run 的发布日志（追加）
+      {sha12}/
+        report.md                # 组装好的价值报告（不可变副本，指针指向它）
+        manifest.json            # 来源 run、财报期、完整性摘要、发布时刻
+        artifacts/               # value_computed.md + value_computed.json 的不可变副本
+    failures.jsonl               # 失败的刷新尝试（追加，永不覆盖成功版本）
+```
+
+- 发布（`value_publication.py publish`）：先把输入解析到**最新成功且可消费**的分析 run（`complete` + 存在 `run_manifest.json`，否则退出码 3），再校验产物（报告存在且非占位、`value_computed.{md,json}` 存在、`value_computed.json` 可解析且 `schema=investment.value_snapshot` 带 `values.V_base`）。校验不通过则记 `failures.jsonl` 并退出码 2，**指针、报告字节、历史全部不动**。
+- 读取（`value_publication.py read`）：唯一入口，返回 `state`（`fresh` / `stale` / `unavailable`）+ 来源 run + 财报期 + 报告路径与摘要；退出码 `0` / `1` / `3`。`stale` 的判据是「最新成功分析 run 更新了、最新分析财报期晚于价值基准、或 `record.json:downstream.value_computed=true`」；`unavailable` 覆盖无指针、报告丢失与摘要不一致（被就地改写）。
+- 追溯（`value_publication.py resolve --run-id`）：按 run id 解析历史版本；同一 run 重算产生新摘要时**另存一份**（`{run_id}/{sha12}/`），旧版本字节不变，指针摘要始终等于对应历史产物。
+- `scripts/analysis_status.py` 的输出新增 `latest_successful_run` 与 `value` 两个块（REQ-010 AC-1）：`latest_run` 可能失败，`latest_successful_run` 取台账里最后一个 `complete` 的 run；`value` 就是上面那份新鲜度状态。
+- 失败记录（`value_publication.py fail`）：engine 崩溃、没有产物可校验时使用；只追加一条 `failures.jsonl`，指针不变。
 
 ### 3. 下游消费
 

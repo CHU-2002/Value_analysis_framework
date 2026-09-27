@@ -1,11 +1,11 @@
 ---
 id: REQ-010
 title: 最新价值分析报告发布与历史版本保留
-status: accepted
+status: in-progress
 priority: P1
 owner: CHU-2002
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-09-28
 issue: "#61"
 design: docs/PERIODIC_UPDATE_PLAN.md
 milestone: TBD
@@ -73,10 +73,10 @@ supersedes: TBD
 
 | 项 | 内容 |
 |----|------|
-| 设计文档 | `docs/PERIODIC_UPDATE_PLAN.md` |
+| 设计文档 | `docs/PERIODIC_UPDATE_PLAN.md` §8.7 |
 | 实现 PR | TBD |
-| 测试 | `tests/test_latest_valuation_publication.py` |
-| 文档更新 | README、架构说明与变更日志待实现时同步 |
+| 测试 | `tests/test_latest_valuation_publication.py`（另在 `tests/test_analysis_status.py` 断言状态输出新增的 `latest_successful_run` / `value` 块） |
+| 文档更新 | `README.md`（「当前价值报告」小节 + 目录树）、`docs/ARCHITECTURE.md` §2C/§2D、`docs/PERIODIC_UPDATE_PLAN.md` §8.7、`CHANGELOG.md`、`.claude/commands/value-analysis.md` 与 `.opencode/commands/value-analysis.md`（Step 4 发布与失败登记） |
 
 ## 备注
 

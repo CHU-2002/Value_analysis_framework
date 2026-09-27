@@ -51,7 +51,36 @@ def test_up_to_date_is_exit_zero(tmp_path):
     assert result["primary_period"] == "2025FY"
     assert result["subject"] == {"ticker": "600887.SH", "company": "伊利股份", "market": "CN"}
     assert exit_code_for(result) == 0
-    assert set(result) == {"subject", "state", "recommended_action", "reasons", "latest_run", "primary_period"}
+    assert set(result) == {
+        "subject",
+        "state",
+        "recommended_action",
+        "reasons",
+        "latest_run",
+        "primary_period",
+        # REQ-010 AC-1: the latest successful run and the value product are
+        # resolved separately, and the value product carries its own freshness.
+        "latest_successful_run",
+        "value",
+    }
+    assert result["latest_successful_run"] == {
+        "run_id": "20260919T221000000000Z",
+        "primary_period": "2025FY",
+        "kind": "baseline",
+        "status": "complete",
+    }
+    assert result["value"] == {
+        "state": "unavailable",
+        "basis": "run-store",
+        "source_run": None,
+        "primary_period": None,
+        "report": None,
+        "report_sha256": None,
+        "reason": {
+            "code": "no_pointer",
+            "detail": "no published value report (value_report.json); run /value-analysis to publish one",
+        },
+    }
 
 
 def test_local_new_report_requests_incremental_update(tmp_path):
