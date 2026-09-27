@@ -228,7 +228,7 @@ Issue 在**验收通过后**才关闭（`verified`），不在 PR 合并时自�
 | ~~REQ-008~~ | 覆盖率洼地补测 → 并入 REQ-006 的 T4 | `superseded` |
 
 子需求（`REQ-NNN.S`）见 [`ledger.md`](ledger.md) 的「子需求台账」表；当前有 `REQ-006.1`、`REQ-006.2`
-（均为 `verified`）、`REQ-009.1` / `REQ-009.2`（`accepted`）、`REQ-009.4`（`in-progress`）
+（均为 `verified`）、`REQ-009.1` / `REQ-009.2`（`accepted`）、`REQ-009.4`（`implemented`）
 与 `REQ-009.3`（`verified`）。`REQ-001`…`REQ-006` 在子需求机制建立前登记，按 §6.1 不回填。
 
 > **编号顺序 ≠ 交付顺序**：`REQ-009` 的交付顺序是 `REQ-009.3`（可扩展框架，先）→ `REQ-009.4`
