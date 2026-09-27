@@ -20,7 +20,7 @@
 | [REQ-010](REQ-010-latest-valuation-publication.md) | 最新价值分析报告发布与历史版本保留 | `accepted` | P1 | #61 | TBD | `tests/test_latest_valuation_publication.py` |
 | [REQ-011](REQ-011-unified-data-acquisition.md) | 一次性全量数据获取与统一原始数据仓 | `accepted` | P1 | #73 | TBD | `tests/test_data_store.py` `tests/test_data_pull.py` `tests/test_offline_rebuild.py` |
 | [REQ-012](REQ-012-console-v2.md) | 控制台 2.0（公司上下文 + 任务式交互 + 视图质量） | `accepted` | P1 | #74 | TBD | `tests/test_console_context.py` `tests/test_console_actions.py` `tests/test_console_views.py` `tests/test_console_data_page.py` |
-| [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `accepted` | P1 | #75 | TBD | `tests/test_agent_action.py` |
+| [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `accepted` | P1 | #75 | #77 | `tests/test_agent_action.py` |
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
 
@@ -48,8 +48,8 @@
 | [REQ-012.2](REQ-012-console-v2.md) | REQ-012 | 任务式动作层 | `accepted` | TBD | `tests/test_console_actions.py` |
 | [REQ-012.3](REQ-012-console-v2.md) | REQ-012 | 视图质量与口径修正 | `accepted` | TBD | `tests/test_console_views.py` |
 | [REQ-012.4](REQ-012-console-v2.md) | REQ-012 | 数据页（依赖 REQ-011） | `accepted` | TBD | `tests/test_console_data_page.py` |
-| [REQ-013.1](REQ-013-agent-cli-report.md) | REQ-013 | 包装脚本与动作白名单 | `accepted` | TBD | `tests/test_agent_action.py` |
-| [REQ-013.2](REQ-013-agent-cli-report.md) | REQ-013 | 最小界面（一键页） | `accepted` | TBD | `tests/test_agent_action.py` |
+| [REQ-013.1](REQ-013-agent-cli-report.md) | REQ-013 | 包装脚本与动作白名单 | `accepted` | #77 | `tests/test_agent_action.py` |
+| [REQ-013.2](REQ-013-agent-cli-report.md) | REQ-013 | 最小界面（一键页） | `accepted` | #77 | `tests/test_agent_action.py` |
 | [REQ-013.3](REQ-013-agent-cli-report.md) | REQ-013 | 提交前预检、完整命令行与产出链接 | `accepted` | TBD | `tests/test_agent_action.py` |
 
 > **编号按登记顺序，交付按「交付顺序」**：`REQ-009` 的交付顺序为

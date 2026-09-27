@@ -9,7 +9,7 @@ updated: 2026-09-28
 issue: "#75"
 design: docs/CONSOLE_V2_PLAN.md
 milestone: TBD
-pr: TBD
+pr: "#77"
 depends-on: REQ-009, REQ-009.1, REQ-012
 supersedes: TBD
 ---
