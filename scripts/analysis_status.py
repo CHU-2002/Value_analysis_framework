@@ -34,6 +34,11 @@ try:
 except ImportError:  # Support importing with scripts/ on sys.path.
     from results.manifest import validate_manifest_inputs
 
+try:
+    from scripts.value_publication import latest_successful_run, value_status
+except ImportError:  # Support importing with scripts/ on sys.path.
+    from value_publication import latest_successful_run, value_status
+
 def _lazy_discover_periods(ticker: str):
     """Import the network-capable discovery module only when actually needed."""
 
@@ -250,12 +255,25 @@ def evaluate_company(
     latest = _load_json(company_path / "latest.json")
     subject = _subject(company_path, record, ticker)
 
+    # REQ-010 AC-1: resolve the latest *successful* analysis run and the latest
+    # successful value product separately, and report the value product's source
+    # run, fiscal period and freshness alongside the analysis verdict. Read once
+    # here so every early return carries the same two blocks.
+    successful_run = latest_successful_run(company_path)
+    value_block = value_status(company_path)
+
+    def _result(**kwargs: Any) -> dict[str, Any]:
+        payload = _build_result(**kwargs)
+        payload["latest_successful_run"] = successful_run
+        payload["value"] = value_block
+        return payload
+
     if subject.get("ticker") and not is_supported_market(subject.get("ticker"), subject.get("market")):
         # An explicitly requested ticker is always classified on its market; a
         # ticker merely guessed from a directory name only triggers this when it
         # actually looks like a stock code (so "mycompany/" is not "unsupported").
         if ticker is not None or _looks_like_stock_code(subject.get("ticker")) or subject.get("market"):
-            return _build_result(
+            return _result(
                 state=STATE_UNSUPPORTED_MARKET,
                 action=ACTION_NONE,
                 reasons=[_reason("unsupported_market", f"only A-share subjects are supported: {subject.get('ticker')}")],
@@ -266,7 +284,7 @@ def evaluate_company(
 
     if latest is None and record is None:
         if _has_legacy_artifacts(company_path):
-            return _build_result(
+            return _result(
                 state=STATE_LEGACY_LAYOUT,
                 action=ACTION_FULL_RERUN,
                 reasons=[_reason("legacy_layout", "flat artifacts without latest.json/record.json; adopt or rerun")],
@@ -274,7 +292,7 @@ def evaluate_company(
                 primary_period=None,
                 subject=subject,
             )
-        return _build_result(
+        return _result(
             state=STATE_NO_RECORD,
             action=ACTION_FULL_RERUN,
             reasons=[_reason("no_record", "no run-store ledger and no legacy artifacts")],
@@ -284,7 +302,7 @@ def evaluate_company(
         )
 
     if latest is None or record is None:
-        return _build_result(
+        return _result(
             state=STATE_BROKEN,
             action=ACTION_FULL_RERUN,
             reasons=[_reason("incomplete_ledger", "latest.json and record.json must both exist")],
@@ -301,7 +319,7 @@ def evaluate_company(
         run_dir = company_path / run_dir
     run_dir = run_dir.resolve()
     if not run_dir.is_dir() or not (run_dir / "run.json").is_file():
-        return _build_result(
+        return _result(
             state=STATE_BROKEN,
             action=ACTION_FULL_RERUN,
             reasons=[_reason("run_dir_missing", f"latest run directory is missing or incomplete: {run_dir}")],
@@ -367,7 +385,7 @@ def evaluate_company(
             reasons.append(_reason("inputs_changed", "; ".join(errors[:5])))
 
     if not reasons:
-        return _build_result(
+        return _result(
             state=STATE_UP_TO_DATE,
             action=ACTION_NONE,
             reasons=[],
@@ -378,7 +396,7 @@ def evaluate_company(
 
     codes = {reason["code"] for reason in reasons}
     action = ACTION_REPORT_UPDATE if codes <= {"new_report", "downstream_stale"} else ACTION_FULL_RERUN
-    return _build_result(
+    return _result(
         state=STATE_STALE,
         action=action,
         reasons=reasons,

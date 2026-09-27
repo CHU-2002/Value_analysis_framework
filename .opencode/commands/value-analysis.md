@@ -80,6 +80,21 @@ This command only produces the research report and the frozen `value_computed.js
 - Read `output/{code}_{company}/data_pack_report.md` if available for footnote-level validation
 - Produce `output/{code}_{company}/{company}_{code}_价值分析报告.md`
 
+### Step 4: Publish the current value report (REQ-010)
+After the report file exists, publish it as the single current value report and clear only the component this command refreshed:
+```bash
+.venv/bin/python scripts/value_publication.py publish --company-dir "{output_dir}" --report "{output_dir}/{company}_{code}_价值分析报告.md"
+.venv/bin/python scripts/runs.py downstream --company-dir "{output_dir}" --fresh value_computed
+```
+- `publish` first resolves the latest **successful and consumable** analysis run (`{output_dir}/latest.json` + `runs/<run_id>/run_manifest.json`); without a run-store it exits `3` — say so in the report and skip publication (legacy flat layout has no current-report pointer).
+- It then validates the product (report exists and is not a stub, `value_computed.md` / `value_computed.json` present and parsable). On success it freezes an immutable copy under `{output_dir}/value_reports/<run_id>/<sha12>/` and atomically updates `{output_dir}/value_report.json`; the pointer names the source run, the fiscal period and the report digest.
+- **On validation failure it exits `2` and changes nothing** — the previous report and pointer stay byte-identical, and the attempt is appended to `{output_dir}/value_reports/failures.jsonl`. Report that failure; never present the old report as current.
+- If the run crashed before any product existed, record the attempt instead of publishing:
+  ```bash
+  .venv/bin/python scripts/value_publication.py fail --company-dir "{output_dir}" --reason "<what failed>" --detail "<key error>"
+  ```
+- Verify the outcome (exit `0` fresh / `1` stale / `3` unavailable): `.venv/bin/python scripts/value_publication.py read --company-dir "{output_dir}" --json`
+
 ## Method Requirements
 - Do **not** use Graham-style net asset discounting as the primary thesis
 - Use future cash-flow discounting / owner earnings thinking as the core valuation logic

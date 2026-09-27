@@ -19,6 +19,15 @@
 
 ### Added
 
+- REQ-010 当前价值报告发布与历史版本保留：`scripts/value_publication.py` 把「最新分析 run」与
+  「最新价值报告」分开——`publish` 先解析到最新**成功且可消费**（`complete` + `run_manifest.json`）
+  的分析 run 并校验产物（报告非占位、`value_computed.{md,json}` 齐全、快照 schema 与 `values.V_base` 合规），
+  再把报告与确定性产物按 `{run_id}/{sha12}` 冻结到 `value_reports/` 并原子替换 `value_report.json` 指针；
+  校验失败只追加 `failures.jsonl`，指针、报告字节与历史一个都不动。`read` 是唯一读取入口
+  （`fresh` / `stale` / `unavailable` + 来源 run、财报期、摘要；退出码 0/1/3），`resolve --run-id`
+  按 run 追溯历史版本（同一 run 重算另存一份，旧版本字节不变），`fail` 登记无产物可校验的失败尝试。
+  `analysis_status.py` 输出新增 `latest_successful_run` 与 `value` 两块，最新分析财报期晚于价值基准时
+  `value.state=stale`
 - REQ-009.1 按键执行器与任务生命周期：既有 12 个脚本入口 + `runs` 6 个子命令 + 定性管线 4 步
   全部成为白名单按键（参数表由各脚本 `argparse` 源码**静态扫描**得出，与真实 CLI 双向一致）；
   任务提交立即返回、异步执行并给出退出码与日志尾部；拒绝路径（未知命令 / 未声明参数 / 缺必填 /
