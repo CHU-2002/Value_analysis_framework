@@ -85,13 +85,21 @@ def test_bulk_requires_confirmation_before_fetch(tmp_path):
     assert adapter.calls == []
 
 
+def test_frugal_requires_confirmation_before_fetch(tmp_path):
+    adapter = FakeAdapter()
+    batch = ArchiveBatch(ArchiveStore(tmp_path / "archive"), [_target()], "frugal", adapter, token="secret")
+    with pytest.raises(QuotaConfirmRequired, match="frugal"):
+        batch.run()
+    assert adapter.calls == []
+
+
 def test_successful_archive_is_deduplicated_on_new_batch(tmp_path):
     store = ArchiveStore(tmp_path / "archive")
     target = _target()
     first = FakeAdapter()
-    result = ArchiveBatch(store, [target], "frugal", first, token="secret").run(batch_id="first")
+    result = ArchiveBatch(store, [target], "frugal", first, token="secret").run(batch_id="first", confirm=True)
     second = FakeAdapter()
-    again = ArchiveBatch(store, [target], "frugal", second, token="secret").run(batch_id="second")
+    again = ArchiveBatch(store, [target], "frugal", second, token="secret").run(batch_id="second", confirm=True)
     assert result["status"] == "done"
     assert again["usage"]["archive_hits"] == 1
     assert second.calls == []
@@ -102,13 +110,17 @@ def test_interrupted_batch_resumes_only_unfinished_targets(tmp_path):
     targets = [_target("income"), _target("balancesheet"), _target("cashflow")]
     adapter = FakeAdapter(fail_at=2)
     with pytest.raises(KeyboardInterrupt):
-        ArchiveBatch(store, targets, "frugal", adapter, token="secret").run(batch_id="resume-me")
+        ArchiveBatch(store, targets, "frugal", adapter, token="secret").run(
+            batch_id="resume-me", confirm=True
+        )
     saved = store.load_batch("resume-me")
     assert saved["status"] == "paused"
     saved["owner_pid"] = 999999999
     store.append_batch(saved)
     resumed = FakeAdapter()
-    result = ArchiveBatch(store, targets, "frugal", resumed, token="secret").run(batch_id="resume-me")
+    result = ArchiveBatch(store, targets, "frugal", resumed, token="secret").run(
+        batch_id="resume-me", confirm=True
+    )
     assert resumed.calls == ["balancesheet", "cashflow"]
     assert result["status"] == "done"
     assert result["usage"]["new_requests"] == 4
@@ -143,6 +155,10 @@ def test_archive_plugin_shows_completeness_and_machine_readable_gaps(tmp_path):
     assert table["rows"] == [{"ticker": "600887.SH", "period": "20260630",
                               "completeness": "1/2", "permissions": 1,
                               "rate_limited": 0, "errors": 0}]
-    response = registry.routes()[0].handler(context, ticker="600887.SH")
+    assert registry.has_panel("collect.batches")
+    batches = registry.routes()[0].handler(context)
+    assert batches["data"]["rows"] == []
+    gaps_route = next(route for route in registry.routes() if route.template.endswith("/gaps"))
+    response = gaps_route.handler(context, ticker="600887.SH")
     assert response["data"]["counts"]["no_permission"] == 1
     assert response["data"]["gaps"][0]["dataset"] == "yc_cb"

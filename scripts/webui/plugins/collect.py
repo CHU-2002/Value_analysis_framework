@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from ..archive.gaps import completeness
 from ..core import envelope
+from ..core.errors import NotFound
 from ..core.models import NavItem, PanelSpec
 
 
@@ -45,6 +47,44 @@ def _archive_summary(ctx):
     ], "rows": rows}
 
 
+def _batches(ctx):
+    rows = []
+    batch_dir = Path(ctx.config.archive_root) / "batches"
+    for path in sorted(batch_dir.glob("*.json")) if batch_dir.is_dir() else ():
+        try:
+            batch = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        progress = batch.get("progress", {})
+        usage = batch.get("usage", {})
+        rows.append({
+            "batch_id": batch.get("batch_id", path.stem),
+            "profile": batch.get("profile", ""),
+            "status": batch.get("status", ""),
+            "completed": progress.get("completed", 0),
+            "total": progress.get("total", len(batch.get("targets", []))),
+            "new_requests": usage.get("new_requests", 0),
+            "archive_hits": usage.get("archive_hits", 0),
+            "no_permission": usage.get("no_permission", 0),
+        })
+    return {"columns": [
+        {"key": "batch_id", "title": "批次"}, {"key": "profile", "title": "档案"},
+        {"key": "status", "title": "状态"}, {"key": "completed", "title": "已完成"},
+        {"key": "total", "title": "总数"}, {"key": "new_requests", "title": "新增请求"},
+        {"key": "archive_hits", "title": "命中存档"}, {"key": "no_permission", "title": "无权限"},
+    ], "rows": rows}
+
+
+def _batch_detail(ctx, batch_id, **_):
+    path = Path(ctx.config.archive_root) / "batches" / f"{batch_id}.json"
+    try:
+        return envelope.ok(json.loads(path.read_text(encoding="utf-8")))
+    except FileNotFoundError as exc:
+        raise NotFound(f"没有采集批次 {batch_id!r}", hint="检查批次 ID 或先显式运行一次采集。") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"采集批次 {batch_id!r} 记录损坏") from exc
+
+
 def _gaps(ctx, ticker, **_):
     report = completeness(item for item in _manifest(ctx) if item.get("ticker") == ticker)
     return envelope.ok({"ticker": ticker, **report})
@@ -56,6 +96,14 @@ def contribute(registry):
         provider=_archive_summary, size="full",
         description="仅读取本地原始存档台账；采集由显式 CLI 命令触发。",
     ))
+    registry.panel(PanelSpec(
+        id="collect.batches", kind="table", title="采集批次进度",
+        provider=_batches, size="full",
+        description="仅读取本地批次进度与配额消耗；不会触发远程请求。",
+    ))
     registry.nav(NavItem(id="collect", title="采集存档", group="数据", order=5,
-                         panels=("collect.archive",)))
+                         panels=("collect.archive", "collect.batches")))
+    registry.route("GET", "/api/v1/collect/batches", lambda ctx, **_: envelope.ok(_batches(ctx)),
+                   name="archive batches")
+    registry.route("GET", "/api/v1/collect/batches/{batch_id}", _batch_detail, name="archive batch")
     registry.route("GET", "/api/v1/companies/{ticker}/gaps", _gaps, name="archive gaps")

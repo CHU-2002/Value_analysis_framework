@@ -125,16 +125,18 @@ def main(argv=None) -> int:
             return 2
         from .archive import ArchiveBatch, ArchiveStore, resolve_token, targets_for_profile
         from .archive.adapters.tushare import TushareAdapter
-        from .core.errors import NoToken, QuotaConfirmRequired
+        from .core.errors import BatchRunning, NoToken, QuotaConfirmRequired
 
         token = resolve_token()
         try:
             if not token:
                 raise NoToken("未配置 Tushare token", hint="设置 TUSHARE_TOKEN 或在项目 .env 中配置后重试。")
             targets = targets_for_profile(args.ticker, args.period or ("latest",), args.profile)
-            if args.profile == "bulk" and not args.yes:
+            estimate = len(targets)
+            print(f"调用量预估：{estimate} 次请求（{args.profile}）", flush=True)
+            if not args.yes:
                 raise QuotaConfirmRequired(
-                    f"本批预计 {len(targets)} 次请求，需要显式确认。",
+                    f"本批（{args.profile}）预计 {estimate} 次请求，需要显式确认。",
                     hint="复核调用量后使用 --yes 确认。",
                 )
             batch_id = args.batch_id or ArchiveBatch.create_id()
@@ -143,7 +145,7 @@ def main(argv=None) -> int:
                 ArchiveStore(config.archive_root), targets, args.profile,
                 TushareAdapter(token), token=token, tier_label=args.tier_label,
             ).run(batch_id=batch_id, confirm=args.yes, force=args.force)
-        except (NoToken, QuotaConfirmRequired) as exc:
+        except (BatchRunning, NoToken, QuotaConfirmRequired) as exc:
             print(f"采集错误 [{exc.code}]：{exc.message}\n提示：{exc.hint}", file=sys.stderr)
             return 2
         except KeyboardInterrupt:
