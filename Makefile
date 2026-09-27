@@ -2,7 +2,7 @@
 PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python)
 COV_MIN ?= 74
 
-.PHONY: help test unit cov lint trace scope scope-write scope-check regression-check gates verify clean-pyc gui gui-check
+.PHONY: help test unit cov lint trace scope scope-write scope-check regression-check gates verify clean-pyc gui gui-check gui-collect
 
 help:  ## 显示可用目标
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -55,6 +55,9 @@ gui:  ## 启动本地图形化控制台（只监听 127.0.0.1，不联网）
 
 gui-check:  ## 只装配控制台（配置 + 插件 + 注册表）并打印摘要，不绑定端口
 	$(PYTHON) -m scripts.webui --check
+
+gui-collect:  ## 显式运行采集批次：make gui-collect ARGS='--profile frugal --ticker 600887.SH'
+	$(PYTHON) -m scripts.webui --collect $(ARGS)
 
 clean-pyc:  ## 清理 __pycache__
 	find scripts tests -name '__pycache__' -type d -prune -exec rm -rf {} +

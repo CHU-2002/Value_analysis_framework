@@ -496,16 +496,18 @@ scripts/webui/
 └── webui.config.sample.json # 配置样例（真实配置 webui.config.json 用 .gitignore 忽略）——待补
 ```
 
-> **实现进度（2026-09-21）**：`config.py`、`core/*`（models / registry / router / routes /
+> **实现进度（2026-09-27）**：`config.py`、`core/*`（models / registry / router / routes /
 > envelope / errors / security / server / context）、`datastore/*`（cache / datasets / parsers +
 > `markdown_tables`）、`render/panels.py`、`plugins/__init__.py`、`__main__.py`、
 > `static/`（index/app/style/kinds）已完成并有 30 条用例（REQ-009.3 → `implemented`，PR #44）；
-> `archive/*`（REQ-009.4）与三个功能插件（`commands.py` / `companies.py` / `charts.py` /
-> `run_history.py` / `collect.py`）尚未实现。
+> REQ-009.4 正在实现：`archive/` 已有批次、配额、原始存档、token 指纹、断点恢复与缺口分类；
+> `plugins/collect.py` 提供只读完备度面板与缺口 API；2026-09-27 已完成低配额真实采集与断点续跑，
+> 证据和命令见 REQ-009.4 的实跑记录；高配额账号补缺口实跑尚未执行。
+> `commands.py`（REQ-009.1）与视图插件（REQ-009.2）尚未实现。
 > 服务端渲染的 kind（table / timeline / stat / markdown / fallback）**不需要** `static/kinds/` 下的文件，
 > 原因见 §6.1。
 
-`Makefile` 增加：`gui`（启动）、`gui-cache-clear`（清派生缓存）、`gui-collect`（跑一个采集批次，需 `--batch` 或 `--profile`）。
+`Makefile` 增加：`gui`（启动）、`gui-cache-clear`（清派生缓存）、`gui-collect`（显式跑采集批次，需 `--profile` 与 `--ticker`）。
 测试：`tests/test_webui_framework.py`、`tests/test_webui_archive.py`、`tests/test_webui_server.py`、`tests/test_webui_views.py`。
 
 ## 12. 既有功能如何落到插件（首版四个插件）
@@ -527,7 +529,7 @@ scripts/webui/
 | 文件 | 覆盖 | 用例预算 | 手法 |
 |------|------|----------|------|
 | `tests/test_webui_framework.py` | REQ-009.3：AC-3.1~AC-3.7 + **AC-9（演示插件 + 核心指纹）** + 门② 两轮验收的缺口回归（D1~D10、N1~N9） | ≤ 42（实际 42） | 起真实服务绑 `127.0.0.1:0`（随机端口）；`tmp_path` 造 `output/` 与演示插件；网络用 stub 禁掉；解析器用计数假解析器 |
-| `tests/test_webui_archive.py` | REQ-009.4：AC-4.1~AC-4.7 | ≤ 8 | `tmp_path` 当存档根；**假采集适配器**（返回预设响应或抛权限/频率错误），0 次真实请求；断言批次断点续跑与缺口分类；token 用假值断言"只出现指纹" |
+| `tests/test_webui_archive.py` | REQ-009.4：AC-4.1~AC-4.7 | ≤ 9 | `tmp_path` 当存档根；**假采集适配器**（返回预设响应或抛权限/频率错误），0 次真实请求；断言批次断点续跑与缺口分类；token 用假值断言"只出现指纹" |
 | `tests/test_webui_server.py` | REQ-009.1：AC-1.1~AC-1.4 | ≤ 7 | `sys.executable -c` 假命令（不跑真实脚本、不联网）；断言不启动子进程的拒绝路径 |
 | `tests/test_webui_views.py` | REQ-009.2：AC-2.1~AC-2.5 | ≤ 7 | `tmp_path` 造假公司目录与 `data_pack_market.md`；XSS 注入用例 |
 

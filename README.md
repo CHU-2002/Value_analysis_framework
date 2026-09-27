@@ -111,6 +111,25 @@ export TUSHARE_TOKEN='your_token_here'
 - 变化报告（`change_report_{period}.md`）是独立交付物：只说明最近一段时间经营状况发生了怎样的改变，以及上一版结论是否改变。
 - 增量更新后 `value_computed.json` / `buy_sell_basis.json` 仍属旧财报期，`analysis_status` 会返回 `stale:downstream_stale`（退出码 1）；重跑 `/value-analysis` 与 `/buy-sell-plan` 后用 `scripts/runs.py downstream --company-dir "{company_dir}" --fresh all` 清除标记，状态才回到 `up_to_date`。买卖计划不会自动改写。
 
+### 本地控制台采集归档（REQ-009.4）
+
+采集只会在显式执行时访问数据源。原始响应默认长期存到仓库外的 `~/turtle_archive/`，可用
+`WEBUI_ARCHIVE_ROOT` 或 `python -m scripts.webui --archive-root <目录>` 更改；浏览控制台不会触发采集。
+
+```bash
+# 查看本地控制台
+make gui
+
+# 日常低配额档案；标的和期次可重复传入
+make gui-collect ARGS='--profile frugal --ticker 600887.SH --period 20260630'
+
+# bulk 会先显示请求数并要求确认；确认后显式加 --yes
+make gui-collect ARGS='--profile bulk --ticker 600887.SH --period 20260630 --yes --tier-label 租用账号'
+```
+
+采集前需在 `.env` 配置 `TUSHARE_TOKEN` 或导出同名环境变量。中断后用原 `--batch-id` 恢复；
+已有成功存档默认跳过，只有显式 `--force` 才覆盖。
+
 ### 直接跑 Python 脚本
 
 **取数据**

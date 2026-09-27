@@ -56,6 +56,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="清空派生缓存后退出（只丢「算出来的」数据，不动源文件，也不联网）",
     )
+    parser.add_argument("--collect", action="store_true", help="显式运行一次远程采集批次")
+    parser.add_argument("--ticker", action="append", default=[], help="采集标的（可重复，如 600887.SH）")
+    parser.add_argument("--period", action="append", default=[], help="财务期次（可重复，如 20260630）")
+    parser.add_argument("--profile", choices=("frugal", "bulk"), help="采集配额档案")
+    parser.add_argument("--batch-id", help="恢复已有采集批次")
+    parser.add_argument("--tier-label", default="", help="账号档位标签，不要填写 token")
+    parser.add_argument("--yes", action="store_true", help="确认 bulk 采集调用量预估")
+    parser.add_argument("--force", action="store_true", help="显式覆盖已有原始存档")
     parser.add_argument(
         "--check",
         action="store_true",
@@ -110,6 +118,42 @@ def main(argv=None) -> int:
         removed = registry.datastore.invalidate()
         print(f"已清空派生缓存：{removed} 个文件（下次访问会自动重建；源数据与原始存档均未受影响）")
         return 0
+
+    if args.collect:
+        if not args.profile or not args.ticker:
+            print("采集错误：--collect 需要 --profile 与至少一个 --ticker。", file=sys.stderr)
+            return 2
+        from .archive import ArchiveBatch, ArchiveStore, resolve_token, targets_for_profile
+        from .archive.adapters.tushare import TushareAdapter
+        from .core.errors import NoToken, QuotaConfirmRequired
+
+        token = resolve_token()
+        try:
+            if not token:
+                raise NoToken("未配置 Tushare token", hint="设置 TUSHARE_TOKEN 或在项目 .env 中配置后重试。")
+            targets = targets_for_profile(args.ticker, args.period or ("latest",), args.profile)
+            if args.profile == "bulk" and not args.yes:
+                raise QuotaConfirmRequired(
+                    f"本批预计 {len(targets)} 次请求，需要显式确认。",
+                    hint="复核调用量后使用 --yes 确认。",
+                )
+            batch_id = args.batch_id or ArchiveBatch.create_id()
+            print(f"采集批次：{batch_id}", flush=True)
+            batch = ArchiveBatch(
+                ArchiveStore(config.archive_root), targets, args.profile,
+                TushareAdapter(token), token=token, tier_label=args.tier_label,
+            ).run(batch_id=batch_id, confirm=args.yes, force=args.force)
+        except (NoToken, QuotaConfirmRequired) as exc:
+            print(f"采集错误 [{exc.code}]：{exc.message}\n提示：{exc.hint}", file=sys.stderr)
+            return 2
+        except KeyboardInterrupt:
+            print("采集已暂停；使用相同 --batch-id 可从未完成目标继续。", file=sys.stderr)
+            return 130
+        except Exception as exc:  # noqa: BLE001 - CLI reports a concise failure, never token content
+            print(f"采集失败：{type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+        print(json.dumps(batch, ensure_ascii=False, indent=2))
+        return 0 if batch["status"] == "done" else 1
 
     if args.check:
         print(
