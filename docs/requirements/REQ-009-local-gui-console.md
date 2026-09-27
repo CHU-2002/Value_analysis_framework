@@ -100,15 +100,16 @@ supersedes: TBD
 | 交付顺序 | 编号 | 切片 | 状态 |
 |----------|------|------|------|
 | **1** | `REQ-009.3` | 可扩展框架与本地数据层（微内核 / 插件注册表 / 面板协议 / 数据缓存 / API 契约 / 安全中间件） | `verified` |
-| **2** | `REQ-009.4` | 手动触发的远程采集与长期存档（批次 / 配额档案 / 原始存档 / 断点续跑 / 权限缺口清单） | `implemented` |
-| 3 | `REQ-009.1` | 按键执行器（命令白名单 + 异步任务 + 日志与取消） | `implemented` |
-| 4 | `REQ-009.2` | 报告浏览、图表与迭代台账视图 | `implemented` |
+| **2** | `REQ-009.4` | 手动触发的远程采集与长期存档（批次 / 配额档案 / 原始存档 / 断点续跑 / 权限缺口清单） | `verified` |
+| 3 | `REQ-009.1` | 按键执行器（命令白名单 + 异步任务 + 日志与取消） | `verified` |
+| 4 | `REQ-009.2` | 报告浏览、图表与迭代台账视图 | `verified` |
 
 ### REQ-009.1 按键执行器与任务生命周期
 
-- 状态：`implemented`
-- 状态说明：实现与测试已随特性分支合入 `main`（`core/jobs.py` + `plugins/commands.py` +
-  `static/kinds/form.js` / `jobs.js`），测试见 `tests/test_webui_server.py`；独立验收（门②）尚未进行。
+- 状态：`verified`
+- 状态说明：PR #66 合入 `main` → 门② 独立验收发现 `.2` 的阻断项 B1（与本片无关）→ PR #67 修复
+  → 独立评审者在基线 `039e139` 上复验 **`AC-1.1`~`AC-1.4` 全部成立、无阻断项**，推进 `verified`。
+  验收报告 [`docs/verification/2026-09-28-REQ-009.1-2.md`](../verification/2026-09-28-REQ-009.1-2.md)。
 - 目标：既有入口全部变成可点的按键，点下去就能跑、能看到进展与结果。
 - 验收标准：
   - **AC-1.1**：`POST /api/v1/jobs` 提交任务后**立即**返回任务 id（HTTP 不阻塞到命令结束）；
@@ -120,14 +121,15 @@ supersedes: TBD
     且**不启动任何子进程**；命令不以 `shell=True` 执行；并发任务数有上限，超限返回 429。
   - **AC-1.4**：任务历史落盘（任务 id、命令、参数、退出码、起止时间、日志尾部），
     面板重启后仍能查看已完成任务；落盘日志与响应里的 token 一律脱敏。
-- 追溯：`tests/test_webui_server.py`；PR #TBD
+- 追溯：`tests/test_webui_server.py`；PR #66
 
 ### REQ-009.2 报告浏览、图表与迭代台账视图
 
-- 状态：`implemented`
-- 状态说明：实现与测试已随特性分支合入 `main`（`plugins/companies.py`、`charts.py`、
-  `run_history.py`、`render/markdown_safe.py`），测试见 `tests/test_webui_views.py`；
-  独立验收（门②）尚未进行。
+- 状态：`verified`
+- 状态说明：PR #66 合入 `main` → 门② 独立验收发现阻断项 B1（Markdown 表格表体逐字符渲染，
+  `AC-2.3` 不成立）→ PR #67 修复 → 独立评审者在基线 `039e139` 上复验 **`AC-2.1`~`AC-2.5`
+  全部成立**（`AC-2.3` 由「不成立」改判成立），推进 `verified`。
+  验收报告 [`docs/verification/2026-09-28-REQ-009.1-2.md`](../verification/2026-09-28-REQ-009.1-2.md)。
 - 目标：不跑命令也能看懂已有产出——读报告、看图表、看迭代记录。
 - 验收标准：
   - **AC-2.1**：`GET /api/v1/companies` 返回 `output/` 下全部公司目录及其最近一次 run 与 `primary_period`；
@@ -143,7 +145,7 @@ supersedes: TBD
   - **AC-2.5**：`GET /api/v1/companies/{dir}/runs` 按时间倒序返回 `history.jsonl` 的 run 列表并标出
     `latest.json` 指向的当前 run；变化型 run 给出 `supersedes` 与 `conclusions_changed`；
     `history.jsonl` 缺失时返回空时间线。
-- 追溯：`tests/test_webui_views.py`；PR #TBD
+- 追溯：`tests/test_webui_views.py`；PR #66
 
 ### REQ-009.3 可扩展框架与本地数据层
 
@@ -250,7 +252,11 @@ supersedes: TBD
 
 ### REQ-009.4 手动触发的远程采集与长期存档
 
-- 状态：`implemented`
+- 状态：`verified`
+- 状态说明：PR #63 / #64 合入 `main` → 门② 独立验收首轮判 `AC-4.6` 部分成立（缺口清单「只出不进」、
+  逐缺口原因路由是死代码）→ PR #67 补齐 `--only-gaps` 与 `collect.gaps` 面板 → 独立评审者在基线
+  `039e139` 上复验 **`AC-4.1`~`AC-4.8` 全部成立**（`AC-4.6` 改判成立），推进 `verified`。
+  验收报告 [`docs/verification/2026-09-28-REQ-009.4.md`](../verification/2026-09-28-REQ-009.4.md)。
 - 目标：让「租一次高权限账号、一口气拉全、之后长期不拉」成为一等公民——拉全、存住、不重复拉、
   缺什么一眼看得见。
 - 背景（使用者的真实用法）：目前是**只能拉很少数据的 Tushare 年包**；将来会**短时间租用高积分账号**，
@@ -308,7 +314,7 @@ supersedes: TBD
 - **存档盘点补记（2026-09-27，门② 只读核对时发现）**：`~/turtle_archive/batches/` 另有 2 个
   已 `done` 但未写入本记录的批次（`000858.SZ/20260630`、`600887.SH/20260331`）；
   不影响上述两条实跑记录的结论，登记于此以免「磁盘状态与记录不符」。
-- 追溯：`tests/test_webui_archive.py`；PR #TBD
+- 追溯：`tests/test_webui_archive.py`；PR #63、#64（实现）、#67（门② 缺口修复）
 
 ## 范围
 
@@ -451,10 +457,10 @@ supersedes: TBD
   据此预算已调整：留痕见 `scripts/test_scope.py` 的注释、REQ-006 的 AC-7 变更记录与任务 T7、
   `docs/TESTING.md` §5、`docs/DEVELOPMENT.md` §14。本需求预计落在 **1586/1800（88%）、37/48**。
   **纪律不变**：不得为了让新测试挤进预算而删断言、加 `skip` 或放宽门禁；下次接近新上限仍先清理。
-- **交付进度**：`REQ-009.3`（框架与数据层）已由 PR #44 合入并验收；`REQ-009.4` 已由 PR #63
-  合入、并由 PR #64 补齐独立复核发现的 AC 缺口；`.1`（按键执行器）与 `.2`（视图）由 PR #66
-  实现，四片均为 `implemented` 或 `verified`，只待独立验收（门②）与 AC-8 实跑。
-  父需求在四片全部 `verified` 且 AC-8 实跑留档之前不推进。
+- **交付进度**：`REQ-009.3`（框架与数据层）由 PR #44 / #45 合入并验收；`REQ-009.4` 由 PR #63 / #64
+  合入；`.1`（按键执行器）与 `.2`（视图）由 PR #66 实现。门② 独立验收首轮判 `.2` 的 `AC-2.3`
+  与 `.4` 的 `AC-4.6` 不成立/部分成立，由 PR #67 修复后**复验全部通过**——四片现已全部 `verified`。
+  父需求只剩 `AC-8` 实跑留档，完成后才能推进 `verified`。
 - **框架演进留痕（2026-09-27，实现 `.1` / `.2` 时）**：这两片是框架的第一个真实用例，
   过程中只改动了两个「扩展面」文件，均属框架能力补齐而非业务硬编码：
   `core/server.py` 增加请求体读取（POST 接口需要，`ctx.body` 原本恒为空）、
@@ -483,9 +489,24 @@ supersedes: TBD
     该约定已写进 `--only-gaps` 的 help 与 `collect.gaps` 面板说明。
   - **S5（低）**：原先缺「不存在自动采集路径」的断言——**已补**：`tests/test_webui_archive.py` 扫描
     框架源码，不得出现 `threading.Timer` / `sched.scheduler` / `apscheduler` / `crontab` 等。
-- **登记 PR**：#41（`docs(req): register REQ-009 local GUI console`）；REQ-009.4 实现 PR 为 #63、#64。
+  - **S7（低）**：`REQ-009.4` 的追溯行原写 `PR #TBD`——**已修**为 #63、#64（实现）与 #67（门② 缺口修复）。
+  - **R1（低，复验新增）**：`--only-gaps` 的 CLI 分支在仓库测试里零覆盖（`gap_targets` 与面板有测试）。
+    **登记为后续项**：补一条 CLI 级用例需要动 `tests/test_webui_archive.py`，会把 REQ-009 四文件用例数
+    顶到 AC-7 上限 64/64；按「先清理再谈上调」的纪律，留到下次清理时一并补，不在收口 PR 里做。
+  - **R2（低，复验新增）**：`ArchiveStore.result_of` 的 docstring 写「`empty` 不该被当成已完成」，
+    但实现把 `empty` 计为已完成（默认去重语义）——行为正确、措辞误导，**登记为后续文案修正**
+    （收口后改代码会使本次 `verified` 失效，故不在本 PR 动）。
+  - **R3（低，复验新增）**：`--only-gaps` 在「没有缺口」时仍先要求 token（`resolve_token()` 在缺口判断
+    之前调用）——不影响 AC-4.1 的「未配 token 给 `NO_TOKEN`」判据，**登记为后续顺序调整**。
+- **登记 PR**：#41（`docs(req): register REQ-009 local GUI console`）；REQ-009.4 实现 PR 为 #63、#64，
+  门② 缺口修复 PR 为 #67。
 - **Issue**：[#42](https://github.com/CHU-2002/Value_analysis_framework/issues/42)（`[REQ-009]` 功能请求）。
+  四片的跟踪 Issue 分别是 #51（`.4`）、#52（`.1`）、#53（`.2`）；
   按 `README.md` §9，Issue 在**验收通过后**才关闭，不在 PR 合并时自动关闭。
+- **交付状态（2026-09-27）**：四片**全部 `verified`**——`.3`（PR #44/#45）、`.4`（#63/#64）、
+  `.1`/`.2`（#66，门② 缺口由 #67 修复后复验通过）。父需求 `REQ-009` 只剩 **`AC-8` 真实浏览器实跑**：
+  使用者按该条逐页点开后，在「## 实跑记录」留档（命令 + 环境 + 观察），父需求才推进 `verified`
+  并关闭 Issue #42/#51/#52/#53。
 - **交付顺序**：`REQ-009.3`（框架）→ `REQ-009.4`（采集与存档）→ `REQ-009.1`（按键执行器）→
   `REQ-009.2`（视图）→ 父需求收口（AC-8 实跑）。四者都 `verified` 后父需求才能推进，由追溯门禁强制。
   采集排在按键执行器之前，是因为它先于「给既有脚本配按钮」提供了本项目真正需要的取数能力**存档化**。
