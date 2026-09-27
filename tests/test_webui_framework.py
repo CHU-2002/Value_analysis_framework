@@ -1,4 +1,6 @@
-# 覆盖需求：REQ-009.3（可扩展框架与本地数据层）—— AC-3.1 内核与启动、AC-3.2 注册表与扩展点、
+# 覆盖需求：REQ-009（父需求：AC-6 安全边界与 AC-9 可扩展性不变量——其余父需求 AC 由同批四个
+# webui 测试文件与 scripts/gui_walkthrough.py 共同覆盖）、REQ-009.3（可扩展框架与本地数据层）
+# —— AC-3.1 内核与启动、AC-3.2 注册表与扩展点、
 # AC-3.3 声明式面板协议、AC-3.6 API 契约与稳定错误码、AC-3.7 安全中间件；
 # 以及父需求 AC-9（新增 GUI 功能不得修改框架核心，由「演示插件 + 核心文件指纹」判定）
 """框架层测试：内核、注册表、面板协议、契约、安全。
@@ -14,6 +16,7 @@
 import ast
 import hashlib
 import json
+import os
 import socket
 import threading
 import time
@@ -582,12 +585,31 @@ def test_safe_join_blocks_traversal_absolute_paths_and_symlinks(tmp_path):
         pytest.skip("本平台不支持创建符号链接")
 
     assert security.safe_join(root, "ok", "a.txt").read_text(encoding="utf-8") == "hi"
-    # 父需求验收复验 N1：`%00` 解码出的 NUL 会让 `Path.resolve()` 抛
-    # `ValueError: embedded null character in path`，此前一路冒到 HTTP 面变成 **500 INTERNAL**。
-    # 非法片段与越界同级——必须是可预期的 `PathOutsideRoot`（403），不能是 500。
+    # 父需求验收复验 V6/N2：**不可用的片段**与越界同级，必须是可预期的 `PathOutsideRoot`（403），
+    # 不能是 500。三类各自的失败方式不同，所以三条都要钉：
+    #   NUL      → `resolve()` 抛 ValueError: embedded null character
+    #   符号链接环 → CPython 3.12 的 `check_eloop` 把它换成 **RuntimeError**（不是 OSError）
+    #   超长片段  → `resolve()` **根本不抛**（realpath 容忍 lstat 失败），
+    #               ENAMETOOLONG 只在下游 glob/read_text 才冒出来
     for bad in (("b\x00ad",), ("a", "b\x00")):
         with pytest.raises(PathOutsideRoot):
             security.safe_join(root, *bad)
+    loop = root / "loop"
+    try:
+        loop.symlink_to(loop)
+    except (OSError, NotImplementedError):  # pragma: no cover - 平台不支持符号链接
+        pass
+    else:
+        with pytest.raises(PathOutsideRoot):
+            security.safe_join(root, "loop", "x.txt")
+    name_max = os.pathconf(tmp_path, "PC_NAME_MAX")
+    path_max = os.pathconf(tmp_path, "PC_PATH_MAX")
+    for bad in (("a" * (name_max + 1),), ):
+        with pytest.raises(PathOutsideRoot):
+            security.safe_join(root, *bad)
+    # 总长超 PATH_MAX：每段都合法，拼起来超限（MAC 与 Linux 的 PATH_MAX 差 4 倍，故按实测值算）
+    with pytest.raises(PathOutsideRoot):
+        security.safe_join(root, *(["d" * 20] * (path_max // 20 + 2)))
     for bad in (
         ("..", "outside", "secret.txt"),
         (str(outside / "secret.txt"),),

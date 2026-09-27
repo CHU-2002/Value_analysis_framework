@@ -41,15 +41,30 @@ def reject_shell_metachars(name: str, value) -> None:
             )
 
 
+def _pathconf(path: Path, name: str, fallback: int) -> int:
+    """问文件系统要一个限额（`PC_NAME_MAX` / `PC_PATH_MAX`）；拿不到就用保守默认值。"""
+    try:
+        return int(os.pathconf(path, name))
+    except (OSError, ValueError, AttributeError):  # pragma: no cover - 平台不支持 pathconf
+        return fallback
+
+
 def safe_join(root: Path, *parts: str) -> Path:
     """把 `parts` 拼到 `root` 下，并保证结果仍在 `root` 子树内。
 
     - 先 `resolve()` 再比较：`..`、绝对路径、**指向树外的符号链接**都会被识别（AC-3.7）；
     - 允许目标不存在（读操作会自己报 404），但绝不允许逃出 root；
-    - **非法路径片段**（NUL 字节等）与越界同等对待：它们必须变成可预期的 4xx，
-      而不是让 `resolve()` 抛出去变成 500 INTERNAL（父需求验收复验 N1）。
+    - **不可用的路径片段**与越界同等对待，必须是可预期的 4xx，而不是 500 INTERNAL：
+      NUL 字节、符号链接环、超过文件系统 `NAME_MAX` 的片段、总长超过 `PATH_MAX` 的路径
+      （父需求验收复验 `V6`/`N2`）。这三类各自的失败方式还不一样——NUL 让 `resolve()` 抛
+      `ValueError`；环让它在 CPython 3.12 抛 **`RuntimeError`**（`check_eloop` 把
+      `OSError(ELOOP)` 换掉了）；超长片段**根本不抛**，只是在下游 `glob`/`read_text`
+      才爆 `OSError: File name too long`——所以这里既要用 `pathconf` 提前判长度，
+      也要把 `resolve()` 的三种异常一起兜住。
     """
     root_resolved = Path(root).resolve()
+    name_max = _pathconf(root_resolved, "PC_NAME_MAX", 255)
+    path_max = _pathconf(root_resolved, "PC_PATH_MAX", 1024)
     candidate = root_resolved
     for part in parts:
         if part in ("", "."):
@@ -57,7 +72,7 @@ def safe_join(root: Path, *parts: str) -> Path:
         if part.startswith("/") or part.startswith("\\"):
             raise PathOutsideRoot(
                 f"不接受绝对路径：{part!r}",
-                hint="只允许 output/ 下的相对路径。",
+                hint="只允许相对路径片段。",
             )
         if "\x00" in part:
             # 显式拦下：`Path.resolve()` 遇到内嵌 NUL 会抛 `ValueError: lstat: embedded
@@ -66,14 +81,25 @@ def safe_join(root: Path, *parts: str) -> Path:
                 "路径片段含 NUL 字节",
                 hint="路径里不能出现 NUL 等非法字符。",
             )
+        if len(os.fsencode(part)) > name_max:
+            # 超长片段不会让 `resolve()` 抛错，却会在下游炸成 500（见 docstring）。
+            raise PathOutsideRoot(
+                "路径片段超过文件系统的名字长度上限",
+                hint=f"单个片段最多 {name_max} 字节。",
+            )
         candidate = candidate / part
+    if len(os.fsencode(candidate)) > path_max:
+        raise PathOutsideRoot(
+            "路径总长超过文件系统的上限",
+            hint=f"解析后的路径最多 {path_max} 字节。",
+        )
     try:
         resolved = candidate.resolve()
-    except (OSError, ValueError) as exc:
-        # 兜底：符号链接环（OSError/ELOOP）、超长路径、其它非法片段都算「不接受」，
-        # 不能逃成 500。这里刻意不把异常原文回给浏览器（P3/D9 的取舍）。
+    except (OSError, ValueError, RuntimeError) as exc:
+        # 兜底：符号链接环（CPython 3.12 抛 RuntimeError）、其它无法解析的链接或非法片段。
+        # 刻意不把异常原文回给浏览器（P3/D9 的取舍）。
         raise PathOutsideRoot(
-            "路径不可用（含非法字符或无法解析的链接）",
+            "路径不可用（含非法字符、符号链接环或无法解析的链接）",
             hint=f"只允许访问 {root_resolved} 之下的普通相对路径。",
         ) from exc
     if not is_within(resolved, root_resolved):

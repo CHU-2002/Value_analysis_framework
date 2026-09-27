@@ -50,12 +50,14 @@
   64 条上限，并从 `find_route` 一路断言到 handler（入口在「解码顺序」，只测 handler 会漏）。
   同一条链路的通用入口（`match()` 的解码顺序）登记为观察项 V2，与下一次框架演进一起处理
 
-- **健壮性（`AC-3.6`，父需求验收复验 V6）**：路径参数里带 `%00` 时曾返回 **500 INTERNAL**——
-  `%00` 解码成 NUL 后进 `safe_join()`，`Path.resolve()` 抛
-  `ValueError: lstat: embedded null character in path` 一路冒到 HTTP 面。
-  `core/security.py::safe_join` 现在显式拦 NUL，并给 `resolve()` 加 `(OSError, ValueError)`
-  兜底（符号链接环、超长路径同样归为 `PathOutsideRoot` → 403）。修在共用 helper 而不是各调用点，
-  与 E1 同一个道理；回归断言加进现有用例（守住 `AC-7` 的 64 条上限）。
+- **健壮性（`AC-3.6`，父需求验收复验 V6 / V7）**：路径参数里带 `%00`、`output/<公司>` 本身是
+  **符号链接环**、或片段/路径超长时，都曾返回 **500 INTERNAL**。三类的失败方式还不一样：
+  NUL 让 `Path.resolve()` 抛 `ValueError`；环在 CPython 3.12 被 `check_eloop` 换成
+  **`RuntimeError`**；超长片段**根本不抛**，`ENAMETOOLONG` 只在下游 `glob`/`read_text` 才冒出来。
+  `core/security.py::safe_join` 现在显式拦 NUL、兜底改为
+  `except (OSError, ValueError, RuntimeError)`，并用 `os.pathconf` 的 `PC_NAME_MAX` /
+  `PC_PATH_MAX` 在拼接时提前判长度（问文件系统要限额，不写死数字）。
+  修在共用 helper 而不是各调用点，与 E1 同一个道理；回归断言加进现有用例（守住 `AC-7` 的 64 条上限）。
 
 - 浏览器实跑走查（`AC-8` 前置）发现的 **E1 / 阻断**：前端 shell 的「当前选择」只在**客户端面板取数**时
   转发，拉**页面描述**时没转发——真实浏览器里从公司页点进图表 / 报告 / 迭代记录页，
