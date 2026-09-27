@@ -86,6 +86,7 @@ REASON_NEWER_PERIOD = "newer_period"
 REASON_NO_POINTER = "no_pointer"
 REASON_POINTER_UNREADABLE = "pointer_unreadable"
 REASON_REPORT_MISSING = "report_missing"
+REASON_DIGEST_MISSING = "digest_missing"
 REASON_DIGEST_MISMATCH = "digest_mismatch"
 REASON_NO_RUN_STORE = "no_run_store"
 REASON_NO_SUCCESSFUL_RUN = "no_successful_run"
@@ -629,8 +630,18 @@ def read_current(company_dir: str | Path) -> dict[str, Any]:
             "reason": _reason(REASON_REPORT_MISSING, f"published report is missing: {report_path}"),
         }
     recorded = pointer.get("report_sha256")
+    if not isinstance(recorded, str) or not recorded:
+        # 指针必须自带摘要：否则「指针摘要 == 历史产物摘要」（AC-5）无从校验，
+        # 一份被就地改写的报告就会因为「没有摘要可对」而被读成 current。
+        return {
+            **base,
+            "reason": _reason(
+                REASON_DIGEST_MISSING,
+                "pointer carries no report digest, so the published bytes cannot be trusted",
+            ),
+        }
     actual = sha256_file(report_path)
-    if recorded and actual != recorded:
+    if actual != recorded:
         return {
             **base,
             "reason": _reason(
