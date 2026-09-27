@@ -224,7 +224,7 @@ Issue 在**验收通过后**才关闭（`verified`），不在 PR 合并时自�
 | [REQ-005](REQ-005-periodic-update-docs.md) | 增量更新文档与下游接线 | `verified` |
 | [REQ-006](REQ-006-requirement-test-dev-flow.md) | 工程化开发流程（建立与持续维护） | `verified`（子需求 `REQ-006.1`、`REQ-006.2` 均已 `verified`） |
 | [REQ-009](REQ-009-local-gui-console.md) | 本地图形化控制台（可扩展框架 + 按键执行 + 股票图表 + 报告与迭代记录浏览） | `verified`（子需求 `REQ-009.1`…`REQ-009.4` 均已 `verified`） |
-| [REQ-010](REQ-010-latest-valuation-publication.md) | 最新价值分析报告发布与历史版本保留 | `in-progress` |
+| [REQ-010](REQ-010-latest-valuation-publication.md) | 最新价值分析报告发布与历史版本保留 | `verified` |
 | [REQ-011](REQ-011-unified-data-acquisition.md) | 一次性全量数据获取与统一原始数据仓 | `accepted` |
 | [REQ-012](REQ-012-console-v2.md) | 控制台 2.0（公司上下文 + 任务式交互 + 视图质量） | `accepted` |
 | [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `accepted` |
