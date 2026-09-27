@@ -88,7 +88,13 @@ Validate each with `python3 -m scripts.results.validate_result "{run_dir}/module
 ### Step 6: Reconcile and synthesize
 Pass the same module set (four core + `period_delta` + optional `holding_structure`) to both:
 ```bash
-python3 -m scripts.results.reconcile_results ... --output "{run_dir}/synthesis/reconciliation.json"
+python3 -m scripts.results.reconcile_results ... \
+  --prior-input "{company_dir}/runs/<previous run_id>/modules/business_moat/result.json" \
+  --prior-input "{company_dir}/runs/<previous run_id>/modules/environment/result.json" \
+  --prior-input "{company_dir}/runs/<previous run_id>/modules/governance/result.json" \
+  --prior-input "{company_dir}/runs/<previous run_id>/modules/mda_quality/result.json" \
+  --prior-input "{company_dir}/runs/<previous run_id>/modules/period_delta/result.json" \
+  --output "{run_dir}/synthesis/reconciliation.json"
 python3 -m scripts.results.synthesis ... --output "{run_dir}/synthesis/context.json"
 ```
 Then run the Final Synthesis Agent (`shared/qualitative/agents/final_synthesis.md`) to write the updated `{run_dir}/qualitative_report.md` and `{run_dir}/synthesis/result.json`, including a short 「本次更新说明」 section.

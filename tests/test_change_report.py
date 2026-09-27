@@ -349,6 +349,8 @@ class TestPriorEvidenceDowngrade:
         assert payload["prior_synthesis"]["summary"]["thesis"]
         assert payload["prior_synthesis"]["evidence"] == []
         assert payload["prior_synthesis"]["claims"][0]["evidence_ids"] == []
+        assert payload["prior_synthesis"]["claims"][0]["evidence_status"] == "unavailable"
+        assert payload["prior_synthesis"]["claims"][0]["unavailable_evidence_ids"]
 
     def test_compatible_prior_evidence_is_kept(self, tmp_path):
         index = _write_index(tmp_path)

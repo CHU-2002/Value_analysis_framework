@@ -723,9 +723,19 @@ def build_module_context(
                 retained_coverage[coverage_key] = "omitted"
         retained_coverage.update(rendered_coverage)
         context_text = "\n\n".join(blocks)
+        # 每条交付给模块的引文都必须能在同一 bundle 的 context_text 中逐字核对。
+        # 附注源、上一轮结论和同一段落的后续窗口不属于上面的原始段落，因此把它们
+        # 作为带来源标记的证据摘录追加进去，而不是交付一个只能回索引查证的悬空引用。
+        missing_context_blocks: list[str] = []
+        for entry in evidence:
+            quote = entry.get("quote", "")
+            if quote and quote not in context_text:
+                missing_context_blocks.append(
+                    f"[Evidence {entry['evidence_id']}]\n{quote}"
+                )
+        if missing_context_blocks:
+            context_text = "\n\n".join([context_text, *missing_context_blocks])
         # F13 的可判定形式：每条引文是否能在 context_text 里逐字核对。
-        # 附注源（pdf_footnotes）与「同一段落的第 2+ 块」本来就不在 context_text 里，
-        # 这类引文只能回 evidence/index.json 核对——必须显式标出，不能含糊。
         quotes_not_in_context: list[str] = []
         for entry in evidence:
             in_context = bool(entry["quote"]) and entry["quote"] in context_text

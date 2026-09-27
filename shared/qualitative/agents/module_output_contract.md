@@ -12,7 +12,7 @@ Read only:
 
 Do not read the complete annual report, the complete `data_pack_market.md`, another module's report, or historical output directories unless the coordinator explicitly requests a targeted evidence lookup.
 
-The context bundle contains canonical `run`, `subject`, bounded `context_text`, and `evidence` objects with exact excerpts. Copy `run.run_id` and `subject` exactly. Set your own `run.generated_at`, evidence-supported `run.as_of`, and result `run.status`; never copy the context's `prepared` status into a result. Use only the supplied evidence identifiers; do not invent identifiers.
+The context bundle contains canonical `run`, `subject`, bounded `context_text`, and `evidence` objects with exact excerpts. Copy `run.run_id` and `subject` exactly. Set your own `run.generated_at`, evidence-supported `run.as_of`, and result `run.status`; never copy the context's `prepared` status into a result. Copy the context `input_digest` when present; `reconcile_results --prior-input` uses it to detect non-deterministic judgement changes when the same input is processed twice. Use only the supplied evidence identifiers; do not invent identifiers.
 
 Check `selection.evidence_coverage`, `selection.missing_pdf_sections`, and section truncation metadata. A coverage value is the selected evidence ID, `missing` (no indexed entry for that source/section), or `omitted` (available but outside this bundle's budget). A selected entry establishes excerpt coverage, not completeness of the section or factual verification. For a material gap, request a bounded lookup by source/section from the coordinator or record it in `quality.missing_inputs` and use `partial`. Missing/truncated guarantees, litigation or integrity records do not establish absence of risk or an adverse finding.
 
@@ -29,7 +29,8 @@ Write valid JSON, not a Markdown code fence, to the requested `result.json` path
     "run_id": "{run_id}",
     "generated_at": "{ISO-8601 timestamp}",
     "as_of": "{latest supported date}",
-    "status": "complete"
+    "status": "complete",
+    "input_digest": "{copy from context when present}"
   },
   "subject": {
     "ticker": "{ticker}",

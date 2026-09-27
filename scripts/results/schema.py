@@ -475,12 +475,17 @@ def compact_result(
     }
     selected_claims: list[dict[str, Any]] = []
     referenced_ids: list[str] = []
+    omitted_claims: list[dict[str, Any]] = []
     for claim in result.get("claims", []):
-        if len(selected_claims) >= max_claims or not isinstance(claim, dict):
-            break
+        if not isinstance(claim, dict):
+            continue
+        if len(selected_claims) >= max_claims:
+            omitted_claims.append({"claim_id": claim.get("claim_id"), "reason": "claim_budget"})
+            continue
         claim_references = list(dict.fromkeys(claim.get("evidence_ids", [])))
         new_references = [ref for ref in claim_references if ref not in referenced_ids]
         if len(referenced_ids) + len(new_references) > max_evidence:
+            omitted_claims.append({"claim_id": claim.get("claim_id"), "reason": "evidence_budget"})
             continue
         selected_claims.append(claim)
         referenced_ids.extend(new_references)
@@ -494,6 +499,10 @@ def compact_result(
             if isinstance(item, dict) and item.get("evidence_id") not in selected_ids
         )
         selected_evidence = selected_evidence[:max_evidence]
+
+    selected_ids = {
+        item.get("evidence_id") for item in selected_evidence if isinstance(item, dict)
+    }
 
     compact = {
         "schema": result.get("schema"),
@@ -510,6 +519,20 @@ def compact_result(
         "watchlist": _limit_items(result.get("watchlist", []), max_watchlist),
         "evidence": selected_evidence,
         "quality": result.get("quality", {}),
+        # Make compaction losses machine-visible.  Claims kept in the card
+        # never reference an omitted excerpt; omitted claims and excerpts are
+        # retained as audit metadata for the downstream agent.
+        "compaction": {
+            "max_claims": max_claims,
+            "max_evidence": max_evidence,
+            "omitted_claims": omitted_claims,
+            "omitted_evidence_ids": [
+                item.get("evidence_id")
+                for item in result.get("evidence", [])
+                if isinstance(item, dict)
+                and item.get("evidence_id") not in selected_ids
+            ],
+        },
     }
     return compact
 
