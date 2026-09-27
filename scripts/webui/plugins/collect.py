@@ -9,6 +9,7 @@ from ..archive.gaps import completeness
 from ..core import envelope
 from ..core.errors import NotFound
 from ..core.models import NavItem, PanelSpec
+from ..core.security import safe_join
 
 
 def _manifest(ctx):
@@ -108,7 +109,12 @@ def _batches(ctx):
 
 
 def _batch_detail(ctx, batch_id, **_):
-    path = Path(ctx.config.archive_root) / "batches" / f"{batch_id}.json"
+    # 必须 jail，不能直接拼路径：`batch_id` 来自 URL 路径段，而 `Route.match()` 是**先按
+    # `([^/]+)` 匹配、之后才 `unquote()`**，所以 `..%2f..%2f%2ftmp%2fx` 会把 `/` 与 `..`
+    # 解码进参数里。父需求独立验收（报告里的 B1，本条目登记为 V1）就是这样读到存档根以外的
+    # 任意 `*.json` 的——同一条链路上 `companies/{dir}/*` 早就走 `company_base()` 的 jail，
+    # 只有这里漏了（`AC-6`：文件访问限制在允许的根之下，拒绝 `..`、绝对路径与越界符号链接）。
+    path = safe_join(Path(ctx.config.archive_root), "batches", f"{batch_id}.json")
     try:
         return envelope.ok(json.loads(path.read_text(encoding="utf-8")))
     except FileNotFoundError as exc:

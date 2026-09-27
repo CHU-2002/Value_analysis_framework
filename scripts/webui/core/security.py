@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import html
 import json
@@ -41,11 +42,38 @@ def reject_shell_metachars(name: str, value) -> None:
             )
 
 
+def _probe(path: Path, root_resolved: Path) -> None:
+    """用**内核**判定路径是不是根本不可用，而不是自己猜 `NAME_MAX` / `PATH_MAX`。
+
+    为什么非要问内核：这个限额的平台差异会让「猜」两头都错——APFS 按**字符**计
+    （100 个汉字 = 300 字节也是合法名），ext4 按**字节**计；`PATH_MAX` 还把结尾 NUL
+    算在内，边界差 1 就会漏成 500（父需求验收复验 N3a / N3c——第一版按字节比
+    `PC_NAME_MAX` 就误杀了合法目录）。`lstat` 天然覆盖超长片段、超长符号链接目标
+    与中间组件成环，也不需要跟随最后一个组件。
+    `ENOENT` / `ENOTDIR` 只表示「不存在」，读操作自己会报 404，属允许情形。
+    """
+    try:
+        os.lstat(path)
+    except OSError as exc:
+        if exc.errno in (errno.ENOENT, errno.ENOTDIR):
+            return
+        raise PathOutsideRoot(
+            "路径不可用（超长、含非法字符、符号链接环或无法解析）",
+            hint=f"只允许访问 {root_resolved} 之下的普通相对路径。",
+        ) from exc
+
+
 def safe_join(root: Path, *parts: str) -> Path:
     """把 `parts` 拼到 `root` 下，并保证结果仍在 `root` 子树内。
 
     - 先 `resolve()` 再比较：`..`、绝对路径、**指向树外的符号链接**都会被识别（AC-3.7）；
-    - 允许目标不存在（读操作会自己报 404），但绝不允许逃出 root。
+    - 允许目标不存在（读操作会自己报 404），但绝不允许逃出 root；
+    - **不可用的路径片段**与越界同等对待，必须是可预期的 4xx，而不是 500 INTERNAL：
+      NUL 字节、符号链接环、超过文件系统限额的长度（父需求验收复验 `V6` / `V7` / `N3`）。
+      这几类的失败方式各不相同——NUL 让 `resolve()` 抛 `ValueError`；符号链接环让它在
+      CPython 3.12 抛 **`RuntimeError`**（`check_eloop` 把 `OSError(ELOOP)` 换掉了）；
+      超长片段**根本不抛**，只在下游 `glob`/`read_text` 才爆 `ENAMETOOLONG`——所以
+      这里既要把 `resolve()` 的三种异常一起兜住，也要在**拼接后**与**解析后**各问一次内核。
     """
     root_resolved = Path(root).resolve()
     candidate = root_resolved
@@ -55,10 +83,29 @@ def safe_join(root: Path, *parts: str) -> Path:
         if part.startswith("/") or part.startswith("\\"):
             raise PathOutsideRoot(
                 f"不接受绝对路径：{part!r}",
-                hint="只允许 output/ 下的相对路径。",
+                hint="只允许相对路径片段。",
+            )
+        if "\x00" in part:
+            # 显式拦下：`Path.resolve()` 遇到内嵌 NUL 会抛 `ValueError: lstat: embedded
+            # null character in path`，那是**未预期异常**，会一路冒到 HTTP 面报 500。
+            raise PathOutsideRoot(
+                "路径片段含 NUL 字节",
+                hint="路径里不能出现 NUL 等非法字符。",
             )
         candidate = candidate / part
-    resolved = candidate.resolve()
+    # 拼接后的原始路径：拦下超长片段（`resolve()` 对这种输入不抛）。
+    _probe(candidate, root_resolved)
+    try:
+        resolved = candidate.resolve()
+    except (OSError, ValueError, RuntimeError) as exc:
+        # 兜底：符号链接环（CPython 3.12 抛 RuntimeError）、其它无法解析的链接或非法片段。
+        # 刻意不把异常原文回给浏览器（P3/D9 的取舍）。
+        raise PathOutsideRoot(
+            "路径不可用（含非法字符、符号链接环或无法解析的链接）",
+            hint=f"只允许访问 {root_resolved} 之下的普通相对路径。",
+        ) from exc
+    # 解析后的真实路径：符号链接的**目标**本身超长/不可用时，只有这里看得见。
+    _probe(resolved, root_resolved)
     if not is_within(resolved, root_resolved):
         raise PathOutsideRoot(
             "路径越出允许的根目录",

@@ -1,4 +1,6 @@
-# 覆盖需求：REQ-009.3（可扩展框架与本地数据层）—— AC-3.1 内核与启动、AC-3.2 注册表与扩展点、
+# 覆盖需求：REQ-009（父需求：AC-6 安全边界与 AC-9 可扩展性不变量——其余父需求 AC 由同批四个
+# webui 测试文件与 scripts/gui_walkthrough.py 共同覆盖）、REQ-009.3（可扩展框架与本地数据层）
+# —— AC-3.1 内核与启动、AC-3.2 注册表与扩展点、
 # AC-3.3 声明式面板协议、AC-3.6 API 契约与稳定错误码、AC-3.7 安全中间件；
 # 以及父需求 AC-9（新增 GUI 功能不得修改框架核心，由「演示插件 + 核心文件指纹」判定）
 """框架层测试：内核、注册表、面板协议、契约、安全。
@@ -14,6 +16,7 @@
 import ast
 import hashlib
 import json
+import os
 import socket
 import threading
 import time
@@ -568,7 +571,7 @@ def test_unexpected_exception_becomes_internal_without_leaking_details(tmp_path)
 
 
 def test_safe_join_blocks_traversal_absolute_paths_and_symlinks(tmp_path):
-    """AC-3.7：`..`、绝对路径、指向树外的符号链接一律拒绝。"""
+    """AC-3.7：`..`、绝对路径、指向树外的符号链接、非法路径片段一律拒绝。"""
     root = tmp_path / "output"
     (root / "ok").mkdir(parents=True)
     (root / "ok" / "a.txt").write_text("hi", encoding="utf-8")
@@ -582,6 +585,51 @@ def test_safe_join_blocks_traversal_absolute_paths_and_symlinks(tmp_path):
         pytest.skip("本平台不支持创建符号链接")
 
     assert security.safe_join(root, "ok", "a.txt").read_text(encoding="utf-8") == "hi"
+    # 父需求验收复验 V6/V7/N3：**不可用的片段**与越界同级，必须是可预期的 `PathOutsideRoot`（403），
+    # 不能是 500。三类各自的失败方式不同，所以三条都要钉：
+    #   NUL      → `resolve()` 抛 ValueError: embedded null character
+    #   符号链接环 → CPython 3.12 的 `check_eloop` 把它换成 **RuntimeError**（不是 OSError）
+    #   超长片段  → `resolve()` **根本不抛**（realpath 容忍 lstat 失败），
+    #               ENAMETOOLONG 只在下游 glob/read_text 才冒出来
+    for bad in (("b\x00ad",), ("a", "b\x00")):
+        with pytest.raises(PathOutsideRoot):
+            security.safe_join(root, *bad)
+    loop = root / "loop"
+    try:
+        loop.symlink_to(loop)
+    except (OSError, NotImplementedError):  # pragma: no cover - 平台不支持符号链接
+        pass
+    else:
+        # 环作为中间组件与作为最后一段都要拦（后者由 `resolve()` 的 RuntimeError 兜住）
+        with pytest.raises(PathOutsideRoot):
+            security.safe_join(root, "loop", "x.txt")
+        with pytest.raises(PathOutsideRoot):
+            security.safe_join(root, "loop")
+    name_max = os.pathconf(tmp_path, "PC_NAME_MAX")
+    path_max = os.pathconf(tmp_path, "PC_PATH_MAX")
+    with pytest.raises(PathOutsideRoot):
+        security.safe_join(root, "a" * (name_max + 1))
+    # 总长超 PATH_MAX：每段都合法，拼起来超限（macOS 与 Linux 的 PATH_MAX 差 4 倍，按实测值算）
+    with pytest.raises(PathOutsideRoot):
+        security.safe_join(root, *(["d" * 20] * (path_max // 20 + 2)))
+    # 符号链接的**目标**超长/不可用时，只有解析之后的探测看得见（复验 N3b）
+    sneaky = root / "sneaky"
+    try:
+        sneaky.symlink_to("z" * (path_max * 2))
+    except (OSError, NotImplementedError):  # pragma: no cover - 平台不支持符号链接
+        pass
+    else:
+        with pytest.raises(PathOutsideRoot):
+            security.safe_join(root, "sneaky")
+    # 合法长名不能被误杀：限额必须问内核，不能按字节猜——APFS 按**字符**计（100 个汉字 = 300 字节
+    # 也是合法目录名），ext4 按**字节**计（这种名字根本建不出来），所以这条按平台自适应（复验 N3c）
+    multibyte = "伊" * 100
+    try:
+        (root / multibyte).mkdir()
+    except OSError:
+        pass  # 该文件系统按字节限长：建不出来就不必断言
+    else:
+        assert security.safe_join(root, multibyte).is_dir()
     for bad in (
         ("..", "outside", "secret.txt"),
         (str(outside / "secret.txt"),),

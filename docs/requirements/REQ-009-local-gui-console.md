@@ -1,15 +1,15 @@
 ---
 id: REQ-009
 title: 本地图形化控制台（可扩展框架 + 按键执行 + 股票图表 + 报告与迭代记录浏览）
-status: in-progress
+status: verified
 priority: P1
 owner: CHU-2002
 created: 2026-09-21
-updated: 2026-09-21
+updated: 2026-09-27
 issue: "#42"
 design: docs/GUI_CONSOLE_PLAN.md
 milestone: TBD
-pr: TBD
+pr: "#44, #45, #63, #64, #66, #67, #70, #71, #72"
 depends-on: REQ-003, REQ-004
 supersedes: TBD
 ---
@@ -270,6 +270,16 @@ supersedes: TBD
 |------|------|--------------------|------|
 | **E2** | 低（UX，观察） | **空选择**时页面照样整页降级：直接打开或刷新 `#report`（hash 里没有 `company`、内存里也没有先前选择）时，`report.view` 与 `companies.artifacts` 仍是两张 `BAD_REQUEST` 降级卡 + 横幅（`curl 'http://127.0.0.1:8765/api/v1/pages/report'` 即可复现）。`AC-4` / `AC-8` 描述的路径（**从公司页点进某家公司**）不受影响——走查走的正是那条路径——但「第一次打开这一页」看到的是技术化错误码，而不是「请先选一家公司」 | **不在 E1 的修复里顺手改**，登记待 owner 决定，三条路各有代价：① 服务端兜底成「最近有 run 的公司」（PR #69 的做法）——会让人点任意公司都落到默认公司上，**反而掩盖 E1 这类根因**；② 页面内加公司选择器——是**新的用户可见能力**，按 `README.md` §6 需 owner 受理（可能占新编号）；③ 只把空选择的降级文案改成人话——最小改动，但页面上依然看不到内容 |
 
+**未受理的提案（工作保留，不占编号）**：PR #69（分支 `fix/console-ux-t9-t10`，备份分支
+`wip/req009-archive-visuals`，2026-09-27 关闭）曾把「采集存档」页从表格改成可视化并新增 `bars`
+渲染类型，同时给缺 `company` 的页面加「兜底成最近有 run 的公司」的服务端回退。逐项核过后
+**不按现状合入**，三条理由：① `AC-7` 规定的 4 个 webui 测试文件已 **64/64 满额**，它还要再加 4 条以上，
+合入就必须上调 `AC-7` —— 那是需求变更，需 owner 批准；② 兜底会让「点 A 公司看到 B 公司数据」
+**看起来正常**，正是 `E1` 潜伏至今的原因，而空选择的行为已作为 `E2` 单独立项待决；
+③ `bars` 类型与存档可视化是**新的用户可见能力**，需 owner 受理，不能由实现者自行登记成
+`REQ-006` 任务（T9/T10）后合入。要复活它：owner 先受理能力 + 决定 `AC-7` 上限，再重开 PR、
+去掉越界的兜底改动、按新编号对齐测试。
+
 **这次改动动了扩展面文件，留痕如下**（`AC-9` 的指纹机制就是为这一刻设计的）：
 `static/app.js` 在核心指纹清单里，本次修改的是**分发链路的缺陷**（选择没有转发），
 不是为了让新功能落地而改核心；`tests/fixtures/webui_core_fingerprint.json` 的
@@ -279,6 +289,34 @@ supersedes: TBD
 **但这条仍要请独立评审者在父需求收口时确认一次**：`REQ-009.3` 的「代码冻结在 `1ef5cda`」
 这句话在后，本次是解冻后的第一次核心改动，是否影响 `AC-3.x` / `AC-9` 的既有结论，
 按 `docs/DEVELOPMENT.md` §10 由评审者判定（实现者不自判）。
+
+#### 父需求门② 独立验收（首轮，2026-09-27）发现的问题
+
+由**未参与本需求任何实现**的独立 agent 在父需求收口时逐条核对 `AC-1`…`AC-9`（报告
+[`docs/verification/2026-09-27-REQ-009.md`](../verification/2026-09-27-REQ-009.md)）。
+**首轮判定不通过**（`AC-6` 不成立），修复后经**第二轮**（`V1`）、**第三轮**（`V6`）以及
+**第四轮**（`V7`：符号链接环与超长片段）、**第五轮**（`V8`：限额判定改为问内核）复验，
+最终在收口基线的代码上判定
+**`AC-1`…`AC-9` 全部成立**（`AC-6` 由「不成立」改判成立）。
+全部登记如下（验收报告首轮记作 `B1` 的条目在此记为 `V1`，避免与 `REQ-009.2` 那轮的 `B1` 混淆）：
+
+| 编号 | 程度 | 现象（可复现场景） | 去处 |
+|------|------|--------------------|------|
+| **V1** | **阻断（`AC-6`）** | **采集批次详情路由可越界读任意 `*.json`**：`GET /api/v1/collect/batches/{batch_id}` 直接把 `batch_id` 拼进 `archive_root/batches/{batch_id}.json`，既没校验也没 jail；而 `core/router.py` 的 `Route.match()` 是**先按 `([^/]+)` 匹配路径段、之后才 `unquote()`**，于是 `%2f` 解码出的 `/` 与 `..` 就这么进了参数。实测 `curl '…/api/v1/collect/batches/..%2f..%2f..%2f..%2ftmp%2fx'` 与 `%2f` 开头的绝对路径变体都返回 **200 且原样读出存档根之外的文件**。同一批 `companies/{dir}/*` 路由早就走 `company_base()` 的 jail，只有这条漏了——**它也从来没有测试**（`grep 'collect/batches' tests/` 当时为空），所以四片全绿也没拦住 | **本次修复**：改用框架既有的 `core/security.py::safe_join(archive_root, "batches", f"{batch_id}.json")`（`..`、绝对路径、越界符号链接一律 `PathOutsideRoot` → **403**，与其余路由一致）。回归断言**加进现有用例**（`test_archive_plugin_shows_completeness_and_machine_readable_gaps`）以守住 `AC-7` 的 64 条上限，并**从 `find_route` 一路走到 handler**——只测 handler 会漏掉「解码顺序」这个真正的入口。反证：把 `collect.py` 换回修复前版本，该断言报 `DID NOT RAISE PathOutsideRoot` |
+| **V2** | 中（框架观察，**未修**） | `Route.match()` 的「先匹配、后 `unquote`」是一个**通用**入口：任何路由的路径参数都能被 `%2f` 塞进 `/` 与 `..`。复验时按 **18 条路由模板 × 7 种载荷**（`..%2f`、`%2f` 绝对路径、`..%5c`、`%00`、`.`/`..` 混淆、双重编码…）扫过一遍，**证实**：今天唯一把参数变成文件路径的只有 `companies/{dir}`（早走 `company_base()` 的 jail）与 `collect/batches/{batch_id}`（V1 已修），两者越界都 403；其余路由是注册表/字典查找或只做字符串比较，所有载荷都 404。**但通用入口本身仍在**，下一个「拿参数拼路径」的插件会重犯 | **登记为框架观察，不在本次改**：修它要么改 `core/router.py`（在核心指纹清单里，且会让 `..%2f` 类输入的响应从 403 变 404/400——`tests/test_webui_views.py` 现有 3 条断言写的是「抛 `PathOutsideRoot`」，改的是**已验收切片的断言语义**，属需要刻意安排的框架变更），要么在路由层引入新的拒绝错误码。**建议**：与 `REQ-009.3` 的下一次框架演进一起做——在 `match()` 里对解码后含 `/`、`\`、NUL 的路径段一律判不匹配，并同步那 3 条断言 |
+| **V3** | 低（观察） | `output/<公司>/` 里只要有一个指向树外的符号链接，**共用 `companies.artifacts` 数据集的那两个面板及其页面**就 403（复验精确了范围：`report.view` + `companies.artifacts` 受影响，同一公司的 `runs` 页仍 200）。fail-closed 方向正确，但**一个坏链接连坐一整页** | **登记为观察，不修**：改成「跳过坏条目 + 在 `warnings` 里点名」是一次**披露口径的产品决定**（宁可少列还是宁可整页不可用），由 owner 定 |
+| **V4** | 低 | stdout 不是 tty 时（例如 `… \| tee`），启动时打印的「可点击 URL」被**块缓冲**，看起来像没启动；pty 下正常 | **登记为观察，不修**（一行 `flush=True` 即可，但属 `AC-1` 已通过后的行为微调，留待下次一并做） |
+| **V5** | —（**已撤回**） | 首轮报告「前端请求不存在的 `/kinds/table.js`、`/kinds/timeline.js` → 404 噪音」 | **评审者在复验时自行撤回**：那两条请求来自**评审者自己的探针脚本**（`/tmp/adv_env.py` 的请求清单），不是产品行为。反证：`app.js` 只 import `chart`/`fallback`/`form`/`jobs`，`grep -rn 'table\.js\|timeline\.js' scripts/ tests/` 0 命中，新一轮真实浏览器走查的服务端日志里出现过的渲染器请求也只有那四个。**结案，不计入产品缺陷** |
+| **V6** | 低（健壮性，**本次修复**） | **带 `%00` 的路径参数曾经返回 500**：`%00` 解码成 NUL 后进 `safe_join()`，`Path.resolve()` 抛 `ValueError: lstat: embedded null character in path`，冒到 HTTP 面成为 `INTERNAL` 500（命中 `companies/{dir}/{artifacts,report,charts,runs}`、`collect/batches/{batch_id}`；`panels/*` 那层是 200 + 降级卡 + `warnings`）。不越权、不读树外内容、服务不崩，但**错误码不稳定**（`AC-3.6`），且与「拒绝非法输入」的承诺不符 | **本次修复**：在 `core/security.py::safe_join` 里显式拦 NUL。**修在共用 helper 而非各调用点**——和 `E1` 同一个道理：靠每个调用点自己 try/except 必然会漏。回归断言加进现有用例 `test_safe_join_blocks_traversal_absolute_paths_and_symlinks`（守住 `AC-7` 的 64 条上限）。反证：修复前 `%00` → 500（`curl …/api/v1/companies/b%00ad/artifacts`），修复后 → 403 `PATH_OUTSIDE_ROOT`，正常页面不受影响 |
+| **V7** | 低（健壮性，**本次修复**） | **符号链接环与超长片段曾经返回 500**（第三轮复验发现，即评审报告里的 `N2a`/`N2b`）：① `output/<公司>` 是**符号链接自环/互指**时，`Path.resolve()` 在 CPython 3.12 的 `pathlib.check_eloop` 抛 **`RuntimeError`**（不是 `OSError`）→ 500；② 单片段 **≥256 字节**（本机 APFS；≤255 正常 404）或总长超 `PATH_MAX` 时，`resolve()` **根本不抛**（realpath 容忍 lstat 失败），`ENAMETOOLONG` 只在下游 `datastore/datasets.py` 的 `glob`、`collect.py` 的 `read_text` 才冒出来 → 500。命中面与 `V6` 相同，影响同样是**不越权、不读树外内容、服务不崩**的纯错误映射 | **本次修复**：`safe_join` 的兜底改为 `except (OSError, ValueError, RuntimeError)`，并用 `os.pathconf` 的 **`PC_NAME_MAX` / `PC_PATH_MAX`** 在拼接时提前判长度（问文件系统要限额，不写死 255/1024）。**这三类失败方式各不相同**（NUL 抛 ValueError、环抛 RuntimeError、超长不抛），所以断言也分别钉住；反证：修复前 `…/companies/loop/artifacts` 与 300 字节片段都是 500，修复后都是 403，服务端 0 条 traceback。**更正留痕**：`V6` 的登记与最初那次提交说明里曾写「符号链接环、超长路径同样归到 403」，当时并不成立（兜底漏了 `RuntimeError`、也没判长度），已按第三轮实测改准并在本行补上真正的修法——**这条更正本身就是一次「实现者只在报告里声称、没端到端验证」的教训**。（下一行 `V8` 又把这里的「猜限额」整体换成「问内核」——两次都没逃过复验。） |
+| **V8** | 低（健壮性，**本次修复**） | **`V7` 的限额判定自己有三处不对**（第四轮复验发现，即评审报告里的 `N3a`/`N3b`/`N3c`）：① `PATH_MAX` **含结尾 NUL**，可用上限其实是 `PATH_MAX-1`，于是候选**恰好 1024 字节**时守卫放过，下游 `glob` 再爆 `ENAMETOOLONG` → 500；② 守卫只看**解析前**的路径，符号链接的**目标**是超长/不可用相对路径时（`ln -s zzzz…(400) sneaky`）`resolve()` 不抛、解析后又没再校验 → 500；③ **按字节比 `PC_NAME_MAX` 误杀了合法目录**——APFS 按**字符**计（100 个汉字 = 300 字节是合法名，实测能 `mkdir`），ext4 才按**字节**计 | **本次修复，并改掉「猜限额」这个思路**：删掉 `pathconf` 与按字节的长度比较，改成**问内核**——在**拼接后**与**解析后**各做一次 `os.lstat` 探测：`ENOENT`/`ENOTDIR` 视为「不存在，交给读操作报 404」，其余 `OSError`（`ENAMETOOLONG` 等）一律 `PathOutsideRoot` → 403。这与 `is_within` 用 `os.path.samefile` 让内核判定的既有做法一致（复验 N5）。实测对照（临时深根 859 字节）：候选 **1024 → 500 改 403**、链接目标 400 字符 → **500 改 403**、合法 100 汉字目录 → **403 改放行**（404 `ARTIFACT_MISSING`）、正常公司仍 200、全程 0 条 traceback |
+
+| **V9** | 低（健壮性 / 语义，**登记待与 `V3` 一起处置**） | 第四/五轮复验新发现（评审报告里的 `N4`），两条：① **公司目录里只要有一个 `stat()` 会以非 `ENOENT` 失败的子条目**（符号链接目标超长 → `ENAMETOOLONG`；目标目录权限 000 → `EACCES`），`companies/{dir}/artifacts`·`/report` 就 **500 INTERNAL**——数据层枚举期的 `pathlib.is_file()` 抛 `OSError` 没人接（`datastore/datasets.py`）。注意 `safe_join` 只探测**被请求的那条路径**，看不见目录里的子条目；`pathlib` 只忽略 `ENOENT`/`ENOTDIR`/`EBADF`/`ELOOP`（自环子链接实测 200）。② `companies/{dir}` 不校验「是不是公司目录」：`dir="."` 或 `"<公司>/.."` 会归一化到 `output/` 根，把根下的顶层文件当产物列出（默认根实测 `count=5`） | **本次不修，登记**：① 与 `V3`（坏符号链接连坐）**同族**，应当一起改成「跳过坏条目 + 在 `warnings` 里点名」——那是一次**披露口径的产品决定**；② 仍在 `output/` 之内（jail 是 resolve 后子树内、且含根本身，与 `AC-3.7` 的措辞一致），**无越界**，只是语义不严，建议显式拒绝 `base == output_root`，或把这条明确定义成「output 根视图」。两者都**不越权、不读树外、不崩服务**，`pages/*` 仍降级成 200 + 卡片 |
+
+**V1 暴露的流程问题**（比缺陷本身更值得记一笔）：这条路由**四片验收都没覆盖**，
+因为 `AC-2.x`/`AC-4.x` 是**端点级**判据、逐条列的是「有哪个接口」，
+「没被测到的接口」不在任何一条的射程里。父需求 `AC-6` 是**安全边界**的整体判据，
+它才该抓住这类漏网——这也是父需求收口不能只把四个子需求的状态拼起来的理由。
 
 ### REQ-009.4 手动触发的远程采集与长期存档
 
@@ -477,9 +515,9 @@ make gui                                    # 控制台 127.0.0.1:8765（只监�
 |----|------|
 | 设计文档 | `docs/GUI_CONSOLE_PLAN.md`（含扩展点清单、面板协议 schema、数据层缓存规则、扩展步骤清单） |
 | 需求总览（导读） | `docs/GUI_CONSOLE_OVERVIEW.md`——给使用者的大白话汇总（需求图景 / 方案 / 工作方式 / 决策点）；**非权威**，与条目或设计文档冲突时以它们为准 |
-| 实现 PR | #44（框架切片）、#45（门② 验收缺口 D1~D10 与复验缺口 N1~N9 的修复）、#63 / #64（采集与存档）、#66（按键执行器与视图）、#67（B1 / Q1 / AC-4.6）、#70（E1） |
+| 实现 PR | #44（框架切片）、#45（门② 验收缺口 D1~D10 与复验缺口 N1~N9 的修复）、#63 / #64（采集与存档）、#66（按键执行器与视图）、#67（B1 / Q1 / AC-4.6）、#70（E1）、#71（E2 登记）、#72（收口：V1 / V6 修复 + 门② 父需求验收 + 运行手册） |
 | 实跑走查工具 | `scripts/gui_walkthrough.py`——CDP 驱动真实浏览器，一条命令跑完 `AC-8` 的动作并留证（只用 Python 标准库，用法见 `docs/DEVELOPMENT.md` §4.1） |
-| 验收报告 | [`docs/verification/2026-09-21-REQ-009.3.md`](../verification/2026-09-21-REQ-009.3.md)——三轮独立验收（首轮**不通过** → 第二轮复验 `AC-3.3` 改判成立但 N1 使 `AC-3.7` 不成立 → 第三轮复验 `AC-3.1`~`AC-3.7` 全部成立） |
+| 验收报告 | 父需求：[`docs/verification/2026-09-27-REQ-009.md`](../verification/2026-09-27-REQ-009.md)——三轮独立验收（首轮**不通过**：`AC-6` 越界读 `V1` → 第二轮复验改判成立 → 第三轮复验 `V6` 修复，`AC-1`…`AC-9` 全部成立）。<br>子需求：[`docs/verification/2026-09-21-REQ-009.3.md`](../verification/2026-09-21-REQ-009.3.md)（三轮，`AC-3.1`~`AC-3.7` 最终全部成立）、[`docs/verification/2026-09-28-REQ-009.1-2.md`](../verification/2026-09-28-REQ-009.1-2.md)、[`docs/verification/2026-09-28-REQ-009.4.md`](../verification/2026-09-28-REQ-009.4.md) |
 | 测试 | `tests/test_webui_framework.py`（REQ-009.3）、`tests/test_webui_archive.py`（REQ-009.4）、`tests/test_webui_server.py`（REQ-009.1）、`tests/test_webui_views.py`（REQ-009.2） |
 | 文档更新 | `README.md`（面板一节）、`Makefile`（`make gui`）、`CHANGELOG.md` |
 
@@ -569,10 +607,17 @@ make gui                                    # 控制台 127.0.0.1:8765（只监�
 - **Issue**：[#42](https://github.com/CHU-2002/Value_analysis_framework/issues/42)（`[REQ-009]` 功能请求）。
   四片的跟踪 Issue 分别是 #51（`.4`）、#52（`.1`）、#53（`.2`）；
   按 `README.md` §9，Issue 在**验收通过后**才关闭，不在 PR 合并时自动关闭。
-- **交付状态（2026-09-27）**：四片**全部 `verified`**——`.3`（PR #44/#45）、`.4`（#63/#64）、
-  `.1`/`.2`（#66，门② 缺口由 #67 修复后复验通过）。父需求 `REQ-009` 只剩 **`AC-8` 真实浏览器实跑**：
-  使用者按该条逐页点开后，在「## 实跑记录」留档（命令 + 环境 + 观察），父需求才推进 `verified`
-  并关闭 Issue #42/#51/#52/#53。
+- **交付状态（2026-09-27）**：**五片全部 `verified`，父需求 `REQ-009` 于同日收口 `verified`**——
+  四片：`.3`（PR #44/#45）、`.4`（#63/#64）、`.1`/`.2`（#66，门② 缺口由 #67 修复后复验通过）；
+  父需求：`AC-8` 的真实浏览器实跑由 `scripts/gui_walkthrough.py`（CDP 驱动真实 Edge）留档，
+  整批 `AC-1`…`AC-9` 由**无上下文的独立 agent** 三轮验收（首轮不通过 → `V1` 修复 → `V6` 修复），
+  报告见 [`docs/verification/2026-09-27-REQ-009.md`](../verification/2026-09-27-REQ-009.md)。
+  Issue #42/#51/#52/#53 随验收通过关闭。
+  **残留**（均已登记、不影响验收结论）：`V2`（`Route.match()` 先匹配后解码的通用入口）、
+  `V3` + `V9`（目录里的坏子条目连坐整页 / `companies/{dir}` 不校验是不是公司目录）、
+  `V4`（非 tty 下启动 URL 被块缓冲）、`E2`（空选择冷启动整页降级）、
+  `AC-7` 四个 webui 测试文件 64/64 零余量，以及 PR #69 的「存档可视化」提案（未受理）。
+  这些留待 `REQ-009.3` 的下一次框架演进一并处理。
 - **交付顺序**：`REQ-009.3`（框架）→ `REQ-009.4`（采集与存档）→ `REQ-009.1`（按键执行器）→
   `REQ-009.2`（视图）→ 父需求收口（AC-8 实跑）。四者都 `verified` 后父需求才能推进，由追溯门禁强制。
   采集排在按键执行器之前，是因为它先于「给既有脚本配按钮」提供了本项目真正需要的取数能力**存档化**。

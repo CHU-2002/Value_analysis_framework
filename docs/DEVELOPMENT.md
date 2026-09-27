@@ -162,6 +162,58 @@ make help        # 全部目标
 5. **提交**：在收口 PR 的正文「## 需求编号」里写上被推进的编号（署名），
    并在「## 验收报告」里链接该文件。CI 会校验留痕完整。
 
+### 10.1 验收者的运行手册（本仓库的具体命令与期望值）
+
+> 这一节专门给**没有上下文的验收者**（人，或另一个 agent）。独立验收失败最常见的原因不是
+> 「判据太严」，而是验收者不知道怎么把整套东西跑起来，最后只能复述实现者的说法。
+> 照下面走，不需要读实现。
+
+**0. 先弄清你在验收什么。** 仓库根就是本文件所在目录；解释器是 `.venv/bin/python`（3.12.13）。
+验收对象是**被验收的 `main` 基线 sha**：`git rev-parse origin/main` 记下来，写进报告的 `base:`。
+**不要改产品代码**——发现缺陷只记录，不当场修（改了就得重新验收一遍）。
+
+**1. 全量门禁**（约 90 秒，真的会跑 1600+ 用例）：
+
+```bash
+make verify
+```
+
+依次是：lint（`compileall` + 空白/冲突标记）→ 全量测试 + 覆盖率门禁（`--cov=scripts`，下限 **74%**）
+→ 需求↔测试追溯 → 测试 scope 预算（48 文件 / 1800 用例）→ 批量回归门禁。
+2026-09-27 的基线是 `1650 passed, 3 skipped`、覆盖率 `77.37%`——**数字会变，报告里写你这次实测的**。
+3 个 skip 来自 `tests/test_integration.py`（没配 `TUSHARE_TOKEN` 的真实 API 用例），属正常。
+
+> **坑**：跑 `make verify` 期间不要改 `scripts/**`（含 `scripts/webui/...`）：
+> `code_fingerprint` 会在测试中途变化，`tests/test_analysis_status.py` 因此假失败，
+> 看起来像产品缺陷，其实是自己踩的。
+
+**2. 界面类判据必须真的开浏览器**（如 `REQ-009` 的 `AC-8`）：
+
+```bash
+make gui                                                        # 终端 1：只监听 127.0.0.1:8765
+.venv/bin/python scripts/gui_walkthrough.py --base http://127.0.0.1:8765   # 终端 2
+```
+
+脚本用 CDP 驱动真实浏览器（自动探测 Edge / Chrome / Chromium），把 `AC-8` 的动作跑一遍：
+真实点击公司名 → 图表 / 报告 / 迭代记录三页 → 真实鼠标悬停 → 真实点击按键跑一条真实命令，
+并把截图与 `observations.md` 落到 `output/.webui_walkthrough/<UTC>/`；退出码 0 = 全部检查通过，
+加 `--headed` 可以自己看着它点。
+**它需要能启动无头浏览器**：受限沙箱里会 `sandbox initialization failed`，
+这时放宽沙箱或改 `--headed` 看报错——**这一步跑不起来只能记为「没验成」，不能算通过**。
+
+**3. 报告怎么写才过门。** 用 [`TEMPLATE.md`](verification/TEMPLATE.md)；
+front matter 四字段缺一不可（`reviewer` / `independence: independent` / `requirements` / `full-suite`），
+且 `full-suite` 里要有形如 `1650 passed` 的字样。逐条结论的**唯一**合法写法是
+`- [x] **AC-1**：…`——写成 `- [ ]`、或漏掉该编号的任何一条 AC，`scripts/acceptance_gate.py` 直接判红。
+被验收编号的验收标准里出现「实跑」时，报告还必须有 `## 实跑记录`，且**小节里要有围栏代码块**
+（可复制的命令），只写「已实跑」不算。
+
+**4. 提交。** 收口 PR 的正文「## 需求编号」里署名写上被推进的编号，
+「## 验收报告」里链接报告文件——`acceptance_gate.py` 只认这两处。
+
+**5. 目标是「找出阻断项」，不是「确认实现者说得对」。** `REQ-009` 的 **E1** 就是这么找出来的：
+所有面板级 AC 全绿，但真实浏览器里图表 / 报告 / 迭代记录三页整页不可用。
+
 ## 11. 怎么做批量回归（门③）
 
 ```bash

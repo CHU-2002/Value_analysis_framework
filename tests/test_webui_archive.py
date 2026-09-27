@@ -13,9 +13,10 @@ from webui.archive import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-from webui.core.errors import NoToken, QuotaConfirmRequired
+from webui.core.errors import NoToken, PathOutsideRoot, QuotaConfirmRequired
 from webui.core.context import RequestContext
 from webui.core.registry import build_registry
+from webui.core.router import find_route
 from webui.plugins.collect import contribute
 
 
@@ -189,3 +190,31 @@ def test_archive_plugin_shows_completeness_and_machine_readable_gaps(tmp_path):
         batch_id="gaps-only", confirm=True)
     assert gap_batch["progress"] == {"completed": 1, "total": 1}
     assert gap_batch["usage"]["new_requests"] == 1
+
+    # AC-6（父需求独立验收 V1 抓到的真实越界读）：批次详情路由曾经能把编码斜杠
+    # （`..%2f..%2f` 或 `%2f` 开头的绝对路径）解码进 `batch_id`，直接拼出存档根之外的
+    # 任意 `*.json` 并原样回给 HTTP 面。这里**从路由匹配一路走到 handler**，因为漏洞的入口
+    # 正是「先按 `([^/]+)` 匹配、之后才 unquote」这个顺序——只测 handler 会漏掉它。
+    outside = tmp_path / "outside_archive.json"
+    outside.write_text('{"marker": "read-from-outside-archive-root"}', encoding="utf-8")
+    batches_dir = root / "batches"
+    batches_dir.mkdir(parents=True, exist_ok=True)
+    (batches_dir / "b-good.json").write_text('{"batch_id": "b-good"}', encoding="utf-8")
+    detail = next(route for route in registry.routes() if route.template.endswith("/batches/{batch_id}"))
+
+    assert detail.handler(context, batch_id="b-good")["data"] == {"batch_id": "b-good"}
+    for attack in ("..%2f..%2foutside_archive", "%2fetc%2fpasswd"):
+        route, params = find_route(registry.routes(), "GET", f"/api/v1/collect/batches/{attack}")
+        assert route is not None, attack
+        assert "/" in params["batch_id"], f"这条攻击串必须真的解码出斜杠才有意义：{attack}"
+        with pytest.raises(PathOutsideRoot):
+            route.handler(context, **params)
+    # AC-6 第三款：指向存档根之外的符号链接同样拒绝（`safe_join` 按真实路径判定）。
+    escape = batches_dir / "b-escape.json"
+    try:
+        escape.symlink_to(outside)
+    except (OSError, NotImplementedError):  # pragma: no cover - 平台不支持符号链接
+        pass
+    else:
+        with pytest.raises(PathOutsideRoot):
+            detail.handler(context, batch_id="b-escape")
