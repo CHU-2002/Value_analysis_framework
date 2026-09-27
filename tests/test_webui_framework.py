@@ -894,7 +894,8 @@ def test_check_mode_lists_registered_panels(tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["panels"] == [
         "charts.annual_price", "charts.metrics", "charts.revenue_profit",
-        "collect.archive", "collect.batches", "collect.gaps", "commands.catalog",
+        "collect.archive", "collect.batch_progress", "collect.batches", "collect.coverage",
+        "collect.gap_reasons", "collect.gaps", "collect.health", "commands.catalog",
         "commands.jobs", "companies.artifacts", "companies.list", "demo.future",
         "demo.table", "report.view", "runs.status", "runs.timeline",
     ]

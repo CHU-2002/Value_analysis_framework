@@ -97,3 +97,20 @@ th { color: var(--muted); font-weight: 600; }
 .status-running { color: #b8860b; }
 .status-finished { color: #2f7a3f; }
 .status-failed, .status-cancelled { color: #a12b2b; }
+
+/* 分段横条（kind=bars）：一行一个对象，颜色表示结果类别，右侧一句读数 */
+.panel-bars { display: flex; flex-direction: column; gap: 6px; }
+.bar-legend { margin: 0 0 4px; font-size: 12px; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; }
+.bar-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.bar-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.bar-row { display: grid; grid-template-columns: minmax(140px, 220px) 1fr minmax(90px, auto); gap: 10px; align-items: center; }
+.bar-label { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { display: flex; height: 14px; border-radius: 4px; overflow: hidden; background: #eceff3; }
+.bar-fill { height: 100%; }
+.bar-note { font-size: 12px; color: var(--muted); text-align: right; white-space: nowrap; }
+.bar-ok { background: #3aa76d; }
+.bar-empty { background: #b8c0cc; }
+.bar-denied { background: #d64545; }
+.bar-limited { background: #e0a32e; }
+.bar-error { background: #8b3a3a; }
+.bar-neutral { background: #6f8fd6; }

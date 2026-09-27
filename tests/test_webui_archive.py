@@ -16,6 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 from webui.core.errors import NoToken, QuotaConfirmRequired
 from webui.core.context import RequestContext
 from webui.core.registry import build_registry
+from webui.render import panels
 from webui.plugins.collect import contribute
 
 
@@ -189,3 +190,69 @@ def test_archive_plugin_shows_completeness_and_machine_readable_gaps(tmp_path):
         batch_id="gaps-only", confirm=True)
     assert gap_batch["progress"] == {"completed": 1, "total": 1}
     assert gap_batch["usage"]["new_requests"] == 1
+
+
+def test_archive_visual_panels_make_completeness_legible(tmp_path):
+    """采集存档必须能「一眼看懂」：概览卡 + 覆盖条 + 缺口原因条 + 批次进度条。
+
+    这些面板是使用者在实机体验里要的呈现方式（表格数字看不懂）。断言的是**看图能得到的结论**：
+    完备度数、缺口颜色分段、各类缺口的相对长度、批次完成比例。
+    """
+    root = tmp_path / "archive"
+    store = ArchiveStore(root)
+    for name in ("income", "balancesheet", "cashflow", "fina_indicator"):
+        store.save(_target(name), [{"value": 1}], result="ok")
+    store.save(_target("empty_one"), [], result="empty")
+    store.save(_target("yc_cb"), {"error": "x"}, result="no_permission",
+               error_excerpt="抱歉，您没有接口(yc_cb)访问权限")
+    store.save(_target("hk_daily"), {"error": "x"}, result="rate_limited",
+               error_excerpt="请求频率超限 429")
+    # 另一个期次：数据更差，必须被排到覆盖图最前面
+    store.save(_target("income", "20251231"), [{"value": 1}], result="ok")
+    store.save(_target("yc_cb", "20251231"), {"error": "x"}, result="no_permission",
+               error_excerpt="抱歉，您没有接口(yc_cb)访问权限")
+    store.save(_target("hk_daily", "20251231"), {"error": "x"}, result="error",
+               error_excerpt="socket timeout")
+
+    registry = build_registry()
+    contribute(registry)
+    context = RequestContext("GET", "/", config=SimpleNamespace(archive_root=root), registry=registry)
+
+    def html(panel_id):
+        spec = registry.panel_spec(panel_id)
+        return panels.render_panel(spec, spec.provider(context))["html"]
+
+    health = html("collect.health")
+    assert "6/10 · 60%" in health, health          # ok×5 + empty×1 / 共 10
+    assert "4 个" in health and "state-error" in health
+    assert "无权限 2 · 频率超限 1 · 其他错误 1" in health
+
+    coverage = html("collect.coverage")
+    assert 'bar-denied' in coverage and 'bar-limited' in coverage and 'bar-ok' in coverage
+    assert "已获取 5" in coverage and "无权限 2" in coverage        # 图例按（状态, 名称）求和
+    first = coverage.index("bar-row")
+    worst = coverage.index("bar-label", first)
+    assert "20251231" in coverage[worst:worst + 200], "缺口多的（标的, 期次）必须排在前面"
+    assert "600887.SH · 20251231" in coverage and "1/3 · 33%" in coverage
+    assert "5/7 · 71%" in coverage
+
+    reasons = html("collect.gap_reasons")
+    assert "无权限" in reasons and "频率超限" in reasons and "其他错误" in reasons
+    assert reasons.count("width:100%") == 1, "最大的一类缺口占满格"
+    assert reasons.count("width:50%") == 2, "其余各类与最大类共用同一把尺子"
+    assert "yc_cb" in reasons and "socket timeout" not in reasons   # 原文摘要留给明细表
+
+    class DeniedAdapter:
+        def fetch(self, target):
+            if target["dataset"] == "yc_cb":
+                raise RuntimeError("抱歉，您没有接口(yc_cb)访问权限")
+            return [{"value": 1}]
+
+    batch = ArchiveBatch(
+        store, [_target("income"), _target("yc_cb")], "frugal", DeniedAdapter(),
+        token="secret").run(batch_id="viz-batch", confirm=True)
+    assert batch["status"] == "partial"
+    progress = html("collect.batch_progress")
+    assert "viz-batch" in progress
+    assert "partial · 新增 1 · 命中 1 · 无权限 1 · 失败 0" in progress
+    assert "width:100%" in progress

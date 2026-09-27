@@ -509,6 +509,11 @@ supersedes: TBD
   回归测试落在 `tests/test_webui_views.py` 与 `tests/test_webui_server.py`；不新开需求编号
   （是既有页面的可用性修复，不是新能力）。**面板参数选择器**（公司/期次/run 的显式切换控件）
   仍按设计文档 §「待定」保留为后续能力，需要时由 owner 决定是否立需求。
+- **实机体验反馈（2026-09-27，续）**：「采集存档」页此前只有三张表，使用者反馈
+  「表格数字谁看得懂」。**处置**：登记为 `REQ-006` 任务 **T10** 并当次修复——
+  新增服务端 `bars` 分段条 kind，页面改为「存档概览」指标卡 + 覆盖图（按标的·期次、
+  缺口多者排前）+ 缺口原因分布 + 批次进度，原三张表下移为明细；回归测试见
+  `tests/test_webui_archive.py` 的 `test_archive_visual_panels_make_completeness_legible`。
 - **登记 PR**：#41（`docs(req): register REQ-009 local GUI console`）；REQ-009.4 实现 PR 为 #63、#64，
   门② 缺口修复 PR 为 #67。
 - **Issue**：[#42](https://github.com/CHU-2002/Value_analysis_framework/issues/42)（`[REQ-009]` 功能请求）。

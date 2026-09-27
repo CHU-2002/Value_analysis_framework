@@ -13,12 +13,15 @@ from __future__ import annotations
 from html import escape
 
 # 服务端渲染（可在无浏览器环境断言）
-SERVER_KINDS = ("table", "timeline", "stat", "markdown", "fallback")
+SERVER_KINDS = ("table", "timeline", "stat", "markdown", "bars", "fallback")
 # 客户端渲染（服务端只回数据/占位）
 CLIENT_KINDS = ("chart", "form", "jobs")
 KNOWN_KINDS = SERVER_KINDS + CLIENT_KINDS
 
 _STATE_CLASS = {"ok": "state-ok", "warn": "state-warn", "error": "state-error"}
+# 分段条允许的状态（白名单：数据里的字符串只用于拼 CSS 类，不能让任意值进来）
+BAR_STATES = ("ok", "empty", "denied", "limited", "error", "neutral")
+_DEFAULT_BAR_STATE = "neutral"
 
 
 def _escape(value) -> str:
@@ -108,6 +111,83 @@ def render_stat(data: dict) -> str:
     return f'<div class="panel-stat">{"".join(cards)}</div>'
 
 
+def render_bars(data: dict) -> str:
+    """分段横条（`kind="bars"`）：一行一个对象，条上按「部分」分段着色，右侧一句读数。
+
+    数据形状：
+
+        {"rows": [{"label": "600887.SH · 20260630", "note": "4/4 · 100%",
+                   "total": 4, "parts": [{"name": "已获取", "value": 4, "state": "ok"}]}],
+         "legend": [{"name": "已获取", "state": "ok"}]}   # 可选，缺省时按各行求和
+
+    为什么放在服务端：CI 没有浏览器，只有 Python 产出的 HTML 能被断言（AC-3.3）；
+    而「一眼看懂」只需要分段宽度 + 图例，不需要 canvas——所以不引入前端图表库。
+    数据里的 `state` 只用于拼 CSS 类，走白名单，任何值都不能注入标签/属性。
+    """
+    rows = list((data or {}).get("rows") or [])
+    if not rows:
+        return _empty("暂无数据")
+    legend = _bar_legend(data, rows)
+    legend_html = "".join(
+        f'<span class="bar-legend-item"><i class="bar-swatch bar-{_bar_state(item)}"></i>'
+        f'{_escape(item["name"])} {_escape(item["value"])}</span>'
+        for item in legend
+    )
+    rendered = []
+    for row in rows:
+        total = row.get("total")
+        if total is None:
+            total = sum(int(part.get("value") or 0) for part in row.get("parts") or [])
+        total = int(total or 0)
+        segments = []
+        for part in row.get("parts") or []:
+            value = int(part.get("value") or 0)
+            if value <= 0:
+                continue
+            width = 100.0 if total <= 0 else min(100.0, value * 100.0 / total)
+            title = f'{part.get("name", "")} {value}'
+            segments.append(
+                f'<span class="bar-fill bar-{_bar_state(part)}" style="width:{width:.4g}%"'
+                f' title="{_escape(title)}"></span>'
+            )
+        note = row.get("note") or (f"{total}" if total else "")
+        rendered.append(
+            '<div class="bar-row">'
+            f'<div class="bar-label">{_escape(row.get("label", ""))}</div>'
+            f'<div class="bar-track">{"".join(segments)}</div>'
+            f'<div class="bar-note">{_escape(note)}</div></div>'
+        )
+    legend_block = f'<p class="bar-legend">{legend_html}</p>' if legend_html else ""
+    return f'<div class="panel-bars">{legend_block}{"".join(rendered)}</div>'
+
+
+def _bar_state(item: dict) -> str:
+    state = str((item or {}).get("state") or "")
+    return state if state in BAR_STATES else _DEFAULT_BAR_STATE
+
+
+def _bar_legend(data: dict, rows: list) -> list:
+    """图例：显式给就用（`[]` = 不显示）；否则把各行的部分按（状态, 名称）求和。
+
+    什么时候该显式关掉：每行标签本身就是类别（例如「无权限 / 频率超限」），
+    或同名列会因状态不同被拆成多份（例如 done/partial 的「已完成」）——那只会添乱。
+    """
+    explicit = (data or {}).get("legend")
+    if explicit is not None:
+        return list(explicit)
+    totals: dict = {}
+    order: list = []
+    for row in rows:
+        for part in row.get("parts") or []:
+            key = (_bar_state(part), str(part.get("name") or ""))
+            if key not in totals:
+                totals[key] = 0
+                order.append(key)
+            totals[key] += int(part.get("value") or 0)
+    return [{"state": state, "name": name, "value": totals[(state, name)]}
+            for state, name in order]
+
+
 def render_markdown(data: dict) -> str:
     """`data["html"]` 必须已经由 `render.markdown_safe` 转义+渲染过（AC-2.3）。"""
     html = (data or {}).get("html") or ""
@@ -174,6 +254,7 @@ def render_panel(spec, data, *, meta=None) -> dict:
             "timeline": render_timeline,
             "stat": render_stat,
             "markdown": render_markdown,
+            "bars": render_bars,
             "fallback": lambda _data: render_fallback(spec),
         }[spec.kind]
         payload["html"] = _caption(data) + renderer(data or {})
