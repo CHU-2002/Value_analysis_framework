@@ -501,7 +501,8 @@ scripts/webui/
 > `markdown_tables`）、`render/panels.py`、`plugins/__init__.py`、`__main__.py`、
 > `static/`（index/app/style/kinds）已完成并有 30 条用例（REQ-009.3 → `implemented`，PR #44）；
 > REQ-009.4 正在实现：`archive/` 已有批次、配额、原始存档、token 指纹、断点恢复与缺口分类；
-> `plugins/collect.py` 提供只读完备度面板与缺口 API；真实数据源实跑尚未执行。
+> `plugins/collect.py` 提供只读完备度面板与缺口 API；2026-09-27 已完成低配额真实采集与断点续跑，
+> 证据和命令见 REQ-009.4 的实跑记录；高配额账号补缺口实跑尚未执行。
 > `commands.py`（REQ-009.1）与视图插件（REQ-009.2）尚未实现。
 > 服务端渲染的 kind（table / timeline / stat / markdown / fallback）**不需要** `static/kinds/` 下的文件，
 > 原因见 §6.1。
