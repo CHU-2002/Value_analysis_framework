@@ -38,6 +38,8 @@ CONTENT_TYPES = {
     ".ico": "image/x-icon",
 }
 MAX_STATIC_BYTES = 5 * 1024 * 1024
+# 请求体上限：本面板只接收结构化小 JSON（提交任务），不接受文件上传。
+MAX_BODY_BYTES = 1 * 1024 * 1024
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -60,13 +62,39 @@ class _Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         request_id = uuid.uuid4().hex[:8]
+        # 请求体在**分发之前**读完：POST 类接口（如提交任务）要它，静态资源也要把
+        # `Content-Length` 指明的字节消费掉，否则同一个 keep-alive 连接上的下一个请求会错位。
+        raw_body = self._read_body()
+        if raw_body is None:
+            # 超限的体没有读完：不能复用这条连接，否则下一个请求会从残留字节开始解析。
+            self.close_connection = True
+            self._send(
+                413,
+                envelope.dumps(envelope.failure(code="BAD_REQUEST", message="请求体过大")),
+                JSON_CONTENT_TYPE,
+            )
+            return
         if path.startswith("/api/"):
-            body, status, content_type = self._api(method, path, parsed.query, request_id)
+            body, status, content_type = self._api(
+                method, path, parsed.query, request_id, raw_body
+            )
         else:
             body, status, content_type = self._static(method, path)
         self._send(status, body, content_type)
 
-    def _api(self, method: str, path: str, raw_query: str, request_id: str):
+    def _read_body(self):
+        """读请求体；超过上限返回 None（由调用方回 413）。"""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            length = 0
+        if length <= 0:
+            return b""
+        if length > MAX_BODY_BYTES:
+            return None
+        return self.rfile.read(length)
+
+    def _api(self, method: str, path: str, raw_query: str, request_id: str, raw_body: bytes = b""):
         from urllib.parse import parse_qs
 
         try:
@@ -83,6 +111,7 @@ class _Handler(BaseHTTPRequestHandler):
                 method=method,
                 path=path,
                 query=query,
+                body=raw_body,
                 config=self.server.config,
                 registry=self.server.registry,
                 request_id=request_id,

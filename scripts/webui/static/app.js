@@ -2,6 +2,8 @@
 // 这里**没有任何业务判断**；加新面板 = 插件注册，加新可视化类型 = registerPanelKind。
 import { render as renderChart } from "/kinds/chart.js";
 import { render as renderFallback } from "/kinds/fallback.js";
+import { render as renderForm } from "/kinds/form.js";
+import { render as renderJobs } from "/kinds/jobs.js";
 
 const kindRegistry = new Map();
 export function registerPanelKind(kind, renderer) {
@@ -11,13 +13,26 @@ export function registerPanelKind(kind, renderer) {
 // 客户端渲染的 kind（服务端渲染的 kind 直接给 html 片段，不需要前端渲染器）
 registerPanelKind("chart", renderChart);
 registerPanelKind("fallback", renderFallback);
-registerPanelKind("form", renderFallback);
-registerPanelKind("jobs", renderFallback);
+registerPanelKind("form", renderForm);
+registerPanelKind("jobs", renderJobs);
 
-const selection = { company: "", period: "", run: "" };
+// 「当前选择」是一袋查询参数（company / period / run / id …），由页面链接携带。
+// shell 不解释它们的含义——那属于插件，这里只负责转交（AC-9：核心不含业务）。
+const selection = {};
 
-async function api(path) {
-  const response = await fetch(path, { headers: { Accept: "application/json" } });
+function parseHash() {
+  const raw = window.location.hash.replace(/^#/, "");
+  const [pageId, query = ""] = raw.split("?", 2);
+  return { pageId, query };
+}
+
+function applySelection(query) {
+  for (const [key, value] of new URLSearchParams(query).entries()) selection[key] = value;
+}
+
+async function api(path, options = {}) {
+  const headers = { Accept: "application/json", ...(options.headers || {}) };
+  const response = await fetch(path, { ...options, headers });
   const payload = await response.json();
   if (!payload.ok) {
     const error = payload.error || {};
@@ -131,11 +146,14 @@ async function boot() {
       nav.textContent = "还没有注册任何页面。";
       return;
     }
-    const requested = window.location.hash.replace(/^#/, "");
+    const requested = parseHash().pageId;
+    applySelection(parseHash().query);
     const first = items.some((item) => item.id === requested) ? requested : items[0].id;
     window.addEventListener("hashchange", () => {
-      const pageId = window.location.hash.replace(/^#/, "");
-      if (pageId) openPage(pageId).catch((error) => banner(error.message, "error"));
+      const next = parseHash();
+      if (!next.pageId) return;
+      applySelection(next.query);
+      openPage(next.pageId).catch((error) => banner(error.message, "error"));
     });
     await openPage(first);
   } catch (error) {

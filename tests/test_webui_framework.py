@@ -217,7 +217,10 @@ def test_check_mode_assembles_without_binding_a_port(capsys):
     assert payload["version"] == __version__
     assert "GET /api/v1/healthz" in payload["routes"]
     assert payload["host"] == "127.0.0.1"
-    assert payload["plugins"] == [{"origin": "builtin:collect", "error": False}]
+    assert payload["plugins"] == [
+        {"origin": f"builtin:{name}", "error": False}
+        for name in ("collect", "commands", "companies", "charts", "run_history")
+    ]
 
 
 def test_cli_rejects_a_non_loopback_host_argument(capsys):
@@ -889,8 +892,13 @@ def test_check_mode_lists_registered_panels(tmp_path, capsys):
     plugin_dir = write_plugin(tmp_path / "plugins", "demo.py", DEMO_PLUGIN).parent
     assert main(["--check", "--no-browser", "--plugins", str(plugin_dir)]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["panels"] == ["collect.archive", "collect.batches", "demo.future", "demo.table"]
-    assert payload["nav"] == ["collect", "demo"]
+    assert payload["panels"] == [
+        "charts.annual_price", "charts.metrics", "charts.revenue_profit",
+        "collect.archive", "collect.batches", "commands.catalog", "commands.jobs",
+        "companies.artifacts", "companies.list", "demo.future", "demo.table",
+        "report.view", "runs.status", "runs.timeline",
+    ]
+    assert payload["nav"] == ["collect", "companies", "charts", "report", "runs", "commands", "demo"]
 
 
 def test_unexpected_exceptions_reach_stderr_and_the_log_is_bounded(tmp_path, capsys):

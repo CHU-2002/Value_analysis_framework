@@ -1,11 +1,18 @@
 // kind=chart：数据形状 {labels:[...], series:[{name, values:[...]}]}
 // 用原生 canvas 画折线/柱状 + 鼠标悬停读数。刻意不引图表库（零新增依赖）。
 function niceScale(values) {
-  const max = Math.max(...values, 0);
-  const min = Math.min(...values, 0);
+  const numbers = values.filter((value) => typeof value === "number" && Number.isFinite(value));
+  if (!numbers.length) return { min: 0, max: 1 };
+  const max = Math.max(...numbers, 0);
+  const min = Math.min(...numbers, 0);
   if (max === min) return { min: min - 1, max: max + 1 };
   const pad = (max - min) * 0.1;
   return { min: min - pad, max: max + pad };
+}
+
+// 数据包里的缺失值是 `null`（"—"）：图上留空，不画成 0（画成 0 会篡改趋势）。
+function isNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function draw(ctx, canvas, panel, data, hoverIndex) {
@@ -48,6 +55,7 @@ function draw(ctx, canvas, panel, data, hoverIndex) {
     if (type === "bar") {
       const barWidth = Math.max(2, plotWidth / labels.length / (series.length + 1));
       values.forEach((value, index) => {
+        if (!isNumber(value)) return;
         const barHeight = Math.abs(y(value) - y(0));
         ctx.fillRect(
           x(index) - barWidth * series.length / 2 + seriesIndex * barWidth,
@@ -59,9 +67,15 @@ function draw(ctx, canvas, panel, data, hoverIndex) {
     } else {
       ctx.lineWidth = 2;
       ctx.beginPath();
+      let started = false;
       values.forEach((value, index) => {
-        if (index === 0) ctx.moveTo(x(index), y(value));
+        if (!isNumber(value)) {
+          started = false;      // 缺失值断开折线，而不是连一条穿过 0 的假线
+          return;
+        }
+        if (!started) ctx.moveTo(x(index), y(value));
         else ctx.lineTo(x(index), y(value));
+        started = true;
       });
       ctx.stroke();
     }
@@ -87,7 +101,10 @@ function draw(ctx, canvas, panel, data, hoverIndex) {
     ctx.stroke();
     const lines = [
       String(labels[hoverIndex]),
-      ...series.map((item) => `${item.name}: ${(item.values || [])[hoverIndex]}`),
+      ...series.map((item) => {
+        const value = (item.values || [])[hoverIndex];
+        return `${item.name}: ${isNumber(value) ? value : "—"}`;
+      }),
     ];
     const boxWidth = 150;
     const boxHeight = 14 * lines.length + 8;

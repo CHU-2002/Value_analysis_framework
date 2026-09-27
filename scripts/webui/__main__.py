@@ -16,6 +16,7 @@ import webbrowser
 from . import __version__
 from .config import ConfigError, is_loopback, load_config
 from .core.errors import BindFailed, PortInUse
+from .core.jobs import JobRunner
 from .core.registry import build_registry
 from .core.routes import install_core_routes
 from .core.server import WebUIServer
@@ -34,6 +35,9 @@ def build_application(config) -> tuple:
     registry.config = config
     registry.datastore = DataStore(config, spec_lookup=registry.dataset_spec)
     report = load_plugins(registry, config.plugins)
+    # 任务运行器是内核能力（AC-1.1~AC-1.4），挂在这里供插件通过 `ctx.registry.jobs` 使用；
+    # 不在 `Registry.__init__` 里声明属性，是为了让「加按键」不必改内核（AC-9）。
+    registry.jobs = JobRunner(config, spec_lookup=registry.command_spec)
     return registry, report
 
 
@@ -205,6 +209,9 @@ def main(argv=None) -> int:
         print("\n已停止。")
     finally:
         server.shutdown()
+        runner = getattr(registry, "jobs", None)
+        if runner is not None:
+            runner.shutdown()
     return 0
 
 

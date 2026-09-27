@@ -25,6 +25,21 @@ def _escape(value) -> str:
     return escape("" if value is None else str(value), quote=True)
 
 
+def _cell_html(column: dict, row: dict) -> str:
+    """单元格 HTML。列可声明 `href_key`：该行的这个键是**站内**链接。
+
+    只允许 `#`（页内路由）与 `/`（同源接口）两种形式——表格数据来自文件系统，
+    任何 `javascript:` / `//evil` 形式都不该被渲染成可点的链接。
+    """
+    text = _escape(row.get(column.get("key")))
+    href_key = column.get("href_key")
+    if href_key:
+        href = str(row.get(href_key) or "").strip()
+        if href.startswith("#") or (href.startswith("/") and not href.startswith("//")):
+            return f'<a href="{_escape(href)}">{text}</a>'
+    return text
+
+
 def render_table(data: dict) -> str:
     columns = list((data or {}).get("columns") or [])
     rows = list((data or {}).get("rows") or [])
@@ -37,7 +52,7 @@ def render_table(data: dict) -> str:
     body = []
     for row in rows:
         cells = "".join(
-            f'<td class="align-{_escape(col.get("align", "left"))}">{_escape(row.get(col.get("key")))}</td>'
+            f'<td class="align-{_escape(col.get("align", "left"))}">{_cell_html(col, row)}</td>'
             for col in columns
         )
         body.append(f"<tr>{cells}</tr>")
@@ -63,10 +78,14 @@ def render_timeline(data: dict) -> str:
             lines = "".join(f"<li>{_escape(change)}</li>" for change in changes)
             change_html = f'<div class="timeline-changes"><p>结论变化</p><ul>{lines}</ul></div>'
         detail = item.get("detail") or ""
+        title = _escape(item.get("title", ""))
+        link = str(item.get("link") or "").strip()
+        if link.startswith("#") or (link.startswith("/") and not link.startswith("//")):
+            title = f'<a href="{_escape(link)}">{title}</a>'
         rendered.append(
             '<li class="timeline-item">'
             f'<div class="timeline-at">{_escape(item.get("at", ""))}</div>'
-            f'<div class="timeline-body"><p class="timeline-title">{_escape(item.get("title", ""))}'
+            f'<div class="timeline-body"><p class="timeline-title">{title}'
             f"{badges}</p>"
             f'<p class="timeline-detail">{_escape(detail)}</p>{change_html}</div></li>'
         )

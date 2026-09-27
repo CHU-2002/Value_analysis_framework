@@ -1,7 +1,7 @@
 ---
 id: REQ-009
 title: 本地图形化控制台（可扩展框架 + 按键执行 + 股票图表 + 报告与迭代记录浏览）
-status: accepted
+status: in-progress
 priority: P1
 owner: CHU-2002
 created: 2026-09-21
@@ -101,12 +101,14 @@ supersedes: TBD
 |----------|------|------|------|
 | **1** | `REQ-009.3` | 可扩展框架与本地数据层（微内核 / 插件注册表 / 面板协议 / 数据缓存 / API 契约 / 安全中间件） | `verified` |
 | **2** | `REQ-009.4` | 手动触发的远程采集与长期存档（批次 / 配额档案 / 原始存档 / 断点续跑 / 权限缺口清单） | `implemented` |
-| 3 | `REQ-009.1` | 按键执行器（命令白名单 + 异步任务 + 日志与取消） | `accepted` |
-| 4 | `REQ-009.2` | 报告浏览、图表与迭代台账视图 | `accepted` |
+| 3 | `REQ-009.1` | 按键执行器（命令白名单 + 异步任务 + 日志与取消） | `implemented` |
+| 4 | `REQ-009.2` | 报告浏览、图表与迭代台账视图 | `implemented` |
 
 ### REQ-009.1 按键执行器与任务生命周期
 
-- 状态：`accepted`
+- 状态：`implemented`
+- 状态说明：实现与测试已随特性分支合入 `main`（`core/jobs.py` + `plugins/commands.py` +
+  `static/kinds/form.js` / `jobs.js`），测试见 `tests/test_webui_server.py`；独立验收（门②）尚未进行。
 - 目标：既有入口全部变成可点的按键，点下去就能跑、能看到进展与结果。
 - 验收标准：
   - **AC-1.1**：`POST /api/v1/jobs` 提交任务后**立即**返回任务 id（HTTP 不阻塞到命令结束）；
@@ -122,7 +124,10 @@ supersedes: TBD
 
 ### REQ-009.2 报告浏览、图表与迭代台账视图
 
-- 状态：`accepted`
+- 状态：`implemented`
+- 状态说明：实现与测试已随特性分支合入 `main`（`plugins/companies.py`、`charts.py`、
+  `run_history.py`、`render/markdown_safe.py`），测试见 `tests/test_webui_views.py`；
+  独立验收（门②）尚未进行。
 - 目标：不跑命令也能看懂已有产出——读报告、看图表、看迭代记录。
 - 验收标准：
   - **AC-2.1**：`GET /api/v1/companies` 返回 `output/` 下全部公司目录及其最近一次 run 与 `primary_period`；
@@ -374,8 +379,12 @@ supersedes: TBD
 
 ## 实跑记录
 
-**待实跑**（AC-8）。收口前在此登记：日期 / 环境（Python 版本、浏览器、端口）/ 命令 / 观察到的界面现象 /
+**待实跑**（父需求 AC-8，按 `AGENTS.md` 由使用者执行）。收口前在此登记：日期 / 环境（Python 版本、浏览器、端口）/ 命令 / 观察到的界面现象 /
 本次发现的问题与去处（子需求编号或 REQ-006 任务）。
+
+**开工前置已就绪**：`make gui` 已能一次起出全部页面（公司 / 图表 / 报告 / 迭代记录 / 按键 / 采集存档），
+`output/600887_伊利` 有 6 个 run 与 68 个产物可供逐页点开；AC-8 要求的「真实浏览器 + 点一个按键跑真实命令」
+仍留给使用者，CI 不覆盖这一类判据。
 
 ## 变更记录
 
@@ -394,7 +403,7 @@ supersedes: TBD
 |----|------|
 | 设计文档 | `docs/GUI_CONSOLE_PLAN.md`（含扩展点清单、面板协议 schema、数据层缓存规则、扩展步骤清单） |
 | 需求总览（导读） | `docs/GUI_CONSOLE_OVERVIEW.md`——给使用者的大白话汇总（需求图景 / 方案 / 工作方式 / 决策点）；**非权威**，与条目或设计文档冲突时以它们为准 |
-| 实现 PR | #44（框架切片）、#45（门② 验收缺口 D1~D10 与复验缺口 N1~N9 的修复） |
+| 实现 PR | #44（框架切片）、#45（门② 验收缺口 D1~D10 与复验缺口 N1~N9 的修复）、#63 / #64（采集与存档）、#66（按键执行器与视图） |
 | 验收报告 | [`docs/verification/2026-09-21-REQ-009.3.md`](../verification/2026-09-21-REQ-009.3.md)——三轮独立验收（首轮**不通过** → 第二轮复验 `AC-3.3` 改判成立但 N1 使 `AC-3.7` 不成立 → 第三轮复验 `AC-3.1`~`AC-3.7` 全部成立） |
 | 测试 | `tests/test_webui_framework.py`（REQ-009.3）、`tests/test_webui_archive.py`（REQ-009.4）、`tests/test_webui_server.py`（REQ-009.1）、`tests/test_webui_views.py`（REQ-009.2） |
 | 文档更新 | `README.md`（面板一节）、`Makefile`（`make gui`）、`CHANGELOG.md` |
@@ -440,8 +449,16 @@ supersedes: TBD
   `docs/TESTING.md` §5、`docs/DEVELOPMENT.md` §14。本需求预计落在 **1586/1800（88%）、37/48**。
   **纪律不变**：不得为了让新测试挤进预算而删断言、加 `skip` 或放宽门禁；下次接近新上限仍先清理。
 - **交付进度**：`REQ-009.3`（框架与数据层）已由 PR #44 合入并验收；`REQ-009.4` 已由 PR #63
-  合入、并由 PR #64 补齐独立复核发现的 AC 缺口，当前为 `implemented`，独立验收尚未进行；
-  `.1` / `.2` 尚未开始。父需求在四片全部 `verified` 且 AC-8 实跑留档之前不推进。
+  合入、并由 PR #64 补齐独立复核发现的 AC 缺口；`.1`（按键执行器）与 `.2`（视图）由 PR #66
+  实现，四片均为 `implemented` 或 `verified`，只待独立验收（门②）与 AC-8 实跑。
+  父需求在四片全部 `verified` 且 AC-8 实跑留档之前不推进。
+- **框架演进留痕（2026-09-27，实现 `.1` / `.2` 时）**：这两片是框架的第一个真实用例，
+  过程中只改动了两个「扩展面」文件，均属框架能力补齐而非业务硬编码：
+  `core/server.py` 增加请求体读取（POST 接口需要，`ctx.body` 原本恒为空）、
+  `static/app.js` 把 `form` / `jobs` 两个 kind 从「降级渲染器」换成真实渲染器并让「当前选择」
+  从页面链接带过来；`core/registry.py` / `router.py` / `routes.py` / `index.html` 的内容
+  **未改动**（指纹测试可证），`tests/fixtures/webui_core_fingerprint.json` 已同步更新。
+  业务代码全部落在新插件与 `render/markdown_safe.py`、`core/jobs.py` 里。
 - **登记 PR**：#41（`docs(req): register REQ-009 local GUI console`）；REQ-009.4 实现 PR 为 #63、#64。
 - **Issue**：[#42](https://github.com/CHU-2002/Value_analysis_framework/issues/42)（`[REQ-009]` 功能请求）。
   按 `README.md` §9，Issue 在**验收通过后**才关闭，不在 PR 合并时自动关闭。
