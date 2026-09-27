@@ -101,15 +101,14 @@ supersedes: TBD
 |----------|------|------|------|
 | **1** | `REQ-009.3` | 可扩展框架与本地数据层（微内核 / 插件注册表 / 面板协议 / 数据缓存 / API 契约 / 安全中间件） | `verified` |
 | **2** | `REQ-009.4` | 手动触发的远程采集与长期存档（批次 / 配额档案 / 原始存档 / 断点续跑 / 权限缺口清单） | `implemented` |
-| 3 | `REQ-009.1` | 按键执行器（命令白名单 + 异步任务 + 日志与取消） | `in-progress` |
-| 4 | `REQ-009.2` | 报告浏览、图表与迭代台账视图 | `in-progress` |
+| 3 | `REQ-009.1` | 按键执行器（命令白名单 + 异步任务 + 日志与取消） | `implemented` |
+| 4 | `REQ-009.2` | 报告浏览、图表与迭代台账视图 | `implemented` |
 
 ### REQ-009.1 按键执行器与任务生命周期
 
-- 状态：`in-progress`
-- 状态说明：实现已完成（`core/jobs.py` + `plugins/commands.py` + `static/kinds/form.js` / `jobs.js`），
-  门禁全绿、测试见 `tests/test_webui_server.py`；**尚未合入 `main`**，故停在 `in-progress`，
-  合并后置 `implemented`，独立验收通过后置 `verified`。
+- 状态：`implemented`
+- 状态说明：实现与测试已随特性分支合入 `main`（`core/jobs.py` + `plugins/commands.py` +
+  `static/kinds/form.js` / `jobs.js`），测试见 `tests/test_webui_server.py`；独立验收（门②）尚未进行。
 - 目标：既有入口全部变成可点的按键，点下去就能跑、能看到进展与结果。
 - 验收标准：
   - **AC-1.1**：`POST /api/v1/jobs` 提交任务后**立即**返回任务 id（HTTP 不阻塞到命令结束）；
@@ -125,10 +124,10 @@ supersedes: TBD
 
 ### REQ-009.2 报告浏览、图表与迭代台账视图
 
-- 状态：`in-progress`
-- 状态说明：实现已完成（`plugins/companies.py`、`charts.py`、`run_history.py`、
-  `render/markdown_safe.py`），门禁全绿、测试见 `tests/test_webui_views.py`；
-  **尚未合入 `main`**，故停在 `in-progress`，合并后置 `implemented`，独立验收通过后置 `verified`。
+- 状态：`implemented`
+- 状态说明：实现与测试已随特性分支合入 `main`（`plugins/companies.py`、`charts.py`、
+  `run_history.py`、`render/markdown_safe.py`），测试见 `tests/test_webui_views.py`；
+  独立验收（门②）尚未进行。
 - 目标：不跑命令也能看懂已有产出——读报告、看图表、看迭代记录。
 - 验收标准：
   - **AC-2.1**：`GET /api/v1/companies` 返回 `output/` 下全部公司目录及其最近一次 run 与 `primary_period`；
@@ -450,8 +449,8 @@ supersedes: TBD
   `docs/TESTING.md` §5、`docs/DEVELOPMENT.md` §14。本需求预计落在 **1586/1800（88%）、37/48**。
   **纪律不变**：不得为了让新测试挤进预算而删断言、加 `skip` 或放宽门禁；下次接近新上限仍先清理。
 - **交付进度**：`REQ-009.3`（框架与数据层）已由 PR #44 合入并验收；`REQ-009.4` 已由 PR #63
-  合入、并由 PR #64 补齐独立复核发现的 AC 缺口，当前为 `implemented`，独立验收尚未进行；
-  `.1`（按键执行器）与 `.2`（视图）实现与测试已完成、`make verify` 全绿，停在 `in-progress` 等合入。
+  合入、并由 PR #64 补齐独立复核发现的 AC 缺口；`.1`（按键执行器）与 `.2`（视图）随特性 PR
+  合入，四片均为 `implemented` 或 `verified`，只待独立验收（门②）与 AC-8 实跑。
   父需求在四片全部 `verified` 且 AC-8 实跑留档之前不推进。
 - **框架演进留痕（2026-09-27，实现 `.1` / `.2` 时）**：这两片是框架的第一个真实用例，
   过程中只改动了两个「扩展面」文件，均属框架能力补齐而非业务硬编码：
