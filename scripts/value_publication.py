@@ -570,7 +570,9 @@ def _resolve_snapshot_dir(company_path: Path, pointer: dict[str, Any]) -> Path |
     A pointer is only trusted when **all** of these hold:
 
     - it carries a digest and a ``snapshot_dir``;
-    - that directory sits under ``value_reports/<source_run>/``;
+    - ``source_run`` is a single path component (no ``..``/separators), so the
+      binding cannot be widened by a crafted id;
+    - that directory is exactly ``value_reports/<source_run>/<sha12>/``;
     - its ``manifest.json`` records the same digest;
     - the ``report`` it names is exactly that revision's ``report.md``.
 
@@ -580,9 +582,12 @@ def _resolve_snapshot_dir(company_path: Path, pointer: dict[str, Any]) -> Path |
 
     recorded = pointer.get("report_sha256")
     snapshot_raw = pointer.get("snapshot_dir")
+    source_run = pointer.get("source_run")
     if not isinstance(recorded, str) or not recorded:
         return None
     if not isinstance(snapshot_raw, str) or not snapshot_raw:
+        return None
+    if not isinstance(source_run, str) or not _is_single_path_component(source_run):
         return None
 
     snapshot = Path(snapshot_raw)
@@ -590,11 +595,15 @@ def _resolve_snapshot_dir(company_path: Path, pointer: dict[str, Any]) -> Path |
         snapshot = company_path / snapshot
     try:
         snapshot = snapshot.resolve()
-        expected_root = (company_path / VALUE_DIR_NAME / str(pointer.get("source_run"))).resolve()
+        expected_root = (company_path / VALUE_DIR_NAME / source_run).resolve()
         report_resolved = _resolved_report_path(company_path, pointer)
     except OSError:  # pragma: no cover - defensive: unreadable/long paths
         return None
-    if report_resolved is None or not snapshot.is_relative_to(expected_root):
+    if report_resolved is None:
+        return None
+    # Only a revision directory counts: accepting the run directory itself would
+    # let a hand-made manifest.json + report.md there pass as a frozen revision.
+    if snapshot.parent != expected_root:
         return None
     if report_resolved.parent != snapshot:
         return None
@@ -605,8 +614,19 @@ def _resolve_snapshot_dir(company_path: Path, pointer: dict[str, Any]) -> Path |
     return snapshot
 
 
+def _is_single_path_component(value: str) -> bool:
+    """True when ``value`` is one ordinary path segment (a run id, not a path)."""
+
+    return bool(value) and value not in {".", ".."} and "/" not in value and "\\" not in value
+
+
 def _resolved_report_path(company_path: Path, pointer: dict[str, Any]) -> Path | None:
-    """Absolute path of the report a pointer names (``None`` when it has none)."""
+    """Absolute path of the report a pointer names (``None`` when it has none).
+
+    Relative paths resolve against the **company directory**, the same base the
+    snapshot binding uses, so existence and digest checks can never disagree
+    with the binding about which file is meant.
+    """
 
     raw = pointer.get("report")
     if not isinstance(raw, str) or not raw:
@@ -676,7 +696,15 @@ def read_current(company_dir: str | Path) -> dict[str, Any]:
             "reason": _reason(REASON_POINTER_UNREADABLE, "pointer has no source_run/report"),
         }
 
-    report_path = Path(str(pointer["report"]))
+    # Relative paths always resolve against the company directory — the same base
+    # the snapshot binding uses — so existence, digest and binding can never
+    # disagree about which file the pointer means.
+    report_path = _resolved_report_path(company_path, pointer)
+    if report_path is None:
+        return {
+            **base,
+            "reason": _reason(REASON_POINTER_UNREADABLE, "pointer has no usable report path"),
+        }
     base["source_run"] = pointer.get("source_run")
     base["primary_period"] = pointer.get("primary_period")
     base["report"] = str(report_path)
