@@ -16,7 +16,7 @@
 | [REQ-006](REQ-006-requirement-test-dev-flow.md) | 工程化开发流程（建立与持续维护） | `verified` | P1 | N/A | #25, #29, #30, #31, #32, #34, #35, #36, #37, #60 | `tests/test_release_gates.py` `tests/test_test_scope.py` `tests/test_update_docs_contract.py` `tests/test_two_layout_e2e.py`（追溯门禁自身即扫描器，按设计排除，故不列入声明） |
 | [REQ-007](REQ-007-governance-hardening.md) | 门禁与治理工具加固 | `superseded` | P2 | N/A | #29 | 已并入 REQ-006 任务 T2（文件与报告留作证据） |
 | [REQ-008](REQ-008-coverage-debt.md) | 覆盖率洼地补测 | `superseded` | P2 | TBD | TBD | 已并入 REQ-006 任务 T4（本文件即 T4 的规格） |
-| [REQ-009](REQ-009-local-gui-console.md) | 本地图形化控制台（可扩展框架 + 按键执行 + 股票图表 + 报告与迭代记录浏览） | `in-progress` | P1 | #42 | #44, #45, #63, #64, #66 | `tests/test_webui_framework.py` `tests/test_webui_archive.py` `tests/test_webui_server.py` `tests/test_webui_views.py` |
+| [REQ-009](REQ-009-local-gui-console.md) | 本地图形化控制台（可扩展框架 + 按键执行 + 股票图表 + 报告与迭代记录浏览） | `in-progress` | P1 | #42 | #44, #45, #63, #64, #66, #67 | `tests/test_webui_framework.py` `tests/test_webui_archive.py` `tests/test_webui_server.py` `tests/test_webui_views.py` |
 | [REQ-010](REQ-010-latest-valuation-publication.md) | 最新价值分析报告发布与历史版本保留 | `accepted` | P1 | #61 | TBD | `tests/test_latest_valuation_publication.py` |
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
@@ -34,10 +34,10 @@
 |----|--------|------|------|---------|----------|
 | [REQ-006.1](REQ-006-requirement-test-dev-flow.md) | REQ-006 | 财报分析端到端实跑加固与实跑验收规则 | `verified` | #36, #37, #46, #48 | `tests/test_release_gates.py` `tests/test_update_docs_contract.py` |
 | [REQ-006.2](REQ-006-requirement-test-dev-flow.md) | REQ-006 | 实跑暴露的数据包与证据层缺陷修复 | `verified` | #49, #60 | `tests/test_tushare_pack_sections.py` `tests/test_pdf_preprocessor.py` `tests/test_results_pipeline.py` `tests/test_change_report.py` `tests/test_runs_ledger.py` |
-| [REQ-009.1](REQ-009-local-gui-console.md) | REQ-009 | 按键执行器与任务生命周期 | `implemented` | #66 | `tests/test_webui_server.py` |
-| [REQ-009.2](REQ-009-local-gui-console.md) | REQ-009 | 报告浏览、图表与迭代台账视图 | `implemented` | #66 | `tests/test_webui_views.py` |
+| [REQ-009.1](REQ-009-local-gui-console.md) | REQ-009 | 按键执行器与任务生命周期 | `verified` | #66 | `tests/test_webui_server.py` |
+| [REQ-009.2](REQ-009-local-gui-console.md) | REQ-009 | 报告浏览、图表与迭代台账视图 | `verified` | #66, #67 | `tests/test_webui_views.py` |
 | [REQ-009.3](REQ-009-local-gui-console.md) | REQ-009 | 可扩展框架与本地数据层（微内核 / 插件注册表 / 面板协议 / 数据缓存 / API 契约 / 安全中间件） | `verified` | #44, #45 | `tests/test_webui_framework.py` |
-| [REQ-009.4](REQ-009-local-gui-console.md) | REQ-009 | 手动触发的远程采集与长期存档（批次 / 配额档案 / 原始存档 / 断点续跑 / 权限缺口清单） | `implemented` | #63, #64 | `tests/test_webui_archive.py` |
+| [REQ-009.4](REQ-009-local-gui-console.md) | REQ-009 | 手动触发的远程采集与长期存档（批次 / 配额档案 / 原始存档 / 断点续跑 / 权限缺口清单） | `verified` | #63, #64, #67 | `tests/test_webui_archive.py` |
 
 > **编号按登记顺序，交付按「交付顺序」**：`REQ-009` 的交付顺序为
 > **`REQ-009.3`（框架，先）→ `REQ-009.4`（采集与长期存档）→ `REQ-009.1`（按键执行器）→ `REQ-009.2`（视图）**，
