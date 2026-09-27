@@ -32,8 +32,22 @@
   两者都是框架缺口而非业务硬编码，核心指纹清单已同步（`registry/router/routes/index.html` 未改）
 - REQ-009.4 补齐 AC-4.6 的「只补缺口目标」入口：`--only-gaps` 先按存档结果把目标收敛到缺口再报
   调用量，面板新增 `collect.gaps` 逐条列出缺口的结果分类与接口原文摘要
+- 界面实跑的自动化工具 `scripts/gui_walkthrough.py`：CDP 驱动真实浏览器（默认无头，`--headed`
+  开可见窗口）把 `REQ-009` 的 `AC-8` 动作跑一遍并落截图与观察记录，做**页面级**检查
+  （面板有没有降级、图表张数、时间线条数、按键的真实退出码）；只用 Python 标准库
+  （CDP 的 WebSocket 自己按 RFC 6455 实现），不新增依赖。用法见 `docs/DEVELOPMENT.md` §4.1
 
 ### Fixed
+
+- 浏览器实跑走查（`AC-8` 前置）发现的 **E1 / 阻断**：前端 shell 的「当前选择」只在**客户端面板取数**时
+  转发，拉**页面描述**时没转发——真实浏览器里从公司页点进图表 / 报告 / 迭代记录页，
+  `GET /api/v1/pages/{id}` 整条请求不带 `company`，7 块面板全部按「缺必填参数」降级成
+  `BAD_REQUEST`（图表 0 张、报告 0 表格、时间线 0 条），而端点级用例全绿、什么都没报。
+  修复上移到**传输层**：`api()` 对同源相对路径统一套 `withSelection`，任何调用点都无法再漏
+  （`kinds/form.js` / `kinds/jobs.js` 的 `api(panel.endpoint)` 是同一类的潜伏第二、三处）。
+  补了回归断言（`test_the_frontend_forwards_the_current_selection_on_every_api_call`）与
+  走查工具 `scripts/gui_walkthrough.py`（前后对照：修复前 7 项不通过 → 修复后 0 项）；
+  `static/app.js` 的核心指纹已同步（框架分发链路的缺陷修复，非为新功能改核心）
 
 - 门② 独立验收（两个独立 agent）发现的缺陷：
   Markdown 报告表格的**表体**被按字符串逐字符渲染（`| ROE | 20 |` 变成 12 个单字符 `<td>`，

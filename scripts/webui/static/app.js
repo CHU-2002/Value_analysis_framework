@@ -31,8 +31,11 @@ function applySelection(query) {
 }
 
 async function api(path, options = {}) {
+  // 「当前选择」在**传输层**统一转发：靠每个调用点自己记得带上它靠不住——
+  // `openPage` 漏过一次，带 company 的图表/报告/迭代记录就整页降级（实跑走查 E1）。
+  const target = path.startsWith("/") ? withSelection(path) : path;
   const headers = { Accept: "application/json", ...(options.headers || {}) };
-  const response = await fetch(path, { ...options, headers });
+  const response = await fetch(target, { ...options, headers });
   const payload = await response.json();
   if (!payload.ok) {
     const error = payload.error || {};
@@ -88,7 +91,7 @@ async function mountPanel(panel) {
   try {
     let data = panel.data;
     if (data === undefined && panel.endpoint) {
-      data = (await api(withSelection(panel.endpoint))).data;
+      data = (await api(panel.endpoint)).data;
     }
     await renderer(body, panel, data);
   } catch (error) {

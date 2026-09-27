@@ -78,6 +78,22 @@ CI 全 mock、不联网、不需要 token——它测不到**外部数据源的�
 实例：`REQ-006.1` 的背景表就是一次真实实跑暴露的 6 个问题（协议、HOME 权限、文档接线、
 digest 口径、上下文预算、台账路径校验）。
 
+**界面类实跑可以自动化一半**：`scripts/gui_walkthrough.py` 用 CDP 驱动真实浏览器
+（默认无头，`--headed` 开可见窗口）把 `REQ-009` 的 `AC-8` 动作跑一遍并落截图与观察记录：
+
+```bash
+make gui                                        # 另一个终端
+.venv/bin/python scripts/gui_walkthrough.py --base http://127.0.0.1:8765
+```
+
+它检查的是**页面级**事实（有没有面板降级、图表张数、时间线条数、按键的真实退出码），
+而不是面板级接口——`REQ-009` 的 **E1** 正是「面板级 AC 全绿、页面整页不可用」这一类，
+当时就靠它才抓到。但它**不替代**人工目视：`AC-8` 的判定仍由使用者做，脚本只是把同一批动作
+固化成一条可随时重跑的命令，「改完之后页面有没有被弄坏」不再靠运气。
+只用 Python 标准库（CDP 的 WebSocket 是自己按 RFC 6455 写的，不引入新依赖）；
+无头浏览器在受限沙箱里可能起不来（macOS 上 Edge 报 `sandbox initialization failed`），
+这时放宽权限或改 `--headed` 看报错。
+
 ## 5. 就绪定义（Definition of Ready）
 
 需求进入实现前必须全部满足，否则停在 `proposed`：

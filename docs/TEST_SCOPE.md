@@ -15,7 +15,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | 项 | 当前 | 上限 | 使用率 |
 |----|------|------|--------|
 | 测试文件数 | 38 | 48 | 79% |
-| 收集到的用例数 | 1652 | 1800 | 92% |
+| 收集到的用例数 | 1653 | 1800 | 92% |
 
 （用例数含 `parametrize` 展开，由 `pytest --collect-only` 统计；函数数见下表末列，仅作参考。）
 
@@ -58,7 +58,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_update_docs_contract.py` | REQ-005, REQ-006, REQ-006.1 | `unit` | — | 20 |
 | `tests/test_version.py` | REQ-003, REQ-006 | `unit` | `scripts/version.py` | 16 |
 | `tests/test_webui_archive.py` | REQ-009.4 | `unit` | — | 10 |
-| `tests/test_webui_framework.py` | REQ-009.3 | `unit` | — | 42 |
+| `tests/test_webui_framework.py` | REQ-009.3 | `unit` | — | 43 |
 | `tests/test_webui_server.py` | REQ-009.1 | `unit` | — | 6 |
 | `tests/test_webui_views.py` | REQ-009.2 | `unit` | — | 5 |
 

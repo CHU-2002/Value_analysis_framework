@@ -250,6 +250,30 @@ supersedes: TBD
 | **Q2** | 低（观察） | `octet-stream`/未知扩展名的静态资源不参与响应脱敏（仓库自带 `static/` 无凭据文件，今天不可达） | **登记为观察**，不修；若将来静态目录可能放敏感内容须重新评估 |
 | **Q3** | 低（观察） | `webbrowser` 是框架里唯一会拉起外部进程的模块（只在启动时打开环回地址，且失败被吞） | **登记为观察**，不修 |
 
+#### 浏览器实跑走查（父需求 `AC-8`）新发现的问题（2026-09-27）
+
+`REQ-009.1` / `.2` / `.4` 三个切片收口之后，用 CDP 驱动**真实浏览器**把 `AC-8` 的动作跑了一遍
+（工具：`scripts/gui_walkthrough.py`，用法见 `docs/DEVELOPMENT.md` §4.1）。
+当时**接口级用例全绿**，但真实浏览器里三页整页不可用——这正是 `AC-8` 这类「实跑」判据存在的理由。
+
+| 编号 | 程度 | 现象（可复现场景） | 去处 |
+|------|------|--------------------|------|
+| **E1** | **阻断（父需求 `AC-4` / `AC-8`）** | 前端 shell 的「当前选择」**只在客户端面板取数时**转发：`openPage` 拉页面描述时没套 `withSelection`。于是从公司页真实点进图表页时，`GET /api/v1/pages/charts` **整条请求不带 `company`**（服务端访问日志可见），`charts.annual_price` / `charts.metrics` / `charts.revenue_profit` / `report.view` / `companies.artifacts` / `runs.status` / `runs.timeline` 全部按「缺必填参数」降级成 `BAD_REQUEST` 卡片：图表 0 张、报告 0 表格、时间线 0 条。`AC-2.1`~`AC-2.5` 是**端点级**判据（直接带 `?company=` 请求都正常），所以全部用例都是绿的，整页不可用被完全掩盖 | **本切片修复**（PR #70）：把转发从「调用点各自自觉」上移到**传输层**——`api()` 对同源相对路径统一套 `withSelection`，调用点再也不可能漏（`kinds/form.js`、`kinds/jobs.js` 的 `api(panel.endpoint)` 是同一类的潜伏第二、三处，今天恰好没声明选择参数才没炸）。回归断言：`tests/test_webui_framework.py::test_the_frontend_forwards_the_current_selection_on_every_api_call`；走查工具的前后对照：修复前 **7 项不通过** → 修复后 **0 项** |
+
+**E1 的教训（登记在此以免重犯）**：**面板级 AC 全绿 ≠ 页面可用**。
+`.2` 的 `AC-2.x` 逐条测接口都能过，但「接口被正确调用」这件事没有任何用例覆盖。
+往后 `REQ-009` 的每个切片在收口前都要先跑一遍走查，再判 `AC-8`。
+
+**这次改动动了扩展面文件，留痕如下**（`AC-9` 的指纹机制就是为这一刻设计的）：
+`static/app.js` 在核心指纹清单里，本次修改的是**分发链路的缺陷**（选择没有转发），
+不是为了让新功能落地而改核心；`tests/fixtures/webui_core_fingerprint.json` 的
+`static/app.js` 指纹已同步（`a5d33f6a…` → `f96356af…`），
+「演示插件不改核心」两条断言（`test_adding_a_feature_does_not_touch_the_core`、
+`test_core_fingerprint_matches_the_recorded_manifest`）照旧通过。
+**但这条仍要请独立评审者在父需求收口时确认一次**：`REQ-009.3` 的「代码冻结在 `1ef5cda`」
+这句话在后，本次是解冻后的第一次核心改动，是否影响 `AC-3.x` / `AC-9` 的既有结论，
+按 `docs/DEVELOPMENT.md` §10 由评审者判定（实现者不自判）。
+
 ### REQ-009.4 手动触发的远程采集与长期存档
 
 - 状态：`verified`
@@ -379,7 +403,7 @@ supersedes: TBD
 | MT-3 | AC-3 | 打开 600887 的图表页，**断网**后刷新 | 至少 3 类图渲染出来，鼠标悬停显示数值，断网不影响 |
 | MT-4 | AC-4/AC-5 | 打开报告页与迭代记录页，切一次期次/run | 报告标题/表格渲染正常；时间线显示 2 个 run（baseline → report-update），当前 run 有标记，变化型 run 显示结论变化 |
 | MT-5 | AC-6 | 手工请求 `/api/v1/companies/..%2f..%2f.env/artifacts`，并在页面里找 token | 返回 4xx；页面上看不到任何 token 或 `.env` 内容 |
-| MT-6 | AC-8 | 按 AC-8 步骤完整实跑一遍 | 见「实跑记录」小节 |
+| MT-6 | AC-8 | 按 AC-8 步骤完整实跑一遍（`scripts/gui_walkthrough.py` 能把同一批动作自动化并留证，`--headed` 会开可见窗口） | 见「实跑记录」小节 |
 | MT-7 | AC-9 / AC-3.2 | 照 `docs/GUI_CONSOLE_PLAN.md` 的「如何加一个新功能」加一个演示插件（新导航项 + 新面板 + 新接口），**不碰 `core/`** | 刷新页面后新导航与新面板出现、新接口可访问；`git status` 只显示新增插件文件 |
 | MT-8 | AC-3.4 / AC-3.5 | 第一次打开图表页，再刷新一次；观察缓存目录与终端日志 | 第二次不再解析源文件（缓存命中，页面显示数据生成时间/缓存徽标）；全程无远程请求 |
 | MT-9 | AC-4.1 / AC-4.2 | 不配 token 时点采集按键；配上 token 后先看调用量预估再确认 | 提示缺少 token 且**没有任何请求发出**；预估条数与目标清单一致，确认后才开始 |
@@ -388,12 +412,43 @@ supersedes: TBD
 
 ## 实跑记录
 
-**待实跑**（父需求 AC-8，按 `AGENTS.md` 由使用者执行）。收口前在此登记：日期 / 环境（Python 版本、浏览器、端口）/ 命令 / 观察到的界面现象 /
-本次发现的问题与去处（子需求编号或 REQ-006 任务）。
+### 2026-09-27 · 浏览器走查（CDP 自动化驱动，待使用者目视确认）
 
-**开工前置已就绪**：`make gui` 已能一次起出全部页面（公司 / 图表 / 报告 / 迭代记录 / 按键 / 采集存档），
-`output/600887_伊利` 有 6 个 run 与 68 个产物可供逐页点开；AC-8 要求的「真实浏览器 + 点一个按键跑真实命令」
-仍留给使用者，CI 不覆盖这一类判据。
+**执行者**：CDP 驱动无头 Edge 的自动化走查（由本切片的实现者执行）。
+**它不是独立评审者，也不替代 `AGENTS.md` 要求的「实跑类判据由使用者执行」。**
+
+环境与命令：
+
+```bash
+make gui                                    # 控制台 127.0.0.1:8765（只监听环回）
+.venv/bin/python scripts/gui_walkthrough.py --base http://127.0.0.1:8765
+# Python 3.12.13；Microsoft Edge（无头，CDP，窗口 1440×1000）
+# 证据：output/.webui_walkthrough/20260927T121833Z/（8 张截图 + observations.md/json）
+```
+
+| AC-8 要求的动作 | 观察结果 |
+|-----------------|----------|
+| 打开面板 | 公司页 1 张表有内容，0 降级 |
+| 点开报告 | `#report?company=600887_%E4%BC%8A%E5%88%A9`：`report.view` + `companies.artifacts` 两块，0 降级；Markdown 渲染出 4 张表 / 461 个单元格，**表体列数与表头一致**（B1 未回归） |
+| 点开 3 类图表 | 真实点击公司名进入 `#charts?company=600887_%E4%BC%8A%E5%88%A9`：年度行情 / 关键财务指标 / 营收与归母净利**三张图全部渲染**，0 降级 |
+| 悬停读数 | 真实鼠标移到 canvas 上后 canvas 重绘（提示框出现），截图留证 |
+| 2 个 run 的迭代时间线 | 时间线 6 条；最新一条 `report-update` 标为当前生效并取代 `20260925T…` |
+| 点一个按键跑真实命令 | 真实点击 `runs_resolve`、真实输入 `company_dir=output/600887_伊利`、点执行 → 任务 `job-402af7518454`，实际命令行 `…/scripts/runs.py resolve --company-dir output/600887_伊利`，**退出码 0**，日志回显最新 run 目录 |
+| （附带）采集存档页 | 存档 / 批次 / 缺口 3 张表，0 降级 |
+
+**本次走查发现的问题与去处**：**E1**（见上一节的登记表）。
+
+**前后对照（改动的判据）**：把 `static/app.js` 临时换回 `main`（`0c7d11c`）的版本重跑同一脚本，
+得到 **7 项不通过**——图表 3 块 + 报告 2 块 + 迭代 2 块全部 `BAD_REQUEST`、图表 0 张、时间线 0 条；
+换上修复版复跑 **0 项不通过**（证据 `output/.webui_walkthrough/20260927T121833Z/observations.md`）。
+这条对照说明走查工具确实抓得住 E1，而不是「碰巧全绿」。
+
+**还没做、而 `AC-8` 判定所必需的**：
+
+1. **使用者本人**看一眼同一个窗口（`--headed` 或直接 `make gui` + 浏览器）——`AC-8` 的字面要求是
+   「实跑」并「记录观察到的界面现象」，是否接受自动化驱动替代人工目视，由使用者判定；
+2. 父需求 `REQ-009` 要推进 `verified`，还需要一份**此前未参与本需求**的独立验收报告（门②）——
+   实现者与改动过本需求的 agent 都不合格。
 
 ## 变更记录
 
@@ -412,7 +467,8 @@ supersedes: TBD
 |----|------|
 | 设计文档 | `docs/GUI_CONSOLE_PLAN.md`（含扩展点清单、面板协议 schema、数据层缓存规则、扩展步骤清单） |
 | 需求总览（导读） | `docs/GUI_CONSOLE_OVERVIEW.md`——给使用者的大白话汇总（需求图景 / 方案 / 工作方式 / 决策点）；**非权威**，与条目或设计文档冲突时以它们为准 |
-| 实现 PR | #44（框架切片）、#45（门② 验收缺口 D1~D10 与复验缺口 N1~N9 的修复）、#63 / #64（采集与存档）、#66（按键执行器与视图） |
+| 实现 PR | #44（框架切片）、#45（门② 验收缺口 D1~D10 与复验缺口 N1~N9 的修复）、#63 / #64（采集与存档）、#66（按键执行器与视图）、#67（B1 / Q1 / AC-4.6）、#70（E1） |
+| 实跑走查工具 | `scripts/gui_walkthrough.py`——CDP 驱动真实浏览器，一条命令跑完 `AC-8` 的动作并留证（只用 Python 标准库，用法见 `docs/DEVELOPMENT.md` §4.1） |
 | 验收报告 | [`docs/verification/2026-09-21-REQ-009.3.md`](../verification/2026-09-21-REQ-009.3.md)——三轮独立验收（首轮**不通过** → 第二轮复验 `AC-3.3` 改判成立但 N1 使 `AC-3.7` 不成立 → 第三轮复验 `AC-3.1`~`AC-3.7` 全部成立） |
 | 测试 | `tests/test_webui_framework.py`（REQ-009.3）、`tests/test_webui_archive.py`（REQ-009.4）、`tests/test_webui_server.py`（REQ-009.1）、`tests/test_webui_views.py`（REQ-009.2） |
 | 文档更新 | `README.md`（面板一节）、`Makefile`（`make gui`）、`CHANGELOG.md` |
