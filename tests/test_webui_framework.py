@@ -568,7 +568,7 @@ def test_unexpected_exception_becomes_internal_without_leaking_details(tmp_path)
 
 
 def test_safe_join_blocks_traversal_absolute_paths_and_symlinks(tmp_path):
-    """AC-3.7：`..`、绝对路径、指向树外的符号链接一律拒绝。"""
+    """AC-3.7：`..`、绝对路径、指向树外的符号链接、非法路径片段一律拒绝。"""
     root = tmp_path / "output"
     (root / "ok").mkdir(parents=True)
     (root / "ok" / "a.txt").write_text("hi", encoding="utf-8")
@@ -582,6 +582,12 @@ def test_safe_join_blocks_traversal_absolute_paths_and_symlinks(tmp_path):
         pytest.skip("本平台不支持创建符号链接")
 
     assert security.safe_join(root, "ok", "a.txt").read_text(encoding="utf-8") == "hi"
+    # 父需求验收复验 N1：`%00` 解码出的 NUL 会让 `Path.resolve()` 抛
+    # `ValueError: embedded null character in path`，此前一路冒到 HTTP 面变成 **500 INTERNAL**。
+    # 非法片段与越界同级——必须是可预期的 `PathOutsideRoot`（403），不能是 500。
+    for bad in (("b\x00ad",), ("a", "b\x00")):
+        with pytest.raises(PathOutsideRoot):
+            security.safe_join(root, *bad)
     for bad in (
         ("..", "outside", "secret.txt"),
         (str(outside / "secret.txt"),),

@@ -50,6 +50,13 @@
   64 条上限，并从 `find_route` 一路断言到 handler（入口在「解码顺序」，只测 handler 会漏）。
   同一条链路的通用入口（`match()` 的解码顺序）登记为观察项 V2，与下一次框架演进一起处理
 
+- **健壮性（`AC-3.6`，父需求验收复验 V6）**：路径参数里带 `%00` 时曾返回 **500 INTERNAL**——
+  `%00` 解码成 NUL 后进 `safe_join()`，`Path.resolve()` 抛
+  `ValueError: lstat: embedded null character in path` 一路冒到 HTTP 面。
+  `core/security.py::safe_join` 现在显式拦 NUL，并给 `resolve()` 加 `(OSError, ValueError)`
+  兜底（符号链接环、超长路径同样归为 `PathOutsideRoot` → 403）。修在共用 helper 而不是各调用点，
+  与 E1 同一个道理；回归断言加进现有用例（守住 `AC-7` 的 64 条上限）。
+
 - 浏览器实跑走查（`AC-8` 前置）发现的 **E1 / 阻断**：前端 shell 的「当前选择」只在**客户端面板取数**时
   转发，拉**页面描述**时没转发——真实浏览器里从公司页点进图表 / 报告 / 迭代记录页，
   `GET /api/v1/pages/{id}` 整条请求不带 `company`，7 块面板全部按「缺必填参数」降级成

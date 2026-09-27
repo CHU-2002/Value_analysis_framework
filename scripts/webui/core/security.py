@@ -45,7 +45,9 @@ def safe_join(root: Path, *parts: str) -> Path:
     """把 `parts` 拼到 `root` 下，并保证结果仍在 `root` 子树内。
 
     - 先 `resolve()` 再比较：`..`、绝对路径、**指向树外的符号链接**都会被识别（AC-3.7）；
-    - 允许目标不存在（读操作会自己报 404），但绝不允许逃出 root。
+    - 允许目标不存在（读操作会自己报 404），但绝不允许逃出 root；
+    - **非法路径片段**（NUL 字节等）与越界同等对待：它们必须变成可预期的 4xx，
+      而不是让 `resolve()` 抛出去变成 500 INTERNAL（父需求验收复验 N1）。
     """
     root_resolved = Path(root).resolve()
     candidate = root_resolved
@@ -57,8 +59,23 @@ def safe_join(root: Path, *parts: str) -> Path:
                 f"不接受绝对路径：{part!r}",
                 hint="只允许 output/ 下的相对路径。",
             )
+        if "\x00" in part:
+            # 显式拦下：`Path.resolve()` 遇到内嵌 NUL 会抛 `ValueError: lstat: embedded
+            # null character in path`，那是**未预期异常**，会一路冒到 HTTP 面报 500。
+            raise PathOutsideRoot(
+                "路径片段含 NUL 字节",
+                hint="路径里不能出现 NUL 等非法字符。",
+            )
         candidate = candidate / part
-    resolved = candidate.resolve()
+    try:
+        resolved = candidate.resolve()
+    except (OSError, ValueError) as exc:
+        # 兜底：符号链接环（OSError/ELOOP）、超长路径、其它非法片段都算「不接受」，
+        # 不能逃成 500。这里刻意不把异常原文回给浏览器（P3/D9 的取舍）。
+        raise PathOutsideRoot(
+            "路径不可用（含非法字符或无法解析的链接）",
+            hint=f"只允许访问 {root_resolved} 之下的普通相对路径。",
+        ) from exc
     if not is_within(resolved, root_resolved):
         raise PathOutsideRoot(
             "路径越出允许的根目录",
