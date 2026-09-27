@@ -15,7 +15,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | 项 | 当前 | 上限 | 使用率 |
 |----|------|------|--------|
 | 测试文件数 | 40 | 52 | 77% |
-| 收集到的用例数 | 1706 | 2000 | 85% |
+| 收集到的用例数 | 1709 | 2000 | 85% |
 
 （用例数含 `parametrize` 展开，由 `pytest --collect-only` 统计；函数数见下表末列，仅作参考。）
 
@@ -35,7 +35,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_download_report.py` | REQ-001 | `unit` | `scripts/download_report.py` | 85 |
 | `tests/test_format_utils.py` | 基线 | `unit` | `scripts/format_utils.py` | 21 |
 | `tests/test_integration.py` | 基线 | `integration` | — | 3 |
-| `tests/test_latest_valuation_publication.py` | REQ-010 | `unit` | — | 30 |
+| `tests/test_latest_valuation_publication.py` | REQ-010 | `unit` | — | 32 |
 | `tests/test_output_format.py` | 基线 | `unit` | — | 22 |
 | `tests/test_pdf_preprocessor.py` | REQ-006.2 | `unit` | `scripts/pdf_preprocessor.py` | 92 |
 | `tests/test_period_delta_module.py` | REQ-004, REQ-006.2 | `unit` | — | 21 |

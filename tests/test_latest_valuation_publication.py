@@ -136,8 +136,13 @@ def test_analysis_status_resolves_the_run_and_the_value_product(tmp_path):
     assert result["value"]["state"] == "fresh"
     assert result["value"]["source_run"] == "run-A"
     assert result["value"]["primary_period"] == "2025FY"
-    assert result["value"]["report"] == result["value"]["report"]
-    assert Path(result["value"]["report"]).is_file()
+    report = Path(result["value"]["report"])
+    # The pointer resolves to the frozen revision of that run, and the report is
+    # a real file (a tautology here would hide a broken pointer target).
+    assert report.is_file()
+    assert report.name == vp.SNAPSHOT_REPORT_NAME
+    assert report.parent.parent.name == "run-A"
+    assert report.parent.parent.parent.name == vp.VALUE_DIR_NAME
 
 
 def test_newer_analysis_period_makes_the_value_report_stale(tmp_path):
@@ -239,6 +244,57 @@ def test_read_current_reports_a_missing_report(tmp_path):
 
     assert current["state"] == "unavailable"
     assert current["reason"]["code"] == "report_missing"
+
+
+@pytest.mark.parametrize("removal", ["delete", "null"])
+def test_pointer_without_a_digest_is_not_trusted(tmp_path, removal):
+    """回归（独立验收 V1）：指针没有 `report_sha256` 时不得跳过摘要校验。
+
+    旧实现只在 `if recorded` 时比对摘要，于是「删掉指针里的摘要字段 + 把报告就地改写」
+    会被读成 `current`——AC-5 的「指针摘要 == 历史产物摘要」就成了空话。
+    """
+
+    company = _company(tmp_path)
+    _run(company, run_id="run-A")
+    _product(company)
+    vp.publish(company)
+
+    pointer_path = company / vp.POINTER_NAME
+    pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+    if removal == "delete":
+        pointer.pop("report_sha256")
+    else:
+        pointer["report_sha256"] = None
+    pointer_path.write_text(json.dumps(pointer, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    report = Path(vp.read_current(company)["report"])
+    report.write_text("# 被就地改写的报告\n" + "x" * 400, encoding="utf-8")
+
+    current = vp.read_current(company)
+
+    assert current["state"] == "unavailable"
+    assert current["reason"]["code"] == "digest_missing"
+    # And an untouched report with a digest-less pointer is not called current either.
+    assert current["source_run"] == "run-A"
+
+
+def test_pointer_without_a_digest_is_unavailable_even_when_bytes_match(tmp_path):
+    """回归（V1）：摘要字段缺失本身就不可信，不做「内容恰好一致」的兜底。"""
+
+    company = _company(tmp_path)
+    _run(company, run_id="run-A")
+    _product(company)
+    vp.publish(company)
+    published = json.loads((company / vp.POINTER_NAME).read_text(encoding="utf-8"))
+    published.pop("report_sha256")
+    (company / vp.POINTER_NAME).write_text(
+        json.dumps(published, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+    current = vp.read_current(company)
+
+    assert current["state"] == "unavailable"
+    assert current["reason"]["code"] == "digest_missing"
+    assert vp.main(["read", "--company-dir", str(company)]) == 3
 
 
 # ---------------------------------------------------------------------------
