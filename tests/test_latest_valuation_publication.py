@@ -322,6 +322,76 @@ def test_published_pointer_is_tied_to_its_own_revision(tmp_path):
     assert Path(current["snapshot_dir"]).is_relative_to(company / vp.VALUE_DIR_NAME / "run-A")
 
 
+def test_pointer_pointing_at_the_run_directory_is_refused(tmp_path):
+    """回归（O6）：只认 `<sha12>` 修订目录，`value_reports/<run_id>/` 这一层不算。"""
+
+    company = _company(tmp_path)
+    _run(company, run_id="run-A")
+    _product(company)
+    vp.publish(company)
+
+    run_level = company / vp.VALUE_DIR_NAME / "run-A"
+    report = run_level / vp.SNAPSHOT_REPORT_NAME
+    report.write_text("# 手写的 run 层报告\n" + "x" * 400, encoding="utf-8")
+    digest = vp.sha256_file(report)
+    (run_level / vp.SNAPSHOT_MANIFEST_NAME).write_text(
+        json.dumps({"report_sha256": digest}), encoding="utf-8"
+    )
+    pointer = json.loads((company / vp.POINTER_NAME).read_text(encoding="utf-8"))
+    pointer.update({"report": str(report), "report_sha256": digest, "snapshot_dir": str(run_level)})
+    (company / vp.POINTER_NAME).write_text(
+        json.dumps(pointer, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+    current = vp.read_current(company)
+
+    assert current["state"] == "unavailable"
+    assert current["reason"]["code"] == "snapshot_mismatch"
+
+
+@pytest.mark.parametrize("source_run", ["../..", "run-A/../run-B", ".../x", ""])
+def test_pointer_with_a_path_like_source_run_is_refused(tmp_path, source_run):
+    """回归（O7）：`source_run` 必须是单个路径分量，不能用来放宽绑定范围。"""
+
+    company = _company(tmp_path)
+    _run(company, run_id="run-A")
+    _product(company)
+    vp.publish(company)
+
+    pointer = json.loads((company / vp.POINTER_NAME).read_text(encoding="utf-8"))
+    pointer["source_run"] = source_run
+    (company / vp.POINTER_NAME).write_text(
+        json.dumps(pointer, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+    current = vp.read_current(company)
+
+    assert current["state"] in {"stale", "unavailable"}
+    assert current["state"] != "fresh"
+    assert current["reason"]["code"] in {"snapshot_mismatch", "pointer_unreadable"}
+
+
+def test_relative_report_path_resolves_against_the_company_dir(tmp_path):
+    """回归（O8）：相对 `report` 与绑定用同一个基准（公司目录），不自相矛盾。"""
+
+    company = _company(tmp_path)
+    _run(company, run_id="run-A")
+    _product(company)
+    published = vp.publish(company)
+
+    relative = Path(published["pointer"]["report"]).relative_to(company)
+    pointer = json.loads((company / vp.POINTER_NAME).read_text(encoding="utf-8"))
+    pointer["report"] = str(relative)
+    (company / vp.POINTER_NAME).write_text(
+        json.dumps(pointer, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+    current = vp.read_current(company)
+
+    assert current["state"] == "fresh"
+    assert current["report"] == published["pointer"]["report"]
+
+
 def test_read_current_reports_a_missing_report(tmp_path):
     company = _company(tmp_path)
     _run(company, run_id="run-A")
