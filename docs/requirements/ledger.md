@@ -50,6 +50,7 @@
 | [REQ-012.4](REQ-012-console-v2.md) | REQ-012 | 数据页（依赖 REQ-011） | `accepted` | TBD | `tests/test_console_data_page.py` |
 | [REQ-013.1](REQ-013-agent-cli-report.md) | REQ-013 | 包装脚本与动作白名单 | `accepted` | TBD | `tests/test_agent_action.py` |
 | [REQ-013.2](REQ-013-agent-cli-report.md) | REQ-013 | 最小界面（一键页） | `accepted` | TBD | `tests/test_agent_action.py` |
+| [REQ-013.3](REQ-013-agent-cli-report.md) | REQ-013 | 提交前预检、完整命令行与产出链接 | `accepted` | TBD | `tests/test_agent_action.py` |
 
 > **编号按登记顺序，交付按「交付顺序」**：`REQ-009` 的交付顺序为
 > **`REQ-009.3`（框架，先）→ `REQ-009.4`（采集与长期存档）→ `REQ-009.1`（按键执行器）→ `REQ-009.2`（视图）**，
