@@ -19,7 +19,8 @@ from pathlib import Path
 from ..core.errors import RegistrationConflict
 
 # 各功能独立为插件，核心路由与分发逻辑无需改动。
-BUILTIN: tuple = ("collect",)
+# 顺序即装配顺序；面板 / 路由 id 冲突会在这里直接报错（不静默覆盖）。
+BUILTIN: tuple = ("collect", "commands", "companies", "charts", "run_history")
 
 
 class PluginLoadError(RuntimeError):

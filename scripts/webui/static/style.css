@@ -67,3 +67,32 @@ th { color: var(--muted); font-weight: 600; }
 .panel-empty { color: var(--muted); }
 .banner { margin-top: 8px; padding: 8px 10px; border-radius: 6px; background: #fff5f5; color: #a12b2b; }
 .chart-canvas { width: 100%; height: auto; }
+.command-layout { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.command-list { flex: 1 1 280px; max-height: 520px; overflow: auto; }
+.command-group-title { margin: 8px 0 4px; color: var(--muted); font-size: 12px; }
+.command-button {
+  display: block; width: 100%; text-align: left; margin: 2px 0; padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer;
+}
+.command-button.active { border-color: var(--accent); background: #eef2ff; }
+.command-button.danger { border-left: 3px solid #d64545; }
+.command-form { flex: 1 1 360px; }
+.command-form label { display: block; margin: 6px 0 2px; font-size: 12px; color: var(--muted); }
+.command-form input[type="text"], .command-form select {
+  width: 100%; padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px;
+}
+.command-form button[type="submit"] {
+  margin-top: 10px; padding: 6px 14px; border: 0; border-radius: 6px;
+  background: var(--accent); color: #fff; cursor: pointer;
+}
+.command-argv { font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
+.job-log {
+  margin: 6px 0 0; padding: 8px; background: #1f2430; color: #e6e6e6; border-radius: 6px;
+  max-height: 220px; overflow: auto; font-family: ui-monospace, monospace; font-size: 12px;
+  white-space: pre-wrap;
+}
+.job-row { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.job-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.status-running { color: #b8860b; }
+.status-finished { color: #2f7a3f; }
+.status-failed, .status-cancelled { color: #a12b2b; }

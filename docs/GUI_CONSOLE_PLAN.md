@@ -490,20 +490,29 @@ scripts/webui/
 │   ├── index.html           # 只有骨架 + 挂载点（已实现）
 │   ├── app.js               # 启动、导航、选择器、面板分发（已实现）
 │   ├── kinds/               # 只有客户端渲染的 kind 需要渲染器：
-│   │                        #   chart.js（canvas 折线/柱状，已实现）、fallback.js（降级卡片，已实现）
-│   │                        #   form.js / jobs.js 随 REQ-009.1、.4 加
+│   │                        #   chart.js（canvas 折线/柱状）、fallback.js（降级卡片）、
+│   │                        #   form.js（按键表单→POST /api/v1/jobs）、jobs.js（任务与日志）
 │   └── style.css            # 已实现
 └── webui.config.sample.json # 配置样例（真实配置 webui.config.json 用 .gitignore 忽略）——待补
 ```
 
 > **实现进度（2026-09-27）**：`config.py`、`core/*`（models / registry / router / routes /
-> envelope / errors / security / server / context）、`datastore/*`（cache / datasets / parsers +
-> `markdown_tables`）、`render/panels.py`、`plugins/__init__.py`、`__main__.py`、
-> `static/`（index/app/style/kinds）已完成并有 30 条用例（REQ-009.3 → `implemented`，PR #44）；
-> REQ-009.4 正在实现：`archive/` 已有批次、配额、原始存档、token 指纹、断点恢复与缺口分类；
-> `plugins/collect.py` 提供只读完备度面板与缺口 API；2026-09-27 已完成低配额真实采集与断点续跑，
-> 证据和命令见 REQ-009.4 的实跑记录；高配额账号补缺口实跑尚未执行。
-> `commands.py`（REQ-009.1）与视图插件（REQ-009.2）尚未实现。
+> envelope / errors / security / server / context / **jobs**）、`datastore/*`（cache / datasets /
+> parsers + `markdown_tables`）、`render/panels.py`、**`render/markdown_safe.py`**、
+> `plugins/__init__.py`、`__main__.py`、`static/`（index / app / style / kinds）已完成；
+> REQ-009.3 由 PR #44 合入并验收（`verified`）。
+> REQ-009.4 由 PR #63 / #64 合入（`implemented`）：`archive/` 有批次、配额、原始存档、token 指纹、
+> 断点恢复与缺口分类，`plugins/collect.py` 提供只读完备度面板与缺口 API。
+> **REQ-009.1 与 REQ-009.2 的实现已落地**（`in-progress`，等合入）：
+> `core/jobs.py` 是任务运行器（校验在起进程之前、并发上限、日志环形缓冲、历史落盘与脱敏），
+> `plugins/commands.py` 的按键表**从各脚本 argparse 源码静态扫描得出**（表与 CLI 双向一致），
+> `plugins/companies.py` / `charts.py` / `run_history.py` 提供公司、产物、报告、3 类图表与迭代时间线，
+> `static/kinds/form.js` / `jobs.js` 是这两个新 kind 的真实渲染器。
+> **框架演进留痕**：这两片只改了扩展面的两个文件——`core/server.py`（读请求体）与
+> `static/app.js`（注册 form/jobs 渲染器 + 从页面链接带过当前选择），并把
+> `tests/fixtures/webui_core_fingerprint.json` 同步更新；`core/registry.py` / `router.py` /
+> `routes.py` / `index.html` 未改（指纹测试可证）。这正是 AC-9 想验的：加功能只写插件，
+> 只有框架能力缺口才动核心，且必须留痕。
 > 服务端渲染的 kind（table / timeline / stat / markdown / fallback）**不需要** `static/kinds/` 下的文件，
 > 原因见 §6.1。
 
@@ -529,13 +538,14 @@ scripts/webui/
 | 文件 | 覆盖 | 用例预算 | 手法 |
 |------|------|----------|------|
 | `tests/test_webui_framework.py` | REQ-009.3：AC-3.1~AC-3.7 + **AC-9（演示插件 + 核心指纹）** + 门② 两轮验收的缺口回归（D1~D10、N1~N9） | ≤ 42（实际 42） | 起真实服务绑 `127.0.0.1:0`（随机端口）；`tmp_path` 造 `output/` 与演示插件；网络用 stub 禁掉；解析器用计数假解析器 |
-| `tests/test_webui_archive.py` | REQ-009.4：AC-4.1~AC-4.7 | ≤ 9 | `tmp_path` 当存档根；**假采集适配器**（返回预设响应或抛权限/频率错误），0 次真实请求；断言批次断点续跑与缺口分类；token 用假值断言"只出现指纹" |
-| `tests/test_webui_server.py` | REQ-009.1：AC-1.1~AC-1.4 | ≤ 7 | `sys.executable -c` 假命令（不跑真实脚本、不联网）；断言不启动子进程的拒绝路径 |
-| `tests/test_webui_views.py` | REQ-009.2：AC-2.1~AC-2.5 | ≤ 7 | `tmp_path` 造假公司目录与 `data_pack_market.md`；XSS 注入用例 |
+| `tests/test_webui_archive.py` | REQ-009.4：AC-4.1~AC-4.7 | ≤ 9（实际 10） | `tmp_path` 当存档根；**假采集适配器**（返回预设响应或抛权限/频率错误），0 次真实请求；断言批次断点续跑与缺口分类；token 用假值断言"只出现指纹" |
+| `tests/test_webui_server.py` | REQ-009.1：AC-1.1~AC-1.4 | ≤ 7（实际 6） | `sys.executable -c` 假命令（不跑真实脚本、不联网）；注入「一被调用就失败」的 `popen` 断言拒绝路径不起子进程；测试自己用 AST 双向核对参数表与脚本 CLI |
+| `tests/test_webui_views.py` | REQ-009.2：AC-2.1~AC-2.5 | ≤ 7（实际 5） | `tmp_path` 造假公司目录与 `data_pack_market.md`；XSS 注入用例；解析器计数断言缓存命中 |
 
-四项合计 ≤ 64，与 `REQ-009` 的 AC-7 一致。**框架那一片从 30 → 38 → 42**：
-门② 独立验收两轮共发现 19 个缺口（第一轮 `AC-3.3` 不成立 + 2 个阻断项；复验又发现
-响应体泄漏 token 的 `N1` 阻断项），修复必须带回归测试，因此后面三片的配额压到 8/7/7。
+四项合计 **63 ≤ 64**，与 `REQ-009` 的 AC-7 一致（framework 42 / archive 10 / server 6 / views 5）。
+**框架那一片从 30 → 38 → 42**：门② 独立验收两轮共发现 19 个缺口（第一轮 `AC-3.3` 不成立 +
+2 个阻断项；复验又发现响应体泄漏 token 的 `N1` 阻断项），修复必须带回归测试，因此后面三片的配额压到
+8/7/7；archive 实际用了 10、server/views 只用 6/5，整体仍有 1 条余量。
 **这三片如果再涨就要先清理或申请上调**——AC-7 的「先清理」纪律不变，
 不得为了让测试挤进预算而删断言或放宽判定。
 
@@ -549,11 +559,11 @@ scripts/webui/
 
 | 顺序 | 编号 | 交付内容 | 独立验收 |
 |------|------|----------|----------|
-| 1 | `REQ-009.3` | 内核 + 注册表 + 面板协议 + 数据层缓存 + 契约 + 安全 + 演示插件 + 扩展文档 | **`implemented`（PR #44）**；报告逐条核对 AC-3.1~3.7（待独立验收） |
-| 2 | `REQ-009.4` | 采集批次 + 配额档案 + 原始存档层 + 去重与断点续跑 + 权限缺口清单与补齐 + token 留痕 | 报告逐条核对 AC-4.1~4.7；**实跑记录必需**（真实数据源与真实 token 属 mock 测不到的类别） |
-| 3 | `REQ-009.1` | 按键执行器 + 任务生命周期 + 任务历史 | 报告逐条核对 AC-1.1~1.4 |
-| 4 | `REQ-009.2` | 公司/产物/报告/图表/迭代台账视图 | 报告逐条核对 AC-2.1~2.5 |
-| 收口 | `REQ-009` | README / CHANGELOG / `make gui` / 实跑 | 逐条核对 AC-1~AC-9，含「实跑记录」 |
+| 1 | `REQ-009.3` | 内核 + 注册表 + 面板协议 + 数据层缓存 + 契约 + 安全 + 演示插件 + 扩展文档 | **`verified`**（PR #44 / #45；报告逐条核对 AC-3.1~3.7） |
+| 2 | `REQ-009.4` | 采集批次 + 配额档案 + 原始存档层 + 去重与断点续跑 + 权限缺口清单与补齐 + token 留痕 | `implemented`（PR #63 / #64）；报告逐条核对 AC-4.1~4.7；**实跑记录必需**（真实数据源与真实 token 属 mock 测不到的类别） |
+| 3 | `REQ-009.1` | 按键执行器 + 任务生命周期 + 任务历史 | 实现与测试完成，**等合入**（`in-progress`）；报告逐条核对 AC-1.1~1.4 |
+| 4 | `REQ-009.2` | 公司/产物/报告/图表/迭代台账视图 | 实现与测试完成，**等合入**（`in-progress`）；报告逐条核对 AC-2.1~2.5 |
+| 收口 | `REQ-009` | README / CHANGELOG / `make gui` / 实跑 | 逐条核对 AC-1~AC-9，含「实跑记录」（**由使用者执行**） |
 
 **框架先行的意义**：`REQ-009.1` / `REQ-009.2` / `REQ-009.4` 都只写插件、数据层与前端 `kind`，
 正好用来**验证框架**——如果实现它们时被迫改 `core/`，说明框架设计有洞，先修框架再加功能。
@@ -581,8 +591,9 @@ scripts/webui/
   将来加 K 线/热力图只加渲染器与 kind；
 - 无构建步骤：`index.html` 用 `<script type="module">` 引入，改完刷新即生效。
 
-已实现的静态资源：`index.html`（骨架）、`app.js`（shell + 面板分发）、
-`style.css`、`kinds/chart.js`（canvas 折线/柱状）、`kinds/fallback.js`（降级卡片）。
+已实现的静态资源：`index.html`（骨架）、`app.js`（shell + 面板分发 + 当前选择转交）、
+`style.css`、`kinds/chart.js`（canvas 折线/柱状）、`kinds/form.js`（按键表单与任务轮询）、
+`kinds/jobs.js`（任务列表 / 日志 / 取消）、`kinds/fallback.js`（降级卡片）。
 
 ## 16. 配置
 
