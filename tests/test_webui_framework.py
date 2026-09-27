@@ -186,6 +186,17 @@ def fingerprint() -> dict:
     }
 
 
+def _js_function_body(source: str, signature: str) -> str:
+    """取出一个**顶层** JS 函数的函数体（按「顶格 `}`」切），只服务于源码级断言。
+
+    前端没有 JS 测试运行器（AC-7 不引新依赖），而 E1 这类缺陷恰恰在
+    「前端有没有转发参数」上——只能在源码层面钉住。函数的收尾 `}` 一律顶格，
+    所以用 `\\n}\\n` 切割足够稳；格式若变，断言会响，改测试即可。
+    """
+    start = source.index(signature)
+    return source[start : source.index("\n}\n", start) + 3]
+
+
 # --------------------------------------------------------------- AC-3.1 内核与启动
 
 
@@ -365,6 +376,55 @@ def test_core_fingerprint_matches_the_recorded_manifest():
 
 
 # --------------------------------------------------------------- AC-3.3 面板协议
+
+
+def test_the_frontend_forwards_the_current_selection_on_every_api_call(tmp_path):
+    """父需求 AC-4 / AC-9：前端每一处 API 请求都必须带上「当前选择」——前后端各一半。
+
+    2026-09-28 的浏览器实跑走查（`AC-8`）暴露的 **E1**：`openPage` 拉页面描述时漏了
+    「当前选择」，服务端因此收到**无 `company`** 的请求，图表 / 报告 / 迭代记录三页
+    面板全部整页降级成 `BAD_REQUEST`。纯接口级用例抓不到这种「前端漏转发」，
+    所以这里把「转发」钉成**传输层不变量**，而不是逐个调用点的自觉：
+    `fetch` 全仓只有一处、在 `api()` 里，`api()` 对同源相对路径统一套 `withSelection`。
+    """
+    # ① 服务端：查询参数必须交到**声明了该参数**的面板 provider 手里（否则前端带了也白带）。
+    seen = {}
+
+    def probe(ctx, **kwargs):
+        seen.update(kwargs)
+        return {
+            "columns": [{"key": "k", "title": "列"}],
+            "rows": [{"k": kwargs.get("company", "")}],
+        }
+
+    registry = make_app(make_config(tmp_path))
+    registry.panel(
+        models.PanelSpec(
+            id="probe", kind="table", title="探针", provider=probe,
+            params=(models.Param("company", type="company", source="selection.company"),),
+        )
+    )
+    registry.nav(models.NavItem(id="page", title="页", panels=("probe",)))
+    page = call_route(registry, "GET", "/api/v1/pages/page", company="600887_伊利")["data"]
+    assert seen == {"company": "600887_伊利"}
+    assert not page["panels"][0].get("fallback"), "带了 company 的面板不该降级"
+    assert "600887_伊利" in page["panels"][0]["html"]
+
+    # ② 前端：唯一的 `fetch` 在 `api()` 里，且它对同源相对路径统一套 `withSelection`。
+    front_end = {
+        path.relative_to(WEBUI_ROOT).as_posix(): path.read_text(encoding="utf-8")
+        for path in (WEBUI_ROOT / "static").rglob("*.js")
+    }
+    assert sum(text.count("fetch(") for text in front_end.values()) == 1, (
+        "整个前端的 `fetch` 只允许出现在 `api()` 一处；多一处就可能绕过「当前选择」的转发（E1）"
+    )
+    api_body = _js_function_body(front_end["static/app.js"], "async function api(")
+    assert "fetch(" in api_body and "withSelection(" in api_body, (
+        "`api()` 必须对同源相对路径套 `withSelection`；少了它，带 company 的"
+        "图表/报告/迭代记录会整页降级（E1）。"
+    )
+    # 调用点重复套一次也不能出事：`withSelection` 只补缺失的参数（幂等）。
+    assert "searchParams.has(" in _js_function_body(front_end["static/app.js"], "function withSelection(")
 
 
 def test_page_payload_renders_three_kinds_and_escapes_content(tmp_path):

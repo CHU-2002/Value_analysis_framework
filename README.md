@@ -147,6 +147,14 @@ make gui-collect ARGS='--profile bulk --ticker 600887.SH --period 20260630 --yes
 面板重启后仍可查看。命令**不经过 shell**，参数里的 `;` `|` `&&` `$(` 与换行一律拒绝；
 并发任务上限 3，超限返回 429。token 只从环境变量 / `.env` 读取，面板不接收、不回显。
 
+想确认「这些页面真的能用」，可以让脚本用真实浏览器把上面这些动作跑一遍并留证
+（截图 + 观察记录落 `output/.webui_walkthrough/<UTC>/`；加 `--headed` 就能自己看着它点）：
+
+```bash
+make gui                                                          # 一个终端
+.venv/bin/python scripts/gui_walkthrough.py --base http://127.0.0.1:8765   # 另一个终端
+```
+
 ### 直接跑 Python 脚本
 
 **取数据**
