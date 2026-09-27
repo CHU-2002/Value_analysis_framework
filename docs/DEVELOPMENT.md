@@ -179,7 +179,7 @@ make verify
 ```
 
 依次是：lint（`compileall` + 空白/冲突标记）→ 全量测试 + 覆盖率门禁（`--cov=scripts`，下限 **74%**）
-→ 需求↔测试追溯 → 测试 scope 预算（48 文件 / 1800 用例）→ 批量回归门禁。
+→ 需求↔测试追溯 → 测试 scope 预算（52 文件 / 2000 用例）→ 批量回归门禁。
 2026-09-27 的基线是 `1650 passed, 3 skipped`、覆盖率 `77.37%`——**数字会变，报告里写你这次实测的**。
 3 个 skip 来自 `tests/test_integration.py`（没配 `TUSHARE_TOKEN` 的真实 API 用例），属正常。
 
@@ -248,7 +248,7 @@ python scripts/regression_gate.py --new     # 打印可直接填写的记录草�
 | 指标 | 现行门禁 / 基线 | 出处 |
 |------|------------------|------|
 | 测试覆盖率 | ≥ 74%（基线 76.8%） | CI、`make cov` |
-| 测试 scope | ≤ 48 文件、≤ 1800 用例（当前值见 [`docs/TEST_SCOPE.md`](TEST_SCOPE.md)，自动生成；**数值唯一来源**是 `scripts/test_scope.py`；2026-09-21 经 owner 批准由 40/1600 上调，留痕见 REQ-006 的 AC-7 变更记录与任务 T7） | `make scope-check` |
+| 测试 scope | ≤ 52 文件、≤ 2000 用例（当前值见 [`docs/TEST_SCOPE.md`](TEST_SCOPE.md)，自动生成；**数值唯一来源**是 `scripts/test_scope.py`；2026-09-21 经 owner 批准由 40/1600 上调至 48/1800，2026-09-28 再次批准上调至 52/2000，留痕见 REQ-006 的 AC-7 变更记录与任务 T7 / T9） | `make scope-check` |
 | 需求追溯 | 台账 ↔ 条目 ↔ 测试引用一致 | `tests/test_requirement_traceability.py` |
 | PR 描述 | 需求编号 + 研发自测（手工）非空 | `scripts/pr_body_guard.py` |
 | 独立验收 | 报告覆盖本批 REQ 且 AC 全打勾 | `scripts/acceptance_gate.py` |

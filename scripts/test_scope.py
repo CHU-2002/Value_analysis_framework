@@ -41,8 +41,18 @@ CONFTEST_PATH = TESTS_DIR / "conftest.py"
 #     这是本仓库第一次上调 scope 预算，**不构成先例**——下次接近上限仍按
 #     docs/TESTING.md §5「先清理，再谈上调」处理。
 #   留痕：REQ-006 的 AC-7 变更记录与任务清单 T7、docs/TESTING.md §5、docs/DEVELOPMENT.md §14。
-MAX_TEST_FILES = 48
-MAX_COLLECTED_CASES = 1800
+#
+# 2026-09-28 第二次上调（48→52 文件、1800→2000 用例），经需求 owner CHU-2002 书面批准：
+#   理由：REQ-011（数据获取与存储重构）与 REQ-012（控制台 2.0）各需新开测试文件（3+4=7 个），
+#     两者共用当时的 10 文件 / 147 条用例余量（实测 38/48、1653/1800）；按 REQ-009 的实测消耗
+#     （4 文件 / 64 条）估算合计约需 140~180 条，大概率顶破。使用者在会话中被明确告知
+#     「先清理再谈上调」与「现在就上调」两条路及其纪律差异后，选择**直接上调**。
+#   代价：用例数上限 +11.1%、文件数上限 +8.3%（上调前实测：1650 passed / 3 skipped、
+#     并行墙钟 85.7s、覆盖率 77.41%）。这是第二次上调，**仍不构成「遇到上限就上调」的先例**；
+#     本次**未做**用例清理，该债务登记在 ledger.md 的「待登记想法（Inbox）」。
+#   留痕：REQ-006 的 AC-7 变更记录与任务清单 T9、docs/TESTING.md §5、docs/DEVELOPMENT.md §14。
+MAX_TEST_FILES = 52
+MAX_COLLECTED_CASES = 2000
 LAYERS = ("unit", "contract", "e2e", "integration")
 # 归属列可以写父需求 REQ-NNN，也可以写子需求 REQ-NNN.S（README.md §6.1）
 REQ_RE = req_registry.REQ_ID_RE

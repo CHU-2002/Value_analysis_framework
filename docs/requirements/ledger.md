@@ -18,6 +18,9 @@
 | [REQ-008](REQ-008-coverage-debt.md) | 覆盖率洼地补测 | `superseded` | P2 | TBD | TBD | 已并入 REQ-006 任务 T4（本文件即 T4 的规格） |
 | [REQ-009](REQ-009-local-gui-console.md) | 本地图形化控制台（可扩展框架 + 按键执行 + 股票图表 + 报告与迭代记录浏览） | `verified` | P1 | #42 | #44, #45, #63, #64, #66, #67, #70, #71, #72 | `tests/test_webui_framework.py` `tests/test_webui_archive.py` `tests/test_webui_server.py` `tests/test_webui_views.py` |
 | [REQ-010](REQ-010-latest-valuation-publication.md) | 最新价值分析报告发布与历史版本保留 | `accepted` | P1 | #61 | TBD | `tests/test_latest_valuation_publication.py` |
+| [REQ-011](REQ-011-unified-data-acquisition.md) | 一次性全量数据获取与统一原始数据仓 | `accepted` | P1 | #73 | TBD | `tests/test_data_store.py` `tests/test_data_pull.py` `tests/test_offline_rebuild.py` |
+| [REQ-012](REQ-012-console-v2.md) | 控制台 2.0（公司上下文 + 任务式交互 + 视图质量） | `accepted` | P1 | #74 | TBD | `tests/test_console_context.py` `tests/test_console_actions.py` `tests/test_console_views.py` `tests/test_console_data_page.py` |
+| [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `accepted` | P1 | #75 | #77 | `tests/test_agent_action.py` |
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
 
@@ -38,17 +41,33 @@
 | [REQ-009.2](REQ-009-local-gui-console.md) | REQ-009 | 报告浏览、图表与迭代台账视图 | `verified` | #66, #67 | `tests/test_webui_views.py` |
 | [REQ-009.3](REQ-009-local-gui-console.md) | REQ-009 | 可扩展框架与本地数据层（微内核 / 插件注册表 / 面板协议 / 数据缓存 / API 契约 / 安全中间件） | `verified` | #44, #45 | `tests/test_webui_framework.py` |
 | [REQ-009.4](REQ-009-local-gui-console.md) | REQ-009 | 手动触发的远程采集与长期存档（批次 / 配额档案 / 原始存档 / 断点续跑 / 权限缺口清单） | `verified` | #63, #64, #67 | `tests/test_webui_archive.py` |
+| [REQ-011.1](REQ-011-unified-data-acquisition.md) | REQ-011 | 自选股清单与统一原始仓 | `accepted` | TBD | `tests/test_data_store.py` |
+| [REQ-011.2](REQ-011-unified-data-acquisition.md) | REQ-011 | 一次动作全量拉取与缺口补齐 | `accepted` | TBD | `tests/test_data_pull.py` |
+| [REQ-011.3](REQ-011-unified-data-acquisition.md) | REQ-011 | 离线重建派生产物 | `accepted` | TBD | `tests/test_offline_rebuild.py` |
+| [REQ-012.1](REQ-012-console-v2.md) | REQ-012 | 公司上下文与信息架构 | `accepted` | TBD | `tests/test_console_context.py` |
+| [REQ-012.2](REQ-012-console-v2.md) | REQ-012 | 任务式动作层 | `accepted` | TBD | `tests/test_console_actions.py` |
+| [REQ-012.3](REQ-012-console-v2.md) | REQ-012 | 视图质量与口径修正 | `accepted` | TBD | `tests/test_console_views.py` |
+| [REQ-012.4](REQ-012-console-v2.md) | REQ-012 | 数据页（依赖 REQ-011） | `accepted` | TBD | `tests/test_console_data_page.py` |
+| [REQ-013.1](REQ-013-agent-cli-report.md) | REQ-013 | 包装脚本与动作白名单 | `accepted` | #77 | `tests/test_agent_action.py` |
+| [REQ-013.2](REQ-013-agent-cli-report.md) | REQ-013 | 最小界面（一键页） | `accepted` | #77 | `tests/test_agent_action.py` |
+| [REQ-013.3](REQ-013-agent-cli-report.md) | REQ-013 | 提交前预检、完整命令行与产出链接 | `accepted` | TBD | `tests/test_agent_action.py` |
 
 > **编号按登记顺序，交付按「交付顺序」**：`REQ-009` 的交付顺序为
 > **`REQ-009.3`（框架，先）→ `REQ-009.4`（采集与长期存档）→ `REQ-009.1`（按键执行器）→ `REQ-009.2`（视图）**，
-> 理由见该需求条目的「## 子需求」小结与 [`docs/GUI_CONSOLE_PLAN.md`](../../GUI_CONSOLE_PLAN.md) §14。
+> 理由见该需求条目的「## 子需求」小结与 [`docs/GUI_CONSOLE_PLAN.md`](../GUI_CONSOLE_PLAN.md) §14。
 > 其余父需求的子需求仍是「编号顺序 = 交付顺序」。
+> **`REQ-011` / `REQ-012` 的交付顺序**：`REQ-011.1` → `REQ-011.2` → `REQ-011.3`（数据层先立）；
+> `REQ-012.1`~`.3` 与 `REQ-011` 互不阻塞、可并行，`REQ-012.4`（数据页）必须等 `REQ-011.1`/`.2` 交付。
 >
 > **子需求的跟踪 Issue**（本表无 Issue 列，故在此登记；父需求的 Issue 见上表）：
 > `REQ-006.2` → [#50](https://github.com/CHU-2002/Value_analysis_framework/issues/50)、
 > `REQ-009.4` → [#51](https://github.com/CHU-2002/Value_analysis_framework/issues/51)、
 > `REQ-009.1` → [#52](https://github.com/CHU-2002/Value_analysis_framework/issues/52)、
 > `REQ-009.2` → [#53](https://github.com/CHU-2002/Value_analysis_framework/issues/53)。
+> `REQ-011.1`~`.3` 与 `REQ-012.1`~`.4` **暂不各开跟踪 Issue**，随父 Issue
+> [#73](https://github.com/CHU-2002/Value_analysis_framework/issues/73) /
+> [#74](https://github.com/CHU-2002/Value_analysis_framework/issues/74) 跟踪；
+> 若后续需要独立跟踪再补开并回填本行。
 > 按 [`README.md`](README.md) §9，Issue 在**逐条验收通过后**关闭，不在 PR 合并时自动关闭。
 
 
@@ -83,6 +102,8 @@
 |------|------|------|
 | 验收报告与它验收的代码改动可能被并进同一个提交，归属含糊（REQ-007 首轮报告即如此） | 独立验收（REQ-007） | 报告单独成提交（`docs(verification): …`），已在 REQ-007 收尾时纠正；若需强制可加 CI 检查 |
 | 测试用例预算已**经 owner 批准上调**（40→48 文件、1600→1800 用例，2026-09-21） | `make scope` 实测（2026-09-21） | 上调留痕：`scripts/test_scope.py` 注释、REQ-006 的 AC-7 变更记录与任务 T7、`docs/TESTING.md` §5。**纪律不变**：下次接近新上限时仍先清理/合并冗余用例，不要习惯性上调；REQ-009 四个切片合计 ≤64 条用例 → 预计 1586/1800、37/48 |
+| **用例清理欠账**：2026-09-28 第二次上调（48→52 文件、1800→2000 用例）时**没有先做清理**，owner 在被告知两条路后选择直接上调 | REQ-011 / REQ-012 受理时的预算实测（38/48、1653/1800，余量 147 条） | 上调留痕：`scripts/test_scope.py` 注释、REQ-006 的 AC-7 变更记录与任务 T9、`docs/TESTING.md` §5。**这笔欠账要在下一次接近上限之前还掉**（合并重复用例、删掉只复述实现的测试），不得用「已经上调过两次」当作第三次上调的理由 |
+| 归档/测试文件要不要按需求编号分子目录（如 `tests/req011/`） | REQ-011 设计评审（2026-09-28） | 现在 38 支文件平铺在 `tests/`；到 52 支时检索成本上升。缺可判定判据，先记着 |
 | `--light` 结转模式 | `docs/PERIODIC_UPDATE_PLAN.md` §12.1 | 需先量化「哪些模块可安全结转」 |
 | `runs/` 保留策略与 PDF 引用计数回收 | `docs/PERIODIC_UPDATE_PLAN.md` §12.2 | 依赖 REQ-003 落地后再评估 |
 | 港股 / 美股定期报告 PDF 通路 | `docs/PERIODIC_UPDATE_PLAN.md` §12.3 | 数据源与披露规则未定 |
