@@ -1,0 +1,379 @@
+# 覆盖需求：REQ-013.1（包装脚本与动作白名单：AC-1.1~AC-1.4）
+# 覆盖需求：REQ-013.2（最小界面「一键页」：AC-2.1~AC-2.5）
+"""一键出报告的测试。
+
+三条刻意的手法：
+
+1. **假 CLI**：`tmp_path` 里一个带 shebang 的小脚本，把收到的 argv 写成 JSON，
+   并按环境变量决定退出码 / sleep。**测试不调用任何真实模型**（AC-8 的实跑是人的事）。
+2. **「没启动进程」是可断言的**：假 CLI 一被调用就会写出 marker 文件——
+   拒绝路径的判据因此不是「返回了非 0」而是「marker 文件不存在」。
+3. **prompt 必须是单个 argv 元素**：如果哪天有人改成 shell 拼接，
+   `/update-analysis 600887.SH` 会被拆成两个参数，断言立刻红。
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+import agent_action
+from webui.config import Config
+from webui.core.context import RequestContext
+from webui.core.errors import InvalidParam
+from webui.core.jobs import build_argv
+from webui.core.registry import build_registry
+from webui.core.router import find_route
+from webui.core.routes import install_core_routes
+from webui.plugins import agent_report as agent_plugin
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = REPO_ROOT / "scripts" / "agent_action.py"
+FAKE_CLI_SOURCE = '''#!__PYTHON__
+import json
+import os
+import sys
+import time
+
+out = os.environ.get("FAKE_CLI_OUT")
+if out:
+    with open(out, "w", encoding="utf-8") as handle:
+        json.dump(sys.argv[1:], handle, ensure_ascii=False)
+sleep_for = float(os.environ.get("FAKE_CLI_SLEEP") or 0)
+if sleep_for:
+    time.sleep(sleep_for)
+sys.stdout.write("fake-cli-stdout\\n")
+sys.stdout.flush()
+sys.stderr.write("fake-cli-stderr\\n")
+sys.stderr.flush()
+sys.exit(int(os.environ.get("FAKE_CLI_EXIT") or 0))
+'''
+
+
+# --------------------------------------------------------------- 测试辅助
+
+
+def make_fake_cli(tmp_path: Path, name: str = "fake-agent-cli") -> Path:
+    path = tmp_path / name
+    path.write_text(FAKE_CLI_SOURCE.replace("__PYTHON__", sys.executable), encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def make_company_dir(tmp_path: Path, name: str = "600887_伊利") -> Path:
+    directory = tmp_path / name
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def run_script(tmp_path: Path, *extra, env=None):
+    """跑包装脚本；返回 (CompletedProcess, 假 CLI 的 marker 文件路径)。"""
+    marker = tmp_path / "cli-argv.json"
+    child_env = dict(os.environ)
+    child_env["FAKE_CLI_OUT"] = str(marker)
+    child_env.update(env or {})
+    completed = subprocess.run(
+        [sys.executable, str(SCRIPT), *[str(item) for item in extra]],
+        capture_output=True, text=True, timeout=120, cwd=str(REPO_ROOT), env=child_env,
+    )
+    return completed, marker
+
+
+def make_app(tmp_path: Path):
+    config = Config(
+        host="127.0.0.1", port=0,
+        output_root=tmp_path / "output", cache_dir=tmp_path / "output",
+        archive_root=tmp_path / "archive",
+    )
+    registry = build_registry()
+    install_core_routes(registry, config)
+    registry.config = config
+    agent_plugin.contribute(registry)
+    return config, registry
+
+
+def call_route(registry, method: str, path: str, **query):
+    route, params = find_route(registry.routes(), method, path)
+    assert route is not None, f"没有匹配的路由：{method} {path}"
+    context = RequestContext(
+        method=method, path=path, query=dict(query), config=registry.config, registry=registry
+    )
+    return route.handler(context, **params)
+
+
+# --------------------------------------------------------------- REQ-013.1 包装脚本
+
+
+def test_unknown_action_exits_2_and_starts_no_process(tmp_path):
+    """AC-1.1：不在枚举里的动作 → 非 0 退出，且**没有**任何外部进程被启动。"""
+    completed, marker = run_script(
+        tmp_path, "--action", "rm-everything", "--ticker", "600887.SH",
+        "--cli", make_fake_cli(tmp_path), "--output-root", tmp_path,
+    )
+    assert completed.returncode == 2
+    assert "action" in completed.stderr
+    assert not marker.exists()
+
+
+def test_invalid_ticker_exits_2_and_starts_no_process(tmp_path):
+    """AC-1.1 / AC-2：非法标的 → 非 0 退出 + 人话原因，且没有启动进程。"""
+    completed, marker = run_script(
+        tmp_path, "--action", "update-analysis", "--ticker", "不是代码",
+        "--cli", make_fake_cli(tmp_path), "--output-root", tmp_path,
+    )
+    assert completed.returncode == 2
+    assert "标的校验失败" in completed.stderr
+    assert not marker.exists()
+
+
+def test_valid_ticker_without_company_dir_exits_2_and_starts_no_process(tmp_path):
+    """AC-2：代码合法但本机找不到 `output/<code>_*/` → 非 0 退出且不启动进程。"""
+    completed, marker = run_script(
+        tmp_path, "--action", "update-analysis", "--ticker", "600887.SH",
+        "--cli", make_fake_cli(tmp_path), "--output-root", tmp_path,
+    )
+    assert completed.returncode == 2
+    assert "找不到" in completed.stderr and "600887" in completed.stderr
+    assert not marker.exists()
+
+
+def test_dry_run_prints_the_command_line_and_starts_no_process(tmp_path):
+    """AC-1.3：`--dry-run` 只打印命令行与解析出的路径，不启动任何进程。"""
+    company = make_company_dir(tmp_path)
+    completed, marker = run_script(
+        tmp_path, "--action", "update-analysis", "--ticker", "600887.SH",
+        "--cli", make_fake_cli(tmp_path), "--output-root", tmp_path, "--dry-run",
+    )
+    assert completed.returncode == 0
+    assert "-p" in completed.stdout
+    assert "/update-analysis 600887.SH" in completed.stdout
+    assert str(company) in completed.stdout
+    assert "--dry-run" in completed.stdout
+    assert not marker.exists()
+
+
+def test_build_agent_argv_and_action_table_agree():
+    """AC-1.1：命令行形状是 `[cli, "-p", "/<动作> <代码>"]`，动作表与 choices 一致。"""
+    assert agent_action.build_agent_argv("claude", "update-analysis", "600887.SH") == [
+        "claude", "-p", "/update-analysis 600887.SH",
+    ]
+    assert set(agent_action.ACTIONS) == set(agent_action.ACTION_CHOICES)
+    for action in agent_action.ACTION_CHOICES:
+        prompt = agent_action.build_prompt(action, "600887.SH")
+        assert prompt == f"/{action} 600887.SH"
+        assert prompt.count("{") == 0 and "ticker" not in prompt
+
+
+def test_prompt_is_a_single_argv_element(tmp_path):
+    """AC-1.2：参数按列表传递（不经 shell）——prompt 带着空格也必须是一个元素。"""
+    make_company_dir(tmp_path)
+    completed, marker = run_script(
+        tmp_path, "--action", "update-analysis", "--ticker", "600887.SH",
+        "--cli", make_fake_cli(tmp_path), "--output-root", tmp_path,
+    )
+    assert completed.returncode == 0
+    assert json.loads(marker.read_text(encoding="utf-8")) == ["-p", "/update-analysis 600887.SH"]
+
+
+def test_agent_exit_code_is_passed_through(tmp_path):
+    """AC-1.4：agent CLI 的退出码原样透传（这里是 3），本脚本不自动重试。"""
+    make_company_dir(tmp_path)
+    completed, marker = run_script(
+        tmp_path, "--action", "value-analysis", "--ticker", "600887.SH",
+        "--cli", make_fake_cli(tmp_path), "--output-root", tmp_path,
+        env={"FAKE_CLI_EXIT": "3"},
+    )
+    assert completed.returncode == 3
+    assert marker.exists()  # 假 CLI 确实跑过 → 这个 3 是透传，不是「找不到 CLI」
+
+
+def test_child_output_is_streamed_to_this_process(tmp_path):
+    """AC-5（审计）：子进程输出逐行透传，任务日志里能看到进度而不是一片空白。"""
+    make_company_dir(tmp_path)
+    completed, _ = run_script(
+        tmp_path, "--action", "business-analysis", "--ticker", "600887.SH",
+        "--cli", make_fake_cli(tmp_path), "--output-root", tmp_path,
+    )
+    assert "fake-cli-stdout" in completed.stdout
+    assert "fake-cli-stderr" in completed.stderr
+
+
+def test_missing_cli_exits_3_with_install_hint(tmp_path):
+    """AC-6：CLI 不存在 → 退出码 3 + 安装/登录指引，且不启动进程、不留半成品。"""
+    make_company_dir(tmp_path)
+    completed, marker = run_script(
+        tmp_path, "--action", "update-analysis", "--ticker", "600887.SH",
+        "--cli", tmp_path / "no-such-cli", "--output-root", tmp_path,
+    )
+    assert completed.returncode == 3
+    assert "找不到 agent CLI" in completed.stderr
+    assert "--cli" in completed.stderr and "安装并登录" in completed.stderr
+    assert not marker.exists()
+
+
+def test_non_executable_cli_exits_3(tmp_path):
+    """AC-1.2：文件存在但不可执行 → 同样按「找不到 CLI」处理（退出码 3）。"""
+    make_company_dir(tmp_path)
+    not_executable = tmp_path / "cli-without-x"
+    not_executable.write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
+    completed, marker = run_script(
+        tmp_path, "--action", "update-analysis", "--ticker", "600887.SH",
+        "--cli", not_executable, "--output-root", tmp_path,
+    )
+    assert completed.returncode == 3
+    assert not marker.exists()
+
+
+def test_timeout_exits_4(tmp_path):
+    """AC-1.4：`--timeout` 到点就终止并给明确退出码，不静默挂住。"""
+    make_company_dir(tmp_path)
+    completed, _ = run_script(
+        tmp_path, "--action", "update-analysis", "--ticker", "600887.SH",
+        "--cli", make_fake_cli(tmp_path), "--output-root", tmp_path, "--timeout", "1",
+        env={"FAKE_CLI_SLEEP": "5"},
+    )
+    assert completed.returncode == 4
+    assert "超时" in completed.stderr
+
+
+def test_agent_cli_env_var_is_used_when_the_flag_is_absent(tmp_path):
+    """AC-1.2：CLI 可执行文件可配置——没有 `--cli` 时取环境变量 `AGENT_CLI`。"""
+    make_company_dir(tmp_path)
+    fake = make_fake_cli(tmp_path)
+    completed, marker = run_script(
+        tmp_path, "--action", "update-analysis", "--ticker", "600887.SH",
+        "--output-root", tmp_path, env={"AGENT_CLI": str(fake)},
+    )
+    assert completed.returncode == 0
+    assert json.loads(marker.read_text(encoding="utf-8"))[-1] == "/update-analysis 600887.SH"
+
+
+def test_directory_code_derivation_matches_the_slash_command_convention(tmp_path):
+    """AC-2：`{directory_code}` = 只去掉最后的市场后缀（与 `.claude/commands/*.md` 一致）。"""
+    assert agent_action.directory_code("600887.SH") == "600887"
+    assert agent_action.directory_code("00700.HK") == "00700"
+    assert agent_action.directory_code("AAPL.US") == "AAPL"
+    assert agent_action.directory_code("BRK.B.US") == "BRK.B"
+    make_company_dir(tmp_path, "600887_伊利")
+    make_company_dir(tmp_path, "600887_伊利股份")
+    found = agent_action.find_company_dirs(tmp_path, "600887.SH")
+    assert [path.name for path in found] == ["600887_伊利", "600887_伊利股份"]
+    assert agent_action.find_company_dirs(tmp_path / "missing", "600887.SH") == []
+
+
+# --------------------------------------------------------------- REQ-013.2 最小界面
+
+
+def test_agent_actions_route_exposes_exactly_three_commands(tmp_path):
+    """AC-2.1：专用目录接口只含这 3 个按键（不把既有的 23 个按键都列出来）。"""
+    _, registry = make_app(tmp_path)
+    payload = call_route(registry, "GET", agent_plugin.ENDPOINT)
+    assert payload["ok"] is True
+    assert payload["data"]["count"] == 3
+    assert [item["id"] for item in payload["data"]["commands"]] == [
+        "agent_update_analysis", "agent_business_analysis", "agent_value_analysis",
+    ]
+
+
+def test_each_command_pins_its_action_and_exposes_only_the_ticker(tmp_path):
+    """AC-2.1 / AC-2.3：动作固定进 argv；表单只暴露 ticker，且说明里说了会消耗额度。"""
+    _, registry = make_app(tmp_path)
+    commands = call_route(registry, "GET", agent_plugin.ENDPOINT)["data"]["commands"]
+    expected_actions = [action for _, action, _, _ in agent_plugin.ACTIONS]
+    for item, action in zip(commands, expected_actions):
+        assert [param["name"] for param in item["params"]] == ["ticker"]
+        assert item["params"][0]["required"] is True
+        assert "600887.SH" in item["params"][0]["help"]
+        assert item["argv"][-1] == action
+        assert item["argv"][-2] == "--action"
+        assert item["group"] == agent_plugin.GROUP
+        assert item["danger"] is True                      # 复用既有「确认执行」语义（AC-4）
+        assert "消耗模型额度" in item["description"]
+
+
+def test_hidden_flags_are_scanned_from_the_script_but_not_shown(tmp_path):
+    """AC-2.1：参数表来自脚本源码扫描；`--action` 等内部 flag 不进入表单。"""
+    scanned = agent_plugin.scanned_params()
+    assert {"action", "ticker", "cli", "timeout", "output_root", "dry_run"} <= set(scanned)
+    assert [param.name for param in agent_plugin.display_params()] == ["ticker"]
+    # 暴露的是扫描出来的那个 Param（required / help 随脚本走），不是手写的第二份
+    assert agent_plugin.display_params()[0] == scanned["ticker"]
+
+
+def test_build_argv_yields_the_full_audited_command_line(tmp_path):
+    """AC-4 / AC-5：真实命令行 = 解释器 + 脚本 + 固定动作 + 用户填的标的。"""
+    _, registry = make_app(tmp_path)
+    spec = registry.command_spec("agent_update_analysis")
+    assert build_argv(spec, {"ticker": "600887.SH"}) == [
+        sys.executable, str(SCRIPT), "--action", "update-analysis", "--ticker", "600887.SH",
+    ]
+
+
+def test_free_text_cannot_enter_the_command(tmp_path):
+    """AC-1：没有自由文本入口——未声明的参数在起进程之前就被拒绝。"""
+    _, registry = make_app(tmp_path)
+    spec = registry.command_spec("agent_update_analysis")
+    with pytest.raises(InvalidParam):
+        build_argv(spec, {"ticker": "600887.SH", "prompt": "rm -rf /"})
+    with pytest.raises(InvalidParam):
+        build_argv(spec, {})
+
+
+def test_agent_page_is_a_form_panel_pointing_at_the_dedicated_endpoint(tmp_path):
+    """AC-2.1 / AC-2.5：复用既有 `form` 渲染器；页面本身不降级。"""
+    _, registry = make_app(tmp_path)
+    payload = call_route(registry, "GET", "/api/v1/pages/agent")
+    assert payload["warnings"] == []
+    page = payload["data"]
+    assert page["id"] == "agent" and page["panels"]
+    panel = page["panels"][0]
+    assert panel["id"] == "agent.actions"
+    assert panel["kind"] == "form" and panel["render"] == "client"
+    assert panel["endpoint"] == agent_plugin.ENDPOINT
+    assert len(panel["data"]["commands"]) == 3
+
+
+def test_agent_nav_item_needs_no_company_context(tmp_path):
+    """AC-2.1：`agent` 是一个独立导航页，不依赖「当前公司」上下文。"""
+    _, registry = make_app(tmp_path)
+    items = call_route(registry, "GET", "/api/v1/nav")["data"]["items"]
+    item = next(entry for entry in items if entry["id"] == "agent")
+    assert item["title"] == "生成报告"
+    assert item["group"] == "分析"
+    assert item["panels"] == ["agent.actions"]
+    assert not item.get("requires")
+    assert item["description"]
+
+
+def test_user_facing_text_has_no_internal_details(tmp_path):
+    """AC-2.3：标题与说明里不得出现 CLI 开关、脚本名、路径或内部参数名。"""
+    forbidden = ("--action", "--ticker", "--cli", "--output-root", "--dry-run",
+                 "agent_action", "output/", "output_root", "dry_run", "/Users", ".venv")
+    for _, _, title, description in agent_plugin.ACTIONS:
+        for text in (title, description, agent_plugin.GROUP):
+            assert not [token for token in forbidden if token in text], text
+    _, registry = make_app(tmp_path)
+    page = call_route(registry, "GET", "/api/v1/pages/agent")["data"]
+    panel = page["panels"][0]
+    for text in (panel["title"], panel["description"]):
+        assert not [token for token in forbidden if token in text], text
+
+
+def test_plugin_only_adds_registrations_through_existing_extension_points(tmp_path):
+    """AC-2.5：本片只加 1 条路由 + 3 个按键 + 1 个面板 + 1 个导航项，不新增核心能力。"""
+    config, _ = make_app(tmp_path)
+    registry = build_registry()
+    install_core_routes(registry, config)
+    before = {(route.method, route.template) for route in registry.routes()}
+    agent_plugin.contribute(registry)
+    added = {(route.method, route.template) for route in registry.routes()} - before
+    assert added == {("GET", agent_plugin.ENDPOINT)}
+    assert [spec.id for spec in registry.commands() if spec.id.startswith("agent_")] == [
+        "agent_business_analysis", "agent_update_analysis", "agent_value_analysis",
+    ]
+    assert "agent.actions" in registry.panel_ids()

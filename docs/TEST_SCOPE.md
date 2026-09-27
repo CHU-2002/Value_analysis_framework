@@ -14,8 +14,8 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 
 | 项 | 当前 | 上限 | 使用率 |
 |----|------|------|--------|
-| 测试文件数 | 38 | 52 | 73% |
-| 收集到的用例数 | 1653 | 2000 | 83% |
+| 测试文件数 | 39 | 52 | 75% |
+| 收集到的用例数 | 1675 | 2000 | 84% |
 
 （用例数含 `parametrize` 展开，由 `pytest --collect-only` 统计；函数数见下表末列，仅作参考。）
 
@@ -23,6 +23,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 
 | 测试文件 | 归属需求 | 层 | 被测对象 | 测试函数数 |
 |----------|----------|----|----------|------------|
+| `tests/test_agent_action.py` | REQ-013.1, REQ-013.2 | `unit` | `scripts/agent_action.py` | 22 |
 | `tests/test_analysis_status.py` | REQ-003 | `unit` | `scripts/analysis_status.py` | 24 |
 | `tests/test_buy_sell_engine.py` | 基线 | `unit` | `scripts/buy_sell_engine.py` | 45 |
 | `tests/test_change_report.py` | REQ-004, REQ-006.1 | `unit` | — | 21 |

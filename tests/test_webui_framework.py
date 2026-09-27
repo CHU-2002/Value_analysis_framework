@@ -233,7 +233,8 @@ def test_check_mode_assembles_without_binding_a_port(capsys):
     assert payload["host"] == "127.0.0.1"
     assert payload["plugins"] == [
         {"origin": f"builtin:{name}", "error": False}
-        for name in ("collect", "commands", "companies", "charts", "run_history")
+        for name in ("collect", "commands", "companies", "charts", "run_history",
+                     "agent_report")
     ]
 
 
@@ -1001,12 +1002,15 @@ def test_check_mode_lists_registered_panels(tmp_path, capsys):
     assert main(["--check", "--no-browser", "--plugins", str(plugin_dir)]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["panels"] == [
+        "agent.actions",
         "charts.annual_price", "charts.metrics", "charts.revenue_profit",
         "collect.archive", "collect.batches", "collect.gaps", "commands.catalog",
         "commands.jobs", "companies.artifacts", "companies.list", "demo.future",
         "demo.table", "report.view", "runs.status", "runs.timeline",
     ]
-    assert payload["nav"] == ["collect", "companies", "charts", "report", "runs", "commands", "demo"]
+    assert payload["nav"] == [
+        "collect", "companies", "charts", "report", "runs", "commands", "agent", "demo",
+    ]
 
 
 def test_unexpected_exceptions_reach_stderr_and_the_log_is_bounded(tmp_path, capsys):
