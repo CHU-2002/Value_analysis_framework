@@ -576,3 +576,47 @@ def test_acceptance_gate_does_not_demand_a_live_run_for_mock_only_requirements()
     """没写「实跑」的编号不受影响（REQ-005 全是 mock 可覆盖的判据）。"""
     assert acceptance_gate.requires_live_run("REQ-006.1") is True
     assert acceptance_gate.requires_live_run("REQ-005") is False
+
+
+def _git(repo, *args):
+    return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True)
+
+
+def _commit(repo, message):
+    _git(repo, "-c", "user.name=gate-test", "-c", "user.email=gate-test@example.invalid",
+         "commit", "-q", "--allow-empty", "-m", message)
+
+
+def test_acceptance_gate_sees_a_report_with_a_non_ascii_filename(tmp_path):
+    """非 ASCII 文件名的验收报告必须被认出来。
+
+    git 默认对含非 ASCII 的路径加引号并做八进制转义（`"docs/verification/…-\\347…md"`），
+    用按行输出做前缀匹配的实现会把这种报告漏掉，于是门禁报「本 PR 没有新增或修改验收报告」。
+    2026-09-29 收口 `REQ-011` 时实际踩到（只能先把报告改名为 ASCII 绕过），本用例钉住它。
+    """
+
+    repo = tmp_path / "repo"
+    (repo / "docs" / "verification").mkdir(parents=True)
+    _git(repo, "init", "-q")
+    _commit(repo, "base")
+    base = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    report = repo / "docs" / "verification" / "2026-09-29-REQ-011-中文名验收报告.md"
+    report.write_text("---\nreviewer: x\n---\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _commit(repo, "report")
+    head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    assert acceptance_gate.changed_files(base, head, repo=repo) == [
+        "docs/verification/2026-09-29-REQ-011-中文名验收报告.md"
+    ]
+    assert acceptance_gate.added_reports(base, head, repo=repo) == [report]
+    # 门禁的判定链也要能走到「报告存在」，而不是卡在「没有报告」
+    assert not any(
+        "没有新增或修改" in problem
+        for problem in acceptance_gate.evaluate(
+            "## 需求编号\n\nREQ-005\n\n## 验收报告\n\n见 docs/verification/x.md\n",
+            acceptance_gate.added_reports(base, head, repo=repo),
+            {"REQ-005"},
+        )
+    )

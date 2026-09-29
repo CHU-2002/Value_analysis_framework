@@ -77,7 +77,20 @@
 
 ### Fixed
 
-- **安全（`AC-6`，父需求独立验收 V1 / 阻断）**：`GET /api/v1/collect/batches/{batch_id}`
+- **门禁（非 ASCII 文件名的验收报告被漏认）**：`scripts/acceptance_gate.py::changed_files` 用
+  `git diff --name-only` 的**逐行文本**做路径前缀匹配，而 git 默认给含非 ASCII 的路径加引号并做
+  八进制转义（`"docs/verification/…-\347…md"`），于是**中文文件名**的验收报告过不了
+  `startswith("docs/verification/")`，门禁报「本 PR 没有新增或修改验收报告」（2026-09-29 收口
+  `REQ-011` 时实际踩到，只能先把报告改名绕过）。改用 `-z`（NUL 分隔、不转义），并让
+  `changed_files` / `added_reports` / `verified_promotions` 共用同一条实现；
+  回归用例 `tests/test_release_gates.py::test_acceptance_gate_sees_a_report_with_a_non_ascii_filename`
+  （临时 git 仓库 + 中文报告名；把 `-z` 换回逐行解析即失败）。
+- **门禁（需求索引与台账状态不一致没人管）**：`docs/requirements/README.md` §11 的「需求条目一览」
+  与 `ledger.md` 是两个状态面，但此前只有台账（和条目 front matter）被门禁覆盖。`REQ-011` 收口时
+  台账与条目已是 `verified`、§11 还写着 `in-progress`，CI 全绿，「更新索引 / 关 Issue」这一步因此
+  漏做。新增 `tests/test_requirement_traceability.py::test_readme_index_status_matches_the_ledger`
+  （§11 的状态必须与台账一致，且 §11 里的编号必须都在台账里）。
+：`GET /api/v1/collect/batches/{batch_id}`
   可越过存档根读任意 `*.json`。原因是两层叠加：该路由直接把 `batch_id` 拼进
   `archive_root/batches/{batch_id}.json`（无校验、无 jail，且**从来没有测试**），
   而 `core/router.py` 的 `Route.match()` **先按 `([^/]+)` 匹配路径段、之后才 `unquote()`**，

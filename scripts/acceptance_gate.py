@@ -126,17 +126,22 @@ def unchecked(body: str, ac: str) -> bool:
     return re.search(rf"-\s*\[\s\]\s*\*{{0,2}}AC-{re.escape(ac)}(?![.\d])", scannable(body)) is not None
 
 
-def changed_files(base: str, head: str) -> list:
-    """本 PR 改动的全部文件（相对仓库根）。"""
-    proc = subprocess.run(
-        ["git", "diff", "--name-only", f"{base}...{head}"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
+def changed_files(base: str, head: str, repo: Path = ROOT, pathspec: str | None = None) -> list:
+    """本 PR 改动的全部文件（相对仓库根）。
+
+    用 `-z`（NUL 分隔）而不是按行读：git 默认会给含**非 ASCII** 的路径加引号并做八进制转义
+    （`"docs/verification/…-\\347…md"`），那种字符串过不了 `startswith("docs/verification/")`，
+    于是一份**中文文件名**的验收报告会被判成「本 PR 没有新增或修改验收报告」
+    （2026-09-29 收口 `REQ-011` 时实际踩到，只能先把报告改名绕过）。`-z` 输出不做任何转义。
+    """
+
+    command = ["git", "diff", "--name-only", "-z", f"{base}...{head}"]
+    if pathspec:
+        command += ["--", pathspec]
+    proc = subprocess.run(command, cwd=repo, capture_output=True, text=True)
     if proc.returncode != 0:
         raise SystemExit(f"git diff 失败：{proc.stderr.strip()}")
-    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    return [name for name in proc.stdout.split("\0") if name.strip()]
 
 
 def declared_statuses(text: str) -> dict:
@@ -166,16 +171,8 @@ def verified_promotions(base: str, head: str, repo: Path = ROOT) -> set:
     只认「推到 verified」这一种转变：`proposed → accepted`、状态回退、只改标题都不触发，
     避免把日常台账维护变成一次评审。
     """
-    proc = subprocess.run(
-        ["git", "diff", "--name-only", f"{base}...{head}", "--", "docs/requirements"],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0:
-        raise SystemExit(f"git diff 失败：{proc.stderr.strip()}")
     promoted = set()
-    for name in (line.strip() for line in proc.stdout.splitlines()):
+    for name in changed_files(base, head, repo=repo, pathspec="docs/requirements"):
         if not name.startswith("docs/requirements/REQ-") or not name.endswith(".md"):
             continue
         before = declared_statuses(_git_show(base, name, repo))
@@ -201,11 +198,11 @@ def requires_live_run(req_id: str) -> bool:
     return LIVE_RUN_HINT in req_registry.scoped_text(req_id)
 
 
-def added_reports(base: str, head: str) -> list:
+def added_reports(base: str, head: str, repo: Path = ROOT) -> list:
     """本 PR 新增/修改的验收报告（排除模板）。"""
     return [
-        ROOT / name
-        for name in changed_files(base, head)
+        repo / name
+        for name in changed_files(base, head, repo=repo)
         if name.startswith("docs/verification/") and Path(name).name != "TEMPLATE.md"
     ]
 
