@@ -155,7 +155,11 @@ class TushareClient(
         try:
             return self._access.call(api_name, **kwargs)
         except DataMissing as exc:
-            self.offline_gaps.append({"dataset": exc.dataset, "params": exc.params})
+            self.offline_gaps.append({
+                "dataset": exc.dataset,
+                "period": str(exc.params.get("period") or "latest"),
+                "params": exc.params,
+            })
             return pd.DataFrame()
 
     def _cached_basic_call(self, api_name: str, **kwargs) -> pd.DataFrame:

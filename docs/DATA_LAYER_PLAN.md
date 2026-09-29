@@ -667,11 +667,16 @@ tests/test_offline_rebuild.py   禁网重建 / 契约不变 / 缺口记录 / 完
 
 ### 14.2 各片用例预算（草案，登记时以 AC 定稿）
 
-| 片 | 测试文件 | 预算（条） | 重点 |
-|----|----------|-----------|------|
-| `REQ-011.1` | `tests/test_data_store.py` | ≤ 30 | schema/唯一键/原子性/迁移幂等/口径解析/往返 dtype |
-| `REQ-011.2` | `tests/test_data_pull.py` | ≤ 25 | 扫描清单 ⊇ 档位、预估确定值、确认拒绝、续跑、force、only-gaps、并发拒绝 |
-| `REQ-011.3` | `tests/test_offline_rebuild.py` | ≤ 20 | 禁网零调用、小节契约、缺口记录、完备度口径修正 |
+| 片 | 测试文件 | 预算（条） | **实际（2026-09-29）** | 重点 |
+|----|----------|-----------|------------------------|------|
+| `REQ-011.1` | `tests/test_data_store.py` | ≤ 30 | 30 | schema/唯一键/原子性/迁移幂等/口径解析/往返 dtype |
+| `REQ-011.2` | `tests/test_data_pull.py` | ≤ 25 | 25 | 扫描清单 ⊇ 档位、预估确定值、确认拒绝、续跑、force、only-gaps、并发拒绝 |
+| `REQ-011.3` | `tests/test_offline_rebuild.py` | ≤ 20 | **22** | 禁网零调用、小节契约、缺口记录、完备度口径修正 |
+
+`REQ-011.3` 超出 2 条：独立复核的 B1（离线读取静默删行）要求「看行数」的回归用例——
+单条记录内部的行不能被去重（一期 10 行十大股东），多条记录组合时同一期次只取一条。
+预算有余量（仓库总预算 52 文件 / 2000 用例，实测 43 文件 / 1795 用例），
+按 `docs/TESTING.md` §5 的纪律记账，不悄悄调高本表。
 
 ### 14.3 测试约定
 
@@ -861,3 +866,34 @@ webui 侧（GUI 面板与既有测试在用），但 `--collect` 已转调 `data
 `AC-6` 要的是「批次结束报告四类计数」与「已有记录即跳过」，这两条都成立；
 把「同批次已完成的」再计一遍「命中存档」会让 usage 变成「累计值」而不是「本轮值」，
 反而看不出这一轮到底花了多少。
+
+### 19.10 独立复核（2026-09-29）发现的阻断项与修法
+
+无上下文的独立 agent 按 `DEVELOPMENT.md` §10.1 做了一轮对抗式复核（报告
+[`docs/verification/2026-09-29-REQ-011-独立复核.md`](verification/2026-09-29-REQ-011-独立复核.md)），
+在**真实资产**上找出 5 个阻断项。它们都在同一交付里修掉并补了回归用例，验收标准一个字没改：
+
+| # | 现象（复核证据） | 修法 | 回归用例 |
+|---|------------------|------|----------|
+| B1 | 离线读取**静默删行**：一次响应内部按日期列去重，`top10_holders` 1082 行（一期 10 行）压成 1 行、`fina_mainbz` 多行压成「数据缺失」 | `_compose` 只在**多条候选记录之间**按期次择一，记录内部一行不删；明确期次的记录优先于 `latest` 的整段历史记录 | `test_a_record_keeps_all_rows_for_the_same_period`、`test_period_records_compose_without_duplicating_periods` |
+| B2 | `AC-3.2` 的「界面」一侧没有交付：界面里只有会花钱的采集入口 | 采集页加一个**只读**面板「离线重建（不花钱）」：列出产物与 `make data-rebuild` 命令，不读仓、不联网、不触发动作（读仓仍留给 `REQ-012.4`） | `test_gui_exposes_a_rebuild_panel_that_is_read_only` |
+| B3 | 同一个真实仓两个矛盾的完备度：`data-gaps` 说 22/23、`--only-gaps` 说 17 个目标里 10 个完备；真跑缺口批次时 3 个目标被仓命中却计成「新增请求」 | ① 新增 `DataStore.serves_target()`（**与读取路径同源**：语义入参核得出来 + 时间窗口够宽）与 `gaps.pending_targets()`，`plan(only_gaps=True)`、`PullBatch` 的跳过判断、webui `--collect` 一律改用它；② 计数器按 `access.remote_calls` 的**实际出网**记；③ `data-gaps` 同时打印「仓内口径」与「清单口径」两个数并标注定义 | `test_only_gaps_uses_the_read_path_not_just_the_result_enum`、`test_counters_follow_real_outbound_calls_not_the_target_loop` |
+| B4 | `--tier-label` 是死选项：批次收了它却从不传给取数门面，仓里的 `tier_label` / `quota_profile` 永远为空（也回退了 `REQ-009.4` 的存档语义） | `PullBatch.run` 把 `tier_label` / `quota_profile`（=档位）/ `batch_id` 交给 `DataAccess`，于是每条记录都带 | `test_batch_progress_double_written_to_catalog_and_compat_json` 与真实载荷实跑 |
+| B5 | `hk_daily` 的窗口声明（1 年）小于代码需要（10 年）：重建报缺口、`--only-gaps` 判完备、`--force` 也只会按窄窗口重拉 → 永远补不上 | 注册表把 `hk_daily` 的窗口改成 10 年；并用 B3 的 `serves_target` 让「窗口更窄」的目标留在缺口里 | `test_only_gaps_uses_the_read_path_not_just_the_result_enum` |
+
+复核同时提出的非阻断项也在同批修掉/留痕：
+
+- **N6（安全相关，既有缺陷）**：`PermissionError` 是 `OSError` 的子类，早先会被当成「连接错误」
+  从而**重建真实客户端并按上限重试**（复核者用一个抛 `PermissionError` 的假对象踩到它，
+  造成了几次发往 `api.tushare.pro` 的出站调用）。现在 `_is_connection_error` 明确排除
+  `PermissionError`。这是从既有 `_safe_call` 搬过来时一并修正的，行为变化记在 `CHANGELOG`。
+- **N1** 测试文件头里「已知与实现不符的三处」已过期 → 改成「已修掉 + 对应回归用例」。
+- **N2** 混合档位时预估缺「按档位分组的条数」→ `estimate(..., tiers=...)` 加 `by_tier`。
+- **N3** 重建缺口清单不带期次（出现「income、income」）→ 带上期次。
+- **N4** pull 写的记录 `batch_id` 恒为 `None` → 批次确定 id 后回填给门面。
+- **N5**「清单为空或全部已 ok/empty」措辞误导 → 改成「清单内目标都已被仓服务」。
+- **N7** GUI 面板只认 `WEBUI_ARCHIVE_ROOT`、数据层 CLI 优先 `TURTLE_ARCHIVE_ROOT` →
+  `webui/config.py` 在 `WEBUI_ARCHIVE_ROOT` 未设时也认 `TURTLE_ARCHIVE_ROOT`，
+  两条命令行不再各指一个仓。
+- **N9** 实现者的实跑记录把 `fina_mainbz` 说成「旧存档没有」→ 更正为「有记录，但那条记录
+  没带 `type=P`、响应里也没有 `type` 列可核对，读取路径宁缺勿混」。

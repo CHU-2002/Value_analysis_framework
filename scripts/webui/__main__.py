@@ -138,7 +138,7 @@ def main(argv=None) -> int:
         # `REQ-009.4` 的实跑命令 `make gui-collect ARGS='--profile frugal --ticker … --period …'`
         # 因此继续可用。
         from datalayer.errors import BatchRunning, NoToken, QuotaConfirmRequired
-        from datalayer.gaps import gap_targets
+        from datalayer.gaps import pending_targets
         from datalayer.pull import PullBatch, targets_for
         from datalayer.security import resolve_token
         from datalayer.store import DataStore
@@ -156,7 +156,9 @@ def main(argv=None) -> int:
             if args.only_gaps:
                 # AC-4.6/AC-7：先按仓里的结果收敛到缺口，再报调用量——预估与进度都只反映缺口。
                 before = len(targets)
-                targets = gap_targets(targets, store.result_of)
+                # 判据与读取路径同源：只看「上次结果 ok」的话，窗口更窄的旧记录会被判成
+                # 完备、永远补不上，而离线重建又把它报成缺口。
+                targets = pending_targets(targets, store.serves_target)
                 print(f"只补缺口：{before} 个目标中 {len(targets)} 个仍需补齐", flush=True)
                 if not targets:
                     print("没有缺口目标需要补齐（全部已 ok/empty）。", flush=True)

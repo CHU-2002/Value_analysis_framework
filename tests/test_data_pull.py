@@ -474,3 +474,78 @@ def test_only_gaps_keeps_empty_as_done_but_no_permission_as_gap(tmp_path):
     partial = pull.plan(universe, periods=["20260630"], store=store, only_gaps=True)
     assert partial["estimate"]["total"] == 6  # 8 - 2，无权限那条仍在缺口里
     assert partial["estimate"]["skipped_complete"] == 2
+
+
+def test_counters_follow_real_outbound_calls_not_the_target_loop(tmp_path):
+    """AC-2.2（独立复核 B3）：`new_requests` 只数**真的发出去的请求**。
+
+    存在一种目标：精确键在仓里查不到（迁移进来的记录参数与目标不同），但读取路径
+    （「记录服务请求」的兼容匹配）能命中它。早先的实现把这类目标提前计成新增请求，
+    真实仓上实测 7 个「新增请求」里只有 4 次真的出网——依赖它做配额估算就会高估花钱量。
+    """
+
+    store = DataStore(tmp_path / "store")
+    # 仓里有一条「不带 report_type」的 income 记录：它服务得了 report_type=1 的请求。
+    store.write_frame(ticker="600887.SH", dataset="income", period="20251231",
+                      params={"ts_code": "600887.SH", "period": "20251231"},
+                      frame=pd.DataFrame({"ts_code": ["600887.SH"], "end_date": ["20251231"],
+                                          "report_type": ["1"], "revenue": [1.0]}),
+                      result="ok")
+    target = {"ticker": "600887.SH", "dataset": "income", "period": "20251231",
+              "params": {"ts_code": "600887.SH", "period": "20251231", "report_type": "1",
+                         "fields": "ts_code,end_date,report_type,revenue"}}
+    pro = _FakePro()
+    batch = _run(store, [target], pro, "COUNTERS")
+
+    assert pro.calls == [], "这条目标应当由仓命中，不该出网"
+    assert batch["usage"]["new_requests"] == 0
+    assert batch["usage"]["archive_hits"] == 1
+    assert batch["completed"][next(iter(batch["completed"]))]["result"] == "ok"
+
+
+def test_only_gaps_uses_the_read_path_not_just_the_result_enum(tmp_path, monkeypatch):
+    """AC-2.3（独立复核 B3/B5）：缺口判据与读取路径同源（窗口/期次口径），不看「上次结果」。
+
+    旧记录「上次拉成功」但**窗口更窄**（或语义入参核不出来）时，读取路径判它未命中；
+    早先的 `--only-gaps` 只看 `result`，于是把这种目标当完备——它永远补不上，
+    而离线重建又把它报成缺口（同一个仓两个矛盾的结论）。
+    """
+
+    store = DataStore(tmp_path / "store")
+    # 窗口更窄的记录：请求要 1 年，仓里只有最后一个月。
+    store.write_frame(ticker="600887.SH", dataset="daily", period="latest",
+                      params={"ts_code": "600887.SH", "start_date": "20260829",
+                              "end_date": "20260929", "fields": "ts_code,trade_date,close"},
+                      frame=pd.DataFrame({"ts_code": ["600887.SH"], "trade_date": ["20260901"],
+                                          "close": [1.0]}),
+                      result="ok")
+    # 语义入参核不出来的记录：请求要 type="P"，但这条记录没带 type，响应里也没有 type 列。
+    store.write_frame(ticker="600887.SH", dataset="fina_mainbz", period="20251231",
+                      params={"ts_code": "600887.SH", "period": "20251231"},
+                      frame=pd.DataFrame({"ts_code": ["600887.SH"], "end_date": ["20251231"],
+                                          "bz_item": ["液体乳"], "bz_sales": [1.0]}),
+                      result="ok")
+
+    from datalayer.registry import window_params
+
+    window = window_params("daily", today="2026-09-29")
+    targets = [
+        {"ticker": "600887.SH", "dataset": "daily", "period": "latest",
+         "params": {"ts_code": "600887.SH", "fields": "ts_code,trade_date,close", **window}},
+        {"ticker": "600887.SH", "dataset": "fina_mainbz", "period": "20251231",
+         "params": {"ts_code": "600887.SH", "period": "20251231", "type": "P"}},
+    ]
+    # 第 0 个是「上次结果 ok」但窗口更窄——旧判据会漏掉它（`result_of` 走投影剔除后的键）。
+    assert store.result_of(targets[0]) == "ok"
+    assert store.serves_target(targets[0]) is False, "窗口更窄 → 读取路径判未命中"
+    # 第 1 个连精确键都对不上（记录没带 `type`），而且语义入参也核不出来。
+    assert store.result_of(targets[1]) is None
+    assert store.serves_target(targets[1]) is False, "语义入参核不出来 → 读取路径判未命中"
+
+    monkeypatch.setenv("TURTLE_ARCHIVE_ROOT", str(tmp_path / "store"))
+    universe = Universe(store)
+    universe.add("600887.SH", "伊利股份")
+    planned = pull.plan(universe, periods=["20251231"], store=store, only_gaps=True)
+    pending = {(target["dataset"], target["period"]) for target in planned["targets"]}
+    assert ("daily", "latest") in pending, "窗口更窄的记录不能让目标被判成完备"
+    assert ("fina_mainbz", "20251231") in pending, "语义入参核不出来的记录同理"

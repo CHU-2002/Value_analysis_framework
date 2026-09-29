@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 
 from . import registry
 from .errors import BatchRunning, NoToken, QuotaConfirmRequired, UsageError
-from .gaps import DONE_KINDS, classify_result, completeness, gap_targets
+from .gaps import DONE_KINDS, classify_result, completeness, pending_targets
 
 # 与既有 `webui/archive/quota.py` 相同的市场过滤规则：港股接口只对港股标的，
 # 美股接口只对美股标的，`stock_basic` 只对 A 股。
@@ -111,17 +111,25 @@ def targets_for(tickers, periods, profile: str, *, params_by_api=None,
     return targets
 
 
-def estimate(targets, profile: str = "") -> dict:
-    """调用量预估：纯计算，不联网、不读仓内容（所以「先看预估再决定」零成本）。"""
+def estimate(targets, profile: str = "", tiers=None) -> dict:
+    """调用量预估：纯计算，不联网、不读仓内容（所以「先看预估再决定」零成本）。
+
+    `tiers` 给出「目标键 → 档位」的映射时，额外按档位分组（清单里各条档位不同时，
+    `AC-2` 要的「按档位分组的条数」才看得出来）。
+    """
 
     by_dataset = Counter(target["dataset"] for target in targets)
     by_ticker = Counter(target["ticker"] for target in targets)
-    return {
+    report = {
         "profile": profile,
         "total": len(targets),
         "by_dataset": dict(sorted(by_dataset.items())),
         "by_ticker": dict(sorted(by_ticker.items())),
     }
+    if tiers:
+        by_tier = Counter(tiers.get(_target_key(target), "") for target in targets)
+        report["by_tier"] = dict(sorted(by_tier.items()))
+    return report
 
 
 def format_estimate(report: dict) -> str:
@@ -152,17 +160,23 @@ def plan(universe, *, periods, profile: str | None = None, only_gaps: bool = Fal
         grouped.setdefault(profile or entry["tier"], []).append(entry)
 
     targets: list[dict] = []
+    tier_of: dict[str, str] = {}
     for tier, tier_entries in sorted(grouped.items()):
-        targets.extend(targets_for(
+        tier_targets = targets_for(
             [entry["ticker"] for entry in tier_entries], periods, tier,
             params_by_api=params_by_api,
             markets={entry["ticker"]: entry["market"] for entry in tier_entries},
-        ))
+        )
+        for target in tier_targets:
+            tier_of[_target_key(target)] = tier
+        targets.extend(tier_targets)
 
     before = len(targets)
     if only_gaps and store is not None:
-        targets = gap_targets(targets, store.result_of)
-    report = estimate(targets, profile or "按清单档位")
+        # 判据与读取路径同源（`serves_target`）：只看「上次结果 ok」会让窗口更窄的旧记录
+        # 永远补不上（独立复核 B5），而离线重建又把它报成缺口。
+        targets = pending_targets(targets, store.serves_target)
+    report = estimate(targets, profile or "按清单档位", tiers=tier_of)
     report["requested"] = before
     report["skipped_complete"] = before - len(targets)
     return {"targets": targets, "estimate": report, "profile": profile or "按清单档位"}
@@ -259,6 +273,13 @@ class PullBatch:
         batch.update(status="running", owner_pid=os.getpid(),
                      heartbeat_at=self.clock().isoformat())
         batch.setdefault("usage", {"new_requests": 0, "archive_hits": 0})
+        # 档位标签与配额档案要落到**每条记录**上（`AC-3` 的「档位标签」+ `REQ-009.4` 的
+        # `AC-4.7` 语义）：独立复核 B4 抓到 `--tier-label` 是个死选项——批次收了它却从不
+        # 传给取数门面，于是仓里的 `tier_label` / `quota_profile` 永远是空。
+        self.access.tier_label = self.tier_label or self.access.tier_label
+        self.access.quota_profile = self.profile
+        # 批次 id 同理：记录要能回答「这批数据是哪一次拉的」。
+        self.access.batch_id = batch_id
         self.store.append_batch(batch)
         try:
             for target in batch["targets"]:
@@ -266,7 +287,8 @@ class PullBatch:
                 existing = (batch.get("completed") or {}).get(key)
                 if existing and not force:
                     continue
-                if not force and self.store.result_of(target) in DONE_KINDS:
+                if not force and self.store.result_of(target) in DONE_KINDS \
+                        and self.store.serves_target(target):
                     result = self.store.result_of(target)
                     batch["completed"][key] = {**_target_summary(target), "result": result,
                                                "error_excerpt": None}
@@ -274,14 +296,21 @@ class PullBatch:
                     batch["progress"]["completed"] = len(batch["completed"])
                     self.store.append_batch(batch)
                     continue
-                batch["usage"]["new_requests"] = batch["usage"].get("new_requests", 0) + 1
-                self.store.append_batch(batch)
+                # 「新增请求」只数**真的发出去的请求**：命中存档的分支有两处
+                # （上面按精确键跳过、以及取数门面按「记录服务请求」命中），
+                # 早先的实现把后者也计成新增请求——独立复核 B3 在真实仓上实测
+                # 7 个「新增请求」里只有 4 次真的出网。
+                calls_before = self.access.remote_calls
                 try:
                     frame = self.access.call(target["dataset"], **target["params"])
                     result, _ = classify_result(data=frame)
                     excerpt = None
                 except Exception as exc:  # noqa: BLE001（逐目标记账，批次继续）
                     result, excerpt = classify_result(error=exc)
+                if result in DONE_KINDS and self.access.remote_calls == calls_before:
+                    batch["usage"]["archive_hits"] = batch["usage"].get("archive_hits", 0) + 1
+                else:
+                    batch["usage"]["new_requests"] = batch["usage"].get("new_requests", 0) + 1
                 batch["completed"][key] = {**_target_summary(target), "result": result,
                                            "error_excerpt": excerpt}
                 batch["progress"]["completed"] = len(batch["completed"])

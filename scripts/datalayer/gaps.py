@@ -86,3 +86,15 @@ def completeness_by_targets(targets, result_of):
     counts["total"] = sum(counts.values())
     counts["complete"] = counts["ok"] + counts["empty"]
     return {"counts": counts, "gaps": gaps}
+
+
+def pending_targets(targets, serves):
+    """按**读取路径的判据**收敛缺口：`serves(target)` 为假的目标才算还没拉到。
+
+    与 :func:`gap_targets` 的区别是判据来源：`gap_targets` 看「上次结果枚举」
+    （够用，但只看结果），`pending_targets` 用 `DataStore.serves_target()` 走一遍
+    读取路径（语义入参核得出来 + 时间窗口够宽）。数据层一律用后者——独立复核
+    B3/B5 证明了只看结果会出现「`--only-gaps` 说完备、离线重建说缺口」的矛盾。
+    """
+
+    return [target for target in targets if not serves(target)]

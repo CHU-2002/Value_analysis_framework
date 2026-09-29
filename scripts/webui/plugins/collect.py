@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 from ..archive.gaps import completeness
@@ -128,6 +129,41 @@ def _gaps(ctx, ticker, **_):
     return envelope.ok({"ticker": ticker, **report})
 
 
+def _rebuild_entries(ctx):
+    """「离线重建（不花钱）」面板：只用仓库内已有的产物目录，**不读原始仓**。
+
+    `AC-5` 要求「拉取」与「重建」在 CLI **与界面**上分得清。原始仓在仓库之外的
+    `~/turtle_archive`，控制台的路径 jail 只允许 `output/` 子树——要让界面读仓得先
+    显式新增允许根，那是 `REQ-012.4` 的事（`DATA_LAYER_PLAN` §4.6）。所以这里只展示
+    「产物在哪、重建命令是什么」，不触发任何动作、不联网、不花钱。
+    """
+
+    root = Path(ctx.config.output_root)
+    rows = []
+    for pack in sorted(root.glob("*/data_pack_market.md")) if root.is_dir() else ():
+        company = pack.parent.name
+        ticker = ""
+        record = pack.parent / "record.json"
+        if record.is_file():
+            try:
+                payload = json.loads(record.read_text(encoding="utf-8"))
+                ticker = str((payload.get("subject") or {}).get("ticker", "")).strip()
+            except (OSError, json.JSONDecodeError):
+                ticker = ""
+        rows.append({
+            "company": company,
+            "pack": pack.relative_to(root).as_posix(),
+            "updated": datetime.fromtimestamp(pack.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
+            "rebuild": f"make data-rebuild ARGS='--ticker {ticker or company}'",
+        })
+    return {"columns": [
+        {"key": "company", "title": "公司"},
+        {"key": "pack", "title": "数据包（由仓离线重建）"},
+        {"key": "updated", "title": "产物时间"},
+        {"key": "rebuild", "title": "重建命令（不花钱）"},
+    ], "rows": rows}
+
+
 def contribute(registry):
     registry.panel(PanelSpec(
         id="collect.archive", kind="table", title="采集存档完备度",
@@ -140,12 +176,18 @@ def contribute(registry):
         description="仅读取本地批次进度与配额消耗；不会触发远程请求。",
     ))
     registry.panel(PanelSpec(
+        id="collect.rebuild", kind="table", title="离线重建（不花钱，与上面的采集分开）",
+        provider=_rebuild_entries, size="full",
+        description="由原始仓离线重建数据包；本面板只读产物目录，不读仓、不联网、不触发动作。",
+    ))
+    registry.panel(PanelSpec(
         id="collect.gaps", kind="table", title="缺口清单（逐条原因）",
         provider=_gaps_panel, size="full",
         description="列出每个缺口接口的结果分类与错误原文摘要；补齐请用 --only-gaps 收敛目标。",
     ))
     registry.nav(NavItem(id="collect", title="采集存档", group="数据", order=5,
-                         panels=("collect.archive", "collect.batches", "collect.gaps")))
+                         panels=("collect.archive", "collect.batches", "collect.rebuild",
+                                 "collect.gaps")))
     registry.route("GET", "/api/v1/collect/batches", lambda ctx, **_: envelope.ok(_batches(ctx)),
                    name="archive batches")
     registry.route("GET", "/api/v1/collect/batches/{batch_id}", _batch_detail, name="archive batch")

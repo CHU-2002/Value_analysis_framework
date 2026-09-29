@@ -84,6 +84,9 @@ def build_parser() -> argparse.ArgumentParser:
     gaps = subparsers.add_parser("gaps", parents=[common], help="缺口与完备度（AC-7）")
     gaps.add_argument("--ticker")
     gaps.add_argument("--dataset")
+    gaps.add_argument("--profile", choices=("frugal", "bulk"),
+                      help="配合清单口径的完备度（不填则按清单每条自己的档位）")
+    gaps.add_argument("--periods", help="清单口径的期次范围（默认最近 5 个年报期）")
 
     legacy = subparsers.add_parser("import-legacy", parents=[common],
                                    help="一次性导入旧存档与旧缓存（AC-8）")
@@ -204,7 +207,7 @@ def cmd_pull(args) -> int:
         print(f"只补缺口：{report['requested']} 个目标中 {report['total']} 个仍需补齐")
     print(format_estimate(report))
     if not report["total"]:
-        print("没有需要拉取的目标（清单为空或全部已 ok/empty）。")
+        print("没有需要拉取的目标：清单内目标都已被仓服务（含命中存档与已完备）。")
         return 0
     if not args.yes:
         raise QuotaConfirmRequired(
@@ -253,18 +256,40 @@ def cmd_rebuild(args) -> int:
 
 def cmd_gaps(args) -> int:
     from .gaps import completeness
+    from .pull import plan
 
     store = _store_from_args(args)
     records = store.records(ticker=args.ticker, dataset=args.dataset)
     report = completeness(records)
+    # 「仓内口径」数的是**买回来的记录**，「清单口径」数的是**计划要拉的目标**。
+    # 两个数不一样是正常的（独立复核 B3 把这种差异当成了矛盾），所以两个都打印、各自标注定义。
+    planned = None
+    universe = Universe(store)
+    if universe.entries(enabled_only=True):
+        # 注意 `gaps --ticker` 是**单个**标的（与 `pull/rebuild` 的 `append` 不同），
+        # 所以要包成列表再交给 plan——直接传字符串会被当成可迭代的字符集合，
+        # 于是「清单里没有这些标的」把清单口径整段吞掉（独立复核 B3 的现场就是这个）。
+        try:
+            planned = plan(universe, periods=parse_periods(args.periods), profile=args.profile,
+                           only_gaps=True, store=store,
+                           tickers=[args.ticker] if args.ticker else None)
+        except UsageError as exc:
+            print(f"（清单口径跳过：{exc.message}）", file=sys.stderr)
     if args.json:
-        print(json.dumps({"ticker": args.ticker, "dataset": args.dataset, **report},
+        print(json.dumps({"ticker": args.ticker, "dataset": args.dataset,
+                          "records": report,
+                          "targets": planned["estimate"] if planned else None},
                          ensure_ascii=False, indent=2))
         return 0
     counts = report["counts"]
-    print(f"完备度：{counts['complete']}/{counts['total']}（有效 {counts['ok']} · 空 {counts['empty']} · "
+    print(f"仓内口径完备度：{counts['complete']}/{counts['total']} 条记录"
+          f"（有效 {counts['ok']} · 空 {counts['empty']} · "
           f"无权限 {counts['no_permission']} · 频率受限 {counts['rate_limited']} · "
           f"其他错误 {counts['error']}）")
+    if planned:
+        estimate = planned["estimate"]
+        print(f"清单口径完备度：{estimate['requested'] - estimate['total']}/{estimate['requested']} "
+              f"个目标（清单 × 档位 × 期次范围；还需补齐 {estimate['total']} 个）")
     for gap in report["gaps"]:
         print(f"  缺口 {gap['ticker']} {gap['dataset']} {gap['period']}：{gap['result']}"
               f"{' — ' + (gap['error_excerpt'] or '') if gap.get('error_excerpt') else ''}")

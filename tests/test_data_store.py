@@ -8,18 +8,17 @@
 `TURTLE_ARCHIVE_ROOT` 指到 tmp_path）；时间一律注入固定 clock（不 `sleep`）；不联网、
 不用真实 token；不读真实 `output/` 与真实 `~/turtle_archive`。
 
-**已知与实现不符、因此没有写成断言的三处**（详见交付报告，不在测试里伪造通过）：
+**独立复核提出的三处已在同一交付里修掉**（回归断言就在本文件里）：
 
-1. `legacy.import_collector_cache` 用 `path.stem.partition("_")` 拆「数据集_标的」，而
-   `stock_basic_*` / `hk_basic_*` / `us_basic_*` 的数据集名自带下划线，于是拆出的数据集名
-   是 `stock` 这类未声明值，条目全部落进「跳过」分支——`output/.collector_cache/` 的
-   JSON 条目**静默不导入**却被计成幂等跳过。
-2. 同一函数为 `us_daily_all.parquet` 造的记录 `ticker=""`，而 `DataStore._normalize` 拒绝
-   空 ticker，于是**真实导入**（`dry_run=False`）直接抛 `ValueError`；本文件只断言
-   `dry_run=True` 时该 parquet 被认成 `dataset="us_daily"` 快照（这一步不落仓，能通过）。
-3. `scripts/datalayer/config.py::default_periods` 用 `f"{year}1231"` 自带了一份年报期末的
-   字面量。它不是「月日 → 口径」的映射表，故 AC-1.3 的源码扫描按「正则/映射/比较/后缀探测」
-   的边界断言，并另加行为锚点（默认期次必须被 `scripts/periods.py` 认成年度期末）来锁住它。
+1. `legacy.import_collector_cache` 曾用 `path.stem.partition("_")` 拆「数据集_标的」，而
+   `stock_basic` / `hk_basic` / `us_basic` 的名字自带下划线 → 条目静默落进「跳过」分支。
+   现在按**已知数据集前缀**匹配，由
+   `test_collector_cache_entries_import_once_and_idempotently` 钉住。
+2. `us_daily_all.parquet` 曾因造出 `ticker=""` 而被 `_normalize` 拒绝（真实导入必崩）。
+   现在空 ticker 是**合法**的「全市场快照」（`us_daily` 的调用点本来就不传 ts_code），
+   同一条用例覆盖。
+3. `datalayer/config.py::default_periods` 曾自带 `f"{year}1231"` 字面量；现在走
+   `periods.make_period` + `period_to_end_date`，期次换算仍然只有一处权威。
 """
 
 from __future__ import annotations

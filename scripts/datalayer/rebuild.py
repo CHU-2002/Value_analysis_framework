@@ -66,6 +66,26 @@ def data_as_of(store, ticker: str) -> str:
     return max(stamps) if stamps else ""
 
 
+def _gap_label(item: dict) -> str:
+    """缺口的一行标签：接口 + 语义入参 + 期次。
+
+    只写接口名会出现「income、income」这种看不出差别的清单——差的是 `report_type`（合并 1 /
+    母公司 6），这正是独立复核 N3 指出的可读性问题。
+    """
+
+    from .store import semantic_params
+
+    params = item.get("params") or {}
+    detail = ", ".join(f"{key}={value}" for key, value in sorted(semantic_params(params).items()))
+    suffix = str(item.get("period") or params.get("period") or "")
+    label = item["dataset"]
+    if detail:
+        label += f"（{detail}）"
+    if suffix and suffix != "latest":
+        label += f" {suffix}"
+    return label
+
+
 def apply_store_facts(markdown: str, store, ticker: str, missing) -> str:
     """把「完备度按仓的实际情况」与「重建缺口」写进产物。"""
 
@@ -76,11 +96,7 @@ def apply_store_facts(markdown: str, store, ticker: str, missing) -> str:
               f"其他错误 {counts['error']}；数据截至 {data_as_of(store, ticker) or '未知'}*")
     gap_note = ""
     if missing:
-        listed = "、".join(
-            f"{item['dataset']}" + (f" {item['period']}" if item.get("period") not in (None, "latest")
-                                    else "")
-            for item in missing[:20]
-        )
+        listed = "、".join(_gap_label(item) for item in missing[:20])
         more = f"（另 {len(missing) - 20} 条）" if len(missing) > 20 else ""
         gap_note = (f"\n\n> ⚠️ 重建缺口 {len(missing)} 条：{listed}{more}\n"
                     f"> 补齐：`make data-pull ARGS='--only-gaps --yes'`")

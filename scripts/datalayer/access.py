@@ -29,7 +29,7 @@ from .dataframe_codec import decode_frame
 from .gaps import DONE_KINDS, classify_result
 from .registry import UnknownDataset, period_of
 from .security import redact, token_fingerprint
-from .store import sanitize_params, semantic_params
+from .store import rows_for_request, sanitize_params, semantic_params
 
 MODE_ONLINE = "online"
 MODE_REFRESH = "refresh"
@@ -54,41 +54,43 @@ def _date_column(frame):
     return next((name for name in DATE_COLUMNS if name in frame.columns), None)
 
 
-def _filter_rows(frame, request: dict, record_params: dict):
-    """按请求的语义入参过滤行；无法确认服务能力时返回 ``None``。
-
-    记录自己的入参已经钉住了这个键（如拉取时就带了 `type="P"`）时无需按列过滤；
-    否则必须在帧里找到同名列并确认该值存在——找不到就说明这条记录服务不了这次请求。
-    """
-
-    for key, value in (request or {}).items():
-        if key in record_params and str(record_params[key]) == str(value):
-            continue
-        if key not in frame.columns:
-            return None
-        values = frame[key].astype(str)
-        if str(value) not in set(values):
-            return None
-        frame = frame[values == str(value)]
-    return frame
+# 「这条记录能不能服务这次请求」的唯一实现放在 store 里（`rows_for_request`），
+# 因为 `DataStore.serves_target()` 与读取路径必须同源——两处各判一次就会像独立复核
+# B3/B5 那样出现「同一个仓两个矛盾的结论」。
+_filter_rows = rows_for_request
 
 
 def _compose(frames: list):
-    """多条记录合并成一帧：列多的优先，再按日期倒序去重（同一天只留一份）。"""
+    """多条记录合成一帧：**记录内部一行不删**，只在记录之间按期次择一。
+
+    独立复核 B1 抓到的真实缺陷：早先的实现对单条记录也按日期列 `drop_duplicates`，
+    把 `top10_holders` 的 1082 行（同一期次 10 行）压成 1 行、`fina_mainbz` 的多行压成
+    「数据缺失」——一次响应内部的「同一个日期多行」是数据本身（十大股东、主营构成），
+    不是重复。
+
+    `frames` 是 ``(优先级, DataFrame)`` 列表，优先级小的先用：**明确期次的记录**优先于
+    `period="latest"` 的整段历史记录（后者可能只带了某个期次的一行，不能拿它盖掉那一期），
+    同组内列数多的优先。某个期次一旦由前面的记录提供，后面的记录就不再提供同一期次。
+    """
 
     import pandas as pd
 
     if len(frames) == 1:
-        combined = frames[0]
-    else:
-        ordered = [frame for _, frame in sorted(
-            ((len(frame.columns), frame) for frame in frames), key=lambda item: -item[0])]
-        combined = pd.concat(ordered, ignore_index=True, sort=False)
-    date_column = _date_column(combined)
-    if date_column:
-        combined = combined.sort_values(date_column, ascending=False, kind="stable")
-        combined = combined.drop_duplicates(subset=[date_column], keep="first")
-    return combined
+        return frames[0][1]
+    ordered = [frame for _, frame in sorted(frames, key=lambda item: item[0])]
+    date_column = _date_column(ordered[0])
+    if date_column is None:
+        return pd.concat(ordered, ignore_index=True, sort=False)
+    kept: list = []
+    covered: set = set()
+    for frame in ordered:
+        values = frame[date_column].astype(str)
+        fresh = frame[~values.isin(covered)]
+        if not fresh.empty:
+            kept.append(fresh)
+            covered.update(values.unique())
+    combined = pd.concat(kept, ignore_index=True, sort=False)
+    return combined.sort_values(date_column, ascending=False, kind="stable")
 
 
 class DataMissing(RuntimeError):
@@ -197,23 +199,26 @@ class DataAccess:
 
         request = semantic_params(params)
         frames = []
+        empties = []
         for record in records:
             frame = decode_frame(record["columns_json"], record["rows_json"])
             if frame.empty:
-                frames.append(frame)
+                empties.append(frame)
                 continue
             filtered = _filter_rows(frame, request, record.get("params") or {})
             if filtered is None:
                 continue
-            frames.append(filtered)
+            period = str((record.get("params") or {}).get("period") or record.get("period") or "")
+            # 优先级：明确期次的记录（0）先于 latest 的整段历史记录（1）；同组列数多的先。
+            priority = (1 if period in ("", "latest") else 0, -len(filtered.columns))
+            frames.append((priority, filtered))
         if not frames:
+            if empties:
+                # 「确实为空」也是信息（`REQ-009.4` 的 `AC-4.5`）：空结果直接重放。
+                return empties[0]
             return None
-        non_empty = [frame for frame in frames if not frame.empty]
-        if not non_empty:
-            # 「确实为空」也是信息（`REQ-009.4` 的 `AC-4.5`）：空结果直接重放。
-            return frames[0]
 
-        combined = _compose(non_empty)
+        combined = _compose(frames)
         date_column = _date_column(combined)
 
         requested_period = str(params.get("period") or "")
@@ -327,6 +332,15 @@ class DataAccess:
 
     @staticmethod
     def _is_connection_error(exc) -> bool:
+        """连接类错误才值得「重建客户端再试」。
+
+        `PermissionError` 是 `OSError` 的子类，但它说的是**本机权限**（只读 HOME 等），
+        重建远程客户端既解决不了问题、还会真的发出去一次请求——独立复核 N6 就是踩到
+        这个（假客户端抛 PermissionError，结果重建了真实客户端并出站）。
+        """
+
+        if isinstance(exc, PermissionError):
+            return False
         return isinstance(exc, (ConnectionError, OSError)) or \
             "RemoteDisconnected" in type(exc).__name__ or \
             "ConnectionAborted" in str(exc) or \

@@ -133,6 +133,15 @@
 
 ### Changed
 
+- REQ-011 独立复核修复（2026-09-29，同一交付内）：**离线读取不再删行**（一次响应内部的
+  「同一期次多行」是数据本身，只在多条候选记录之间按期次择一）；缺口判据与读取路径同源
+  （新增 `DataStore.serves_target()` / `gaps.pending_targets()`，「窗口更窄」或「语义入参
+  核不出来」的目标不再被判成完备）；`new_requests` 只数**实际出网**的请求；`--tier-label` /
+  配额档案 / 批次 id 真的写进每条记录；`hk_daily` 的窗口声明按代码需要改为十年；
+  **`PermissionError` 不再被当成连接错误**（既有的 `_safe_call` 缺陷：它会让取数重建真实客户端
+  并按上限重试，从而真的发出请求）；控制台采集页新增只读面板「离线重建（不花钱）」，
+  与会花钱的采集入口分开；`python -m scripts.datalayer gaps` 同时给出「仓内口径」与
+  「清单口径」两个完备度并标注定义。
 - REQ-011 取数收口与落点变更：`scripts/tushare_collector.py::_safe_call` 只剩一行转调
   `datalayer.access.DataAccess`，重试、限流与 VIP 路由搬进 `DataAccess`；远程原始响应落进仓库之外的
   `~/turtle_archive/store.db`（资产语义：不过期、不主动删、可整体拷走，删除要显式动作 + 二次确认）

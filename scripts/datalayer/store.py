@@ -209,6 +209,27 @@ def target_key(target: dict) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def rows_for_request(frame, request: dict, record_params: dict):
+    """按请求的语义入参裁剪行；无法确认服务能力时返回 ``None``。
+
+    规则：请求里的每个语义入参，记录自己的入参已经钉住同一个值就无需按列过滤；
+    否则必须在帧里找到同名列并确认该值存在——找不到就说明这条记录服务不了这次请求
+    （宁可报缺口，也不拿「没带过滤条件的响应」去冒充带过滤条件的请求，
+    例如旧的 `fina_mainbz` 记录没带 `type="P"`、响应里也没有 `type` 列）。
+    """
+
+    for key, value in (request or {}).items():
+        if key in record_params and str(record_params[key]) == str(value):
+            continue
+        if key not in frame.columns:
+            return None
+        values = frame[key].astype(str)
+        if str(value) not in set(values):
+            return None
+        frame = frame[values == str(value)]
+    return frame
+
+
 def _framework_version() -> str:
     from . import __version__
 
@@ -467,6 +488,49 @@ class DataStore:
              str(target.get("period", "")), param_key(target.get("params", {}))),
         ).fetchone()
         return row["result"] if row is not None else None
+
+    def serves_target(self, target: dict) -> bool:
+        """目标**现在**能不能真的由仓服务（读取路径的判据，不只是「上次结果 ok」）。
+
+        `result_of` 回答的是「这条记录当时拉成功了吗」，而读取路径还要过两关：
+        语义入参在帧里核得出来（`rows_for_request`）、时间窗口不比请求更窄。
+        独立复核 B3/B5 在真实仓上抓到：只看 `result` 会让 `--only-gaps` 判某个目标
+        「完备」（于是永远补不上），同时离线重建又把它报成缺口——同一个仓两个矛盾的结论。
+        这里把两关都过一遍，缺口判定因此与读取路径同源。
+        """
+
+        from .dataframe_codec import decode_frame
+
+        params = dict(target.get("params") or {})
+        ticker = str(target.get("ticker") or params.get("ts_code") or "")
+        dataset = str(target.get("dataset") or "")
+        period = str(target.get("period") or "")
+        records = self.find_family(ticker, dataset, params=params,
+                                   period=None if period in ("", "latest") else period)
+        if not records:
+            return False
+        if not self._window_covers(records, params):
+            return False
+        request = semantic_params(params)
+        for record in records:
+            frame = decode_frame(record["columns_json"], record["rows_json"])
+            if frame.empty:
+                # 「确实为空」也算有记录（与 `REQ-009.4` 的 `AC-4.5` 一致）。
+                return True
+            if rows_for_request(frame, request, record.get("params") or {}) is not None:
+                return True
+        return False
+
+    @staticmethod
+    def _window_covers(records: list[dict], params: dict) -> bool:
+        """请求的起点只要不比仓里的起点更早，就算覆盖（终点是「数据截至」，不参与判定）。"""
+
+        requested_start = str(params.get("start_date") or "")
+        if not requested_start:
+            return True
+        starts = [str((record.get("params") or {}).get("start_date") or "") for record in records]
+        known = [value for value in starts if value]
+        return not known or min(known) <= requested_start
 
     def records(self, *, ticker: str | None = None, dataset: str | None = None,
                 period: str | None = None, period_type: str | None = None,

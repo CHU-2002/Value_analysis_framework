@@ -66,7 +66,10 @@ _SPECS = (
     _spec("daily", TIMESERIES, False, "日线行情", tiers=_FRUGAL, window=(("years", 1),)),
     _spec("daily_basic", TIMESERIES, False, "每日指标"),
     _spec("weekly", TIMESERIES, False, "周线行情", window=(("years", 10),)),
-    _spec("hk_daily", TIMESERIES, False, "港股日线行情", window=(("years", 1),)),
+    # 10 年：`financials.py::_get_weekly_prices_hk` 的降级路径用 hk_daily 取十年再重采样成周线
+    # （独立复核 B5 抓到声明 1 年会让 §11 的 HK 缺口永远补不上：窗口更窄 → 读取判未命中 →
+    #  `--only-gaps` 又按记录结果判它「完备」，两边对不上）。
+    _spec("hk_daily", TIMESERIES, False, "港股日线行情", window=(("years", 10),)),
     _spec("us_daily", TIMESERIES, False, "美股全市场日线快照"),
     _spec("dividend", TIMESERIES, False, "分红送股（按事件序列）"),
     _spec("top10_holders", TIMESERIES, False, "前十大股东（按报告期序列）"),

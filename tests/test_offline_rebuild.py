@@ -388,3 +388,104 @@ def test_rebuild_report_counts_every_ticker_record(store, tmp_path):
     report = rebuild.rebuild(store, "600887.SH", out_path=tmp_path / "pack.md")
     assert report["counts"]["rate_limited"] == 1
     assert report["complete"] == 0
+
+
+def test_a_record_keeps_all_rows_for_the_same_period(store):
+    """AC-3.1（独立复核 B1）：**一次响应内部**同一个日期多行是数据，不是重复。
+
+    `top10_holders` 一期有 10 行、`fina_mainbz` 一期有多个 `bz_item`；早先的实现对单条记录
+    也按日期列 `drop_duplicates`，1082 行真实响应被压成 1 行、好端端的板块被写成「数据缺失」。
+    只有**多条候选记录之间**才需要按期次择一。
+    """
+
+    from datalayer.access import DataAccess
+
+    holders = pd.DataFrame({
+        "ts_code": ["600887.SH"] * 4,
+        "end_date": ["20260630"] * 4,
+        "holder_name": ["呼市国资", "香港中央结算", "证金公司", "社保基金"],
+        "hold_amount": [100.0, 90.0, 80.0, 70.0],
+    })
+    store.write_frame(ticker="600887.SH", dataset="top10_holders", period="20260630",
+                      params={"ts_code": "600887.SH", "period": "20260630"},
+                      frame=holders, result="ok")
+
+    access = DataAccess(store, mode="offline")
+    frame = access.call("top10_holders", ts_code="600887.SH", period="20260630",
+                        fields="ts_code,end_date,holder_name,hold_amount")
+
+    assert len(frame) == 4, "同一次响应里的 4 行十大股东不能被去重掉"
+    assert list(frame["holder_name"]) == ["呼市国资", "香港中央结算", "证金公司", "社保基金"]
+
+
+def test_period_records_compose_without_duplicating_periods(store):
+    """AC-3.1：多条按期次的记录组合时，同一期次只取一条（且记录内部的行全部保留）。"""
+
+    from datalayer.access import DataAccess
+
+    for period, names in (("20251231", ["A", "B"]), ("20260630", ["C", "D"])):
+        store.write_frame(ticker="600887.SH", dataset="top10_holders", period=period,
+                          params={"ts_code": "600887.SH", "period": period},
+                          frame=pd.DataFrame({"ts_code": ["600887.SH"] * len(names),
+                                              "end_date": [period] * len(names),
+                                              "holder_name": names}),
+                          result="ok")
+    # 再来一条「整段历史」的记录，覆盖已有的两个期次——它不该把期次变成两份。
+    store.write_frame(ticker="600887.SH", dataset="top10_holders", period="latest",
+                      params={"ts_code": "600887.SH"},
+                      frame=pd.DataFrame({"ts_code": ["600887.SH"], "end_date": ["20260630"],
+                                          "holder_name": ["A"]}),
+                      result="ok")
+
+    access = DataAccess(store, mode="offline")
+    frame = access.call("top10_holders", ts_code="600887.SH")
+
+    assert len(frame) == 4, "两个期次各 2 行；latest 那条只该补期次，不该新增重复行"
+    assert sorted(frame["holder_name"]) == ["A", "B", "C", "D"]
+
+
+def test_gui_exposes_a_rebuild_panel_that_is_read_only(seeded, tmp_path):
+    """AC-3.2：界面里「重建（不花钱）」与「采集（花钱）」分得开，且面板不读仓、不联网。
+
+    原始仓在仓库之外、控制台的 jail 只允许 `output/` 子树，所以面板只能展示产物目录与
+    重建命令（读仓是 `REQ-012.4`）。这里断言面板存在、只读、且给出的是 `data-rebuild`。
+    """
+
+    from scripts.webui.config import load_config
+    from scripts.webui.plugins import collect as collect_plugin
+
+    class _Ctx:
+        def __init__(self, config):
+            self.config = config
+
+    class _Registry:
+        def __init__(self):
+            self.panels = {}
+            self.nav_items = []
+
+        def panel(self, spec):
+            self.panels[spec.id] = spec
+
+        def nav(self, item):
+            self.nav_items.append(item)
+
+        def route(self, method, template, provider, name=""):
+            pass
+
+    output_root = tmp_path / "output"
+    pack = output_root / "600887_伊利" / "data_pack_market.md"
+    pack.parent.mkdir(parents=True)
+    pack.write_text("# 数据包 — 600887.SH\n", encoding="utf-8")
+    (pack.parent / "record.json").write_text(
+        json.dumps({"subject": {"ticker": "600887.SH"}}), encoding="utf-8")
+
+    config = load_config(None, env={"WEBUI_OUTPUT_ROOT": str(output_root)})
+    registry = _Registry()
+    collect_plugin.contribute(registry)
+
+    spec = registry.panels["collect.rebuild"]
+    rows = spec.provider(_Ctx(config))["rows"]
+    assert rows and rows[0]["company"] == "600887_伊利"
+    assert "data-rebuild" in rows[0]["rebuild"] and "600887.SH" in rows[0]["rebuild"]
+    assert "collect.rebuild" in [panel for item in registry.nav_items
+                                  for panel in item.panels]

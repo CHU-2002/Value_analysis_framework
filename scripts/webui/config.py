@@ -118,6 +118,11 @@ def load_config(path: Path | str | None = None, env: dict | None = None) -> Conf
     ):
         if env.get(var, "").strip():
             values[key] = Path(env[var].strip()).expanduser()
+    # REQ-011：原始仓是**数据层**的资产，它自己的变量叫 `TURTLE_ARCHIVE_ROOT`。
+    # 控制台在 `WEBUI_ARCHIVE_ROOT` 没设时也认它——否则用户只设了数据层的变量时，
+    # 命令行把数据写进一个仓、面板却在另一个仓里找（`DATA_LAYER_PLAN` §19.10）。
+    if not env.get("WEBUI_ARCHIVE_ROOT", "").strip() and env.get("TURTLE_ARCHIVE_ROOT", "").strip():
+        values["archive_root"] = Path(env["TURTLE_ARCHIVE_ROOT"].strip()).expanduser()
     if env.get("WEBUI_PLUGINS", "").strip():
         values["plugins"] = tuple(
             item for item in env["WEBUI_PLUGINS"].split(os.pathsep) if item.strip()
