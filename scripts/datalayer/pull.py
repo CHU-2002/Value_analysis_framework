@@ -277,7 +277,8 @@ class PullBatch:
         # `--force` 的语义是「重拉」，而取数门面默认在 online 模式**先查仓**：
         # 不切模式的话，只要仓里的记录还能被读取路径服务，force 就是个空操作
         # ——命令成功、实际什么都没拉（独立复核 B6）。离线模式绝不切（重建不联网）。
-        if force and self.access.mode == MODE_ONLINE:
+        previous_mode = self.access.mode
+        if force and previous_mode == MODE_ONLINE:
             self.access.mode = MODE_REFRESH
         batch.update(status="running", owner_pid=os.getpid(),
                      heartbeat_at=self.clock().isoformat())
@@ -350,6 +351,9 @@ class PullBatch:
             self.store.append_batch(batch)
             raise
         finally:
+            # 模式是 access 的共享状态：批次结束要还原，否则同一个门面连跑两批时，
+            # 上一轮的 refresh 会让下一轮**非 force** 的目标多出一次出网（独立复核尖角）。
+            self.access.mode = previous_mode
             try:
                 lock_path.unlink()
             except FileNotFoundError:

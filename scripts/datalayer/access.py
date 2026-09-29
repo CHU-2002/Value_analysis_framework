@@ -275,12 +275,18 @@ class DataAccess:
     def _persist(self, ticker, dataset, period, params, frame, result, error_excerpt):
         if self.store is None:
             return
+        # 档位标签是**人的记录**（账号档位），不是这次调用的产物：不带标签的刷新
+        # （如临时 `--force`）不该把仓里已有的标签抹成空（独立复核 N10）。
+        tier_label = self.tier_label
+        if not tier_label:
+            existing = self.store.find(ticker, dataset, period, params=params, include_rows=False)
+            tier_label = str((existing or {}).get("tier_label") or "")
         self.store.write_frame(
             ticker=ticker, dataset=dataset, period=period, params=params, frame=frame,
             result=result,
             error_excerpt=redact(error_excerpt or "", (self.token,)) or None,
             token_fingerprint=token_fingerprint(self.token),
-            tier_label=self.tier_label, quota_profile=self.quota_profile,
+            tier_label=tier_label, quota_profile=self.quota_profile,
             batch_id=self.batch_id, fetched_at=self.clock().astimezone(timezone.utc).isoformat(),
         )
 

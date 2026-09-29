@@ -585,3 +585,25 @@ def test_only_gaps_uses_the_read_path_not_just_the_result_enum(tmp_path, monkeyp
     pending = {(target["dataset"], target["period"]) for target in planned["targets"]}
     assert ("daily", "latest") in pending, "窗口更窄的记录不能让目标被判成完备"
     assert ("fina_mainbz", "20251231") in pending, "语义入参核不出来的记录同理"
+
+
+def test_force_does_not_leave_the_access_in_refresh_mode(tmp_path):
+    """AC-2.2（独立复核尖角）：`--force` 用完要把门面模式还原。
+
+    模式是 access 的共享状态；批次结束不还原的话，同一个门面连跑两批时，上一轮残留的
+    refresh 会让下一轮**非 force** 的目标多出一次出网（本该命中存档）。
+    """
+
+    store = DataStore(tmp_path / "store")
+    targets = _sample_targets()
+    pro = _FakePro()
+    access = _client(store, pro)._access
+    pull.PullBatch(store, targets, "frugal", access, token="tok").run(
+        batch_id="MODE1", confirm=True, force=True)
+    assert access.mode == "online", "force 之后必须还原成 online"
+
+    before = len(pro.calls)
+    batch = pull.PullBatch(store, targets, "frugal", access, token="tok").run(
+        batch_id="MODE2", confirm=True)
+    assert len(pro.calls) == before, "下一轮非 force 不该因为残留 refresh 而出网"
+    assert batch["usage"]["archive_hits"] == len(targets)

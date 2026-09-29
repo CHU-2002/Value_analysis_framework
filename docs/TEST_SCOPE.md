@@ -15,7 +15,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | 项 | 当前 | 上限 | 使用率 |
 |----|------|------|--------|
 | 测试文件数 | 43 | 52 | 83% |
-| 收集到的用例数 | 1795 | 2000 | 90% |
+| 收集到的用例数 | 1797 | 2000 | 90% |
 
 （用例数含 `parametrize` 展开，由 `pytest --collect-only` 统计；函数数见下表末列，仅作参考。）
 
@@ -30,8 +30,8 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_comparable_periods.py` | REQ-002 | `unit` | — | 39 |
 | `tests/test_config.py` | 基线 | `unit` | `scripts/config.py` | 43 |
 | `tests/test_coordinator.py` | 基线 | `unit` | — | 9 |
-| `tests/test_data_pull.py` | REQ-009.4, REQ-011, REQ-011.2 | `unit` | — | 22 |
-| `tests/test_data_store.py` | REQ-011, REQ-011.1 | `unit` | — | 27 |
+| `tests/test_data_pull.py` | REQ-009.4, REQ-011, REQ-011.2 | `unit` | — | 23 |
+| `tests/test_data_store.py` | REQ-011, REQ-011.1 | `unit` | — | 28 |
 | `tests/test_derived_metrics.py` | 基线 | `unit` | — | 83 |
 | `tests/test_discover_report.py` | REQ-001, REQ-006.1 | `unit` | `scripts/discover_report.py` | 62 |
 | `tests/test_download_report.py` | REQ-001 | `unit` | `scripts/download_report.py` | 85 |

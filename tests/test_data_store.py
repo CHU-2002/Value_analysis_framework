@@ -695,3 +695,33 @@ def test_collector_cache_entries_import_once_and_idempotently(store, tmp_path):
     second = legacy.import_collector_cache(store, cache)
     assert (second["imported"], second["skipped"]) == (0, 2)
     assert len(store.records()) == 2
+
+
+def test_refresh_without_a_tier_label_keeps_the_recorded_one(store):
+    """AC-1.2/AC-3（独立复核 N10）：档位标签是**人的记录**，刷新不该把它抹成空。
+
+    带 `--tier-label 年包` 拉过一次之后，某次不带标签的 `--force` 曾把仓里的
+    `tier_label` 覆盖成 `''`——资产里的账号档位信息就这么静默丢了。
+    """
+
+    from datalayer.access import DataAccess
+
+    class _Pro:
+        def __getattr__(self, name):
+            return lambda **kwargs: pd.DataFrame({"ts_code": ["600887.SH"], "name": ["伊利"]})
+
+    access = DataAccess(store, client=type("C", (), {"pro": _Pro(), "token": "tok",
+                                                    "_vip_mode": False, "MAX_RETRIES": 1,
+                                                    "RETRY_DELAY": 0})(),
+                        token="tok", mode="online", tier_label="年包", rate_limit_seconds=0)
+    params = {"ts_code": "600887.SH", "fields": "ts_code,name"}
+    access.call("stock_basic", **params)
+    assert store.find("600887.SH", "stock_basic", "latest",
+                      params=params)["tier_label"] == "年包"
+
+    refreshing = DataAccess(store, client=access.client, token="tok", mode="refresh",
+                            tier_label="", rate_limit_seconds=0)
+    refreshing.call("stock_basic", **params)
+
+    record = store.find("600887.SH", "stock_basic", "latest", params=params)
+    assert record["tier_label"] == "年包", "不带标签的刷新不能抹掉已有标签"
