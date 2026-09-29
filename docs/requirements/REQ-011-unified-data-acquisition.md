@@ -297,7 +297,7 @@ make data-check
 |----|------|
 | 设计文档 | [`docs/DATA_LAYER_PLAN.md`](../DATA_LAYER_PLAN.md)（仓 schema、取数门面、编排状态机、离线重建、迁移、兼容与过渡；实现期的偏差集中在 §19） |
 | 实现 + 收口 PR | [#83](https://github.com/CHU-2002/Value_analysis_framework/pull/83)——数据层实现、四轮复核的 6 个阻断项修复、`AC-9` 真实 token 实跑留痕，以及本编号推进到 `verified`，都在同一个 PR 里 |
-| 验收报告 | [`docs/verification/2026-09-29-REQ-011-独立复核.md`](../verification/2026-09-29-REQ-011-独立复核.md)——独立 agent 的**四轮**对抗式复核（首轮在真实资产上找出 5 个阻断项；复验 1 修复；复验 2 又抓出 `--force` 空操作；复验 3 收尾）＋ `AC-9` 真实 token 实跑；`AC-1`…`AC-9` 与 `AC-1.1`…`AC-3.3` 全部成立 |
+| 验收报告 | [`docs/verification/2026-09-29-REQ-011.md`](../verification/2026-09-29-REQ-011.md)——独立 agent 的**四轮**对抗式复核（首轮在真实资产上找出 5 个阻断项；复验 1 修复；复验 2 又抓出 `--force` 空操作；复验 3 收尾）＋ `AC-9` 真实 token 实跑；`AC-1`…`AC-9` 与 `AC-1.1`…`AC-3.3` 全部成立 |
 | 实跑记录 | [`docs/run-records/2026-09-29-REQ-011-AC-9-真实token实跑.md`](../run-records/2026-09-29-REQ-011-AC-9-真实token实跑.md)（真实 token：拉全 / 中断续跑 / 断网重建 / 只补缺口）、[`docs/run-records/2026-09-29-REQ-011-实跑（无token部分）.md`](../run-records/2026-09-29-REQ-011-实跑（无token部分）.md)（真实载荷迁移与禁网重建） |
 | 测试 | `tests/test_data_store.py`（`REQ-011.1`）、`tests/test_data_pull.py`（`REQ-011.2`）、`tests/test_offline_rebuild.py`（`REQ-011.3`） |
 | 文档更新 | `README.md`、`docs/ARCHITECTURE.md`、`docs/GUI_CONSOLE_OVERVIEW.md`、`CHANGELOG.md` |
@@ -339,7 +339,7 @@ make data-check
   **设计已定：仍是仓库之外的 `~/turtle_archive/store.db`**（同目录内建索引、不搬字节）；
   GUI 侧要读它必须**显式新增允许根**而不是放宽 jail——这条留给 `REQ-012.4`。见 §4.6。
 - **独立复核与收口（2026-09-29）**：本条目的验收报告是无上下文 agent 的**四轮对抗式复核 + 一次针对 `42ad3c6` 的 delta 确认**
-  [`docs/verification/2026-09-29-REQ-011-独立复核.md`](../verification/2026-09-29-REQ-011-独立复核.md)：
+  [`docs/verification/2026-09-29-REQ-011.md`](../verification/2026-09-29-REQ-011.md)：
   共找出 **6 个阻断项**（最重的两条：离线读取静默删行把 1082 行真实响应压成 1 行；`--force` 是空操作）
   与 10 条非阻断项，**全部在同一交付内修掉并补了回归用例**；验收标准一个字没改。
   `AC-9` 的真实 token 实跑于同日由该独立 agent 执行并按 `docs/requirements/README.md` §7.1 留档，

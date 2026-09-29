@@ -72,7 +72,7 @@
   完备度收敛到「仅剩 1 条无权限」。同批把实跑发现的两处**手册**可复现性问题就地修正
   （中断步骤要加 `--force` 或换新期次；「第二次新增请求为 0」要补 `no_permission` 前提），
   另三条观察项登记进 `ledger.md` 的 Inbox。验收报告：
-  [`docs/verification/2026-09-29-REQ-011-独立复核.md`](docs/verification/2026-09-29-REQ-011-独立复核.md)
+  [`docs/verification/2026-09-29-REQ-011.md`](docs/verification/2026-09-29-REQ-011.md)
   （四轮对抗式复核共 6 个阻断项 + 10 条非阻断项，全部修掉并补了回归用例；验收标准一个字没改）
 
 ### Fixed
