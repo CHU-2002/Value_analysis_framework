@@ -14,6 +14,8 @@
 8. **子需求**（`REQ-NNN.S`）与台账「子需求台账」表严格一致，状态合法，
    AC 编号写作 `AC-S.n`，且**父需求的状态不得比它最慢的子需求更靠前**
    ——否则「拆子需求」会变成「偷偷少验收」。
+9. `docs/requirements/README.md` §11「需求条目一览」的状态与台账一致（收口时漏更新索引，
+   门禁要在 CI 里拦下来，而不是靠人肉发现）。
 
 约定：测试用注释 `# 覆盖需求：REQ-NNN`（子需求写完整编号 `REQ-NNN.S`）声明归属，
 关键条款写 `AC-n` / `AC-S.n`。详见 docs/requirements/README.md 与 docs/TESTING.md。
@@ -32,6 +34,7 @@ import req_registry
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REQUIREMENTS_DIR = REPO_ROOT / "docs" / "requirements"
 LEDGER_PATH = REQUIREMENTS_DIR / "ledger.md"
+INDEX_PATH = REQUIREMENTS_DIR / "README.md"
 TESTS_DIR = REPO_ROOT / "tests"
 
 # 本文件自身会被扫描 REQ 引用，但它只讨论编号而不覆盖需求，故排除。
@@ -54,6 +57,11 @@ LAYERS = {"unit", "contract", "e2e", "integration"}
 REQUIRED_FIELDS = ("id", "title", "status", "priority", "owner", "created", "updated")
 FRONT_MATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 LEDGER_ROW_RE = re.compile(r"^\|\s*\[(REQ-\d{3})\]\(([^)]+)\)\s*\|(.*)\|\s*$")
+# `docs/requirements/README.md` §11「需求条目一览」的行：`| [REQ-001](…) | 标题 | `verified` |`
+# 或已废弃的 `| ~~REQ-007~~ | … | `superseded` |`。
+INDEX_ROW_RE = re.compile(
+    r"^\|\s*(?:\[(?P<link>REQ-\d{3})\]\([^)]*\)|~~(?P<struck>REQ-\d{3})~~)\s*\|"
+)
 SUB_LEDGER_ROW_RE = re.compile(r"^\|\s*\[(REQ-\d{3}\.\d+)\]\(([^)]+)\)\s*\|(.*)\|\s*$")
 REQ_ID_RE = req_registry.REQ_ID_RE
 AC_RE = re.compile(r"\*\*AC-\d+\*\*")
@@ -112,6 +120,23 @@ def parse_ledger() -> dict:
             "issue": cells[3],
             "pr": cells[4],
         }
+    return rows
+
+
+def parse_index_rows() -> dict:
+    """`README.md` §11「需求条目一览」表 → {编号: 状态}（状态取该行第一个反引号片段）。"""
+
+    text = INDEX_PATH.read_text(encoding="utf-8")
+    section = text.split("## 11. 当前状态", 1)[-1].split("\n## ", 1)[0]
+    rows = {}
+    for line in section.splitlines():
+        match = INDEX_ROW_RE.match(line)
+        if not match:
+            continue
+        req_id = match.group("link") or match.group("struck")
+        status = re.search(r"`([^`]+)`", line)
+        if req_id and status:
+            rows[req_id] = status.group(1)
     return rows
 
 
@@ -527,3 +552,28 @@ def test_test_layer_registry_is_valid():
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+def test_readme_index_status_matches_the_ledger():
+    """`README.md` §11 的需求一览与台账状态必须一致。
+
+    这两个状态面都是「人看需求进度」的地方，但此前只有台账被门禁覆盖：`REQ-011` 收口时
+    台账已 `verified`、§11 还写着 `in-progress`（下面那段说明也说「待 AC-9 实跑」），
+    而 CI 全绿——收口动作因此少做了「更新索引」这一步，靠人肉发现。
+    """
+
+    ledger = parse_ledger()
+    index = parse_index_rows()
+    assert index, "README.md 的 §11 未解析到任何条目（小节标题或表格式变了？）"
+
+    unknown = sorted(set(index) - set(ledger))
+    assert not unknown, (
+        f"§11 里的编号不在台账中：{unknown}；需求一览必须与台账同源"
+    )
+
+    mismatched = {
+        req_id: f"§11={status} / 台账={ledger[req_id]['status']}"
+        for req_id, status in index.items()
+        if status in STATUSES and status != ledger[req_id]["status"]
+    }
+    assert not mismatched, f"§11 与台账状态不一致：{mismatched}"
