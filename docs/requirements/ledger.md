@@ -18,7 +18,7 @@
 | [REQ-008](REQ-008-coverage-debt.md) | 覆盖率洼地补测 | `superseded` | P2 | TBD | TBD | 已并入 REQ-006 任务 T4（本文件即 T4 的规格） |
 | [REQ-009](REQ-009-local-gui-console.md) | 本地图形化控制台（可扩展框架 + 按键执行 + 股票图表 + 报告与迭代记录浏览） | `verified` | P1 | #42 | #44, #45, #63, #64, #66, #67, #70, #71, #72 | `tests/test_webui_framework.py` `tests/test_webui_archive.py` `tests/test_webui_server.py` `tests/test_webui_views.py` |
 | [REQ-010](REQ-010-latest-valuation-publication.md) | 最新价值分析报告发布与历史版本保留 | `verified` | P1 | #61 | #78, #79, #80, #81 | `tests/test_latest_valuation_publication.py` |
-| [REQ-011](REQ-011-unified-data-acquisition.md) | 一次性全量数据获取与统一原始数据仓 | `in-progress` | P1 | #73 | 本地分支 `feat/req011-data-layer`（PR 待开） | `tests/test_data_store.py` `tests/test_data_pull.py` `tests/test_offline_rebuild.py` |
+| [REQ-011](REQ-011-unified-data-acquisition.md) | 一次性全量数据获取与统一原始数据仓 | `in-progress` | P1 | #73 | #83 | `tests/test_data_store.py` `tests/test_data_pull.py` `tests/test_offline_rebuild.py` |
 | [REQ-012](REQ-012-console-v2.md) | 控制台 2.0（公司上下文 + 任务式交互 + 视图质量） | `accepted` | P1 | #74 | TBD | `tests/test_console_context.py` `tests/test_console_actions.py` `tests/test_console_views.py` `tests/test_console_data_page.py` |
 | [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `accepted` | P1 | #75 | #77 | `tests/test_agent_action.py` |
 
@@ -41,9 +41,9 @@
 | [REQ-009.2](REQ-009-local-gui-console.md) | REQ-009 | 报告浏览、图表与迭代台账视图 | `verified` | #66, #67 | `tests/test_webui_views.py` |
 | [REQ-009.3](REQ-009-local-gui-console.md) | REQ-009 | 可扩展框架与本地数据层（微内核 / 插件注册表 / 面板协议 / 数据缓存 / API 契约 / 安全中间件） | `verified` | #44, #45 | `tests/test_webui_framework.py` |
 | [REQ-009.4](REQ-009-local-gui-console.md) | REQ-009 | 手动触发的远程采集与长期存档（批次 / 配额档案 / 原始存档 / 断点续跑 / 权限缺口清单） | `verified` | #63, #64, #67 | `tests/test_webui_archive.py` |
-| [REQ-011.1](REQ-011-unified-data-acquisition.md) | REQ-011 | 自选股清单与统一原始仓 | `in-progress` | 本地分支 `feat/req011-data-layer` | `tests/test_data_store.py` |
-| [REQ-011.2](REQ-011-unified-data-acquisition.md) | REQ-011 | 一次动作全量拉取与缺口补齐 | `in-progress` | 本地分支 `feat/req011-data-layer` | `tests/test_data_pull.py` |
-| [REQ-011.3](REQ-011-unified-data-acquisition.md) | REQ-011 | 离线重建派生产物 | `in-progress` | 本地分支 `feat/req011-data-layer` | `tests/test_offline_rebuild.py` |
+| [REQ-011.1](REQ-011-unified-data-acquisition.md) | REQ-011 | 自选股清单与统一原始仓 | `in-progress` | #83 | `tests/test_data_store.py` |
+| [REQ-011.2](REQ-011-unified-data-acquisition.md) | REQ-011 | 一次动作全量拉取与缺口补齐 | `in-progress` | #83 | `tests/test_data_pull.py` |
+| [REQ-011.3](REQ-011-unified-data-acquisition.md) | REQ-011 | 离线重建派生产物 | `in-progress` | #83 | `tests/test_offline_rebuild.py` |
 | [REQ-012.1](REQ-012-console-v2.md) | REQ-012 | 公司上下文与信息架构 | `accepted` | TBD | `tests/test_console_context.py` |
 | [REQ-012.2](REQ-012-console-v2.md) | REQ-012 | 任务式动作层 | `accepted` | TBD | `tests/test_console_actions.py` |
 | [REQ-012.3](REQ-012-console-v2.md) | REQ-012 | 视图质量与口径修正 | `accepted` | TBD | `tests/test_console_views.py` |

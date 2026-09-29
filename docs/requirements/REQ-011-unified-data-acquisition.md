@@ -9,7 +9,7 @@ updated: 2026-09-29
 issue: "#73"
 design: docs/DATA_LAYER_PLAN.md
 milestone: TBD
-pr: 本地分支 feat/req011-data-layer
+pr: "#83"
 depends-on: REQ-001, REQ-002, REQ-009.4
 supersedes: TBD
 ---
@@ -116,7 +116,7 @@ GUI 侧因此出现了**把年报口径与季报口径画在同一条趋势线�
   - **AC-1.2**：原始响应按 (`标的`, `数据集`, `期次`, `参数`) 唯一落仓，记录含 `AC-3` 列出的全部字段，写入原子（对应 `AC-3`）。
   - **AC-1.3**：期次口径为结构化字段，可按口径筛选（对应 `AC-4`）。
   - **AC-1.4**：`~/turtle_archive` 与 `output/.collector_cache/` 的既有数据可一次性幂等导入（对应 `AC-8`）。
-- 追溯：`tests/test_data_store.py`；PR 待开（本地分支 `feat/req011-data-layer`）
+- 追溯：`tests/test_data_store.py`；PR #83
 
 ### REQ-011.2 一次动作全量拉取与缺口补齐
 
@@ -126,7 +126,7 @@ GUI 侧因此出现了**把年报口径与季报口径画在同一条趋势线�
   - **AC-2.1**：一条命令或一个动作按名单枚举目标并启动单个批次，先预估后确认（对应 `AC-2`）。
   - **AC-2.2**：去重、`--force`、断点续跑、同批次不并发、四类计数报告（对应 `AC-6`）。
   - **AC-2.3**：可按缺口发起补齐批次，完备度收敛（对应 `AC-7`）。
-- 追溯：`tests/test_data_pull.py`；PR 待开（本地分支 `feat/req011-data-layer`）
+- 追溯：`tests/test_data_pull.py`；PR #83
 
 ### REQ-011.3 离线重建派生产物
 
@@ -136,7 +136,7 @@ GUI 侧因此出现了**把年报口径与季报口径画在同一条趋势线�
   - **AC-3.1**：禁网环境下从仓重建 `data_pack_market.md`，既有下游解析契约不变（对应 `AC-5`）。
   - **AC-3.2**：重建与拉取是两个不同动作，CLI 与界面均可分辨（对应 `AC-5`）。
   - **AC-3.3**：图表所需序列可直接从仓取结构化数据，不再依赖 Markdown 小节标题与列名（供 `REQ-012.3` 的口径修正使用）。
-- 追溯：`tests/test_offline_rebuild.py`；PR 待开（本地分支 `feat/req011-data-layer`）
+- 追溯：`tests/test_offline_rebuild.py`；PR #83
 
 ## 范围
 
@@ -269,7 +269,7 @@ make data-check
 | 项 | 内容 |
 |----|------|
 | 设计文档 | [`docs/DATA_LAYER_PLAN.md`](../DATA_LAYER_PLAN.md)（仓 schema、取数门面、编排状态机、离线重建、迁移、兼容与过渡；实现期的偏差集中在 §19） |
-| 实现 PR | 待开（本地分支 `feat/req011-data-layer`） |
+| 实现 PR | [#83](https://github.com/CHU-2002/Value_analysis_framework/pull/83) |
 | 测试 | `tests/test_data_store.py`（`REQ-011.1`）、`tests/test_data_pull.py`（`REQ-011.2`）、`tests/test_offline_rebuild.py`（`REQ-011.3`） |
 | 文档更新 | `README.md`、`docs/ARCHITECTURE.md`、`docs/GUI_CONSOLE_OVERVIEW.md`、`CHANGELOG.md` |
 
@@ -309,6 +309,11 @@ make data-check
 - **开放问题 4**：仓放在仓库外（延续 `~/turtle_archive` 的资产语义）还是 `output/` 之下？
   **设计已定：仍是仓库之外的 `~/turtle_archive/store.db`**（同目录内建索引、不搬字节）；
   GUI 侧要读它必须**显式新增允许根**而不是放宽 jail——这条留给 `REQ-012.4`。见 §4.6。
+- **独立复核（2026-09-29）**：PR 内附一份无上下文 agent 的对抗式复核报告
+  [`docs/verification/2026-09-29-REQ-011-独立复核.md`](../verification/2026-09-29-REQ-011-独立复核.md)：
+  三轮复核共找出 **6 个阻断项**（最重的两条：离线读取静默删行、`--force` 是空操作）与 10 条
+  非阻断项，**全部在同一交付内修掉并补了回归用例**；验收标准一个字没改。
+  该报告**不是**收口验收报告：父需求的 `AC-9`（真实 token 实跑）未执行，编号仍停在 `in-progress`。
 - **实现期留痕（2026-09-29）**：实现与设计不符的地方（唯一键与「记录服务请求」的读取模型、
   扫描范围、缺口批注位置、`gaps.py` 搬家、`--collect` 转调后的枚举差异、开放问题的落点）
   全部记在 [`docs/DATA_LAYER_PLAN.md`](../DATA_LAYER_PLAN.md) §19，**验收标准一个字没改**。
