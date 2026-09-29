@@ -4,11 +4,15 @@ from __future__ import annotations
 
 PROFILES = {
     "frugal": ("stock_basic", "daily", "income", "balancesheet", "cashflow", "fina_indicator"),
-    "bulk": ("stock_basic", "daily", "daily_basic", "income", "balancesheet", "cashflow",
-             "dividend", "fina_audit", "fina_indicator", "fina_mainbz", "pledge_stat",
-             "repurchase", "top10_holders", "weekly", "yc_cb", "hk_balancesheet",
-             "hk_cashflow", "hk_daily", "hk_fina_indicator", "hk_income", "us_balancesheet",
-             "us_cashflow", "us_daily", "us_fina_indicator", "us_income"),
+    # REQ-011：`bulk` 的语义是「扫描得到的全集」，而 `hk_basic` / `us_basic` 一直被
+    # `get_basic_info` 调用却不在任何档位里——港股/美股的基本信息因此永远进不了存档。
+    # 这里补齐（对 A 股标的会被市场过滤掉，故既有目标集合不变）。
+    # `tests/test_data_pull.py` 断言它与 `datalayer.registry.PROFILES` 及扫描集合一致。
+    "bulk": ("stock_basic", "hk_basic", "us_basic", "daily", "daily_basic", "income",
+             "balancesheet", "cashflow", "dividend", "fina_audit", "fina_indicator",
+             "fina_mainbz", "pledge_stat", "repurchase", "top10_holders", "weekly", "yc_cb",
+             "hk_balancesheet", "hk_cashflow", "hk_daily", "hk_fina_indicator", "hk_income",
+             "us_balancesheet", "us_cashflow", "us_daily", "us_fina_indicator", "us_income"),
 }
 
 

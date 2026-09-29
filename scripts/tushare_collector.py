@@ -31,6 +31,12 @@ except ImportError:
 from config import get_token, get_api_url, validate_stock_code
 from format_utils import format_number, format_table, format_header
 
+# REQ-011：取数的唯一收口点搬到 `datalayer.access.DataAccess`（仓的读写也在那里）。
+# 这里保留扁平导入，让「直接执行 scripts/ 下的脚本」与测试的既有做法不变。
+from datalayer.access import MODE_OFFLINE, MODE_ONLINE, DataAccess, DataMissing
+from datalayer.config import archive_root as resolve_archive_root
+from datalayer.store import DataStore
+
 # Re-export all constants and mixin classes for backward compatibility.
 # Tests and external code import these from tushare_collector directly:
 #   from tushare_collector import TushareClient, WarningsCollector, rate_limit
@@ -71,12 +77,23 @@ class TushareClient(
 
     BASIC_CACHE_TTL = 7 * 86400  # 7 days in seconds
 
-    def __init__(self, token: str):
+    def __init__(self, token: str, *, store=None, mode: str = MODE_ONLINE, batch_id=None,
+                 rate_limit_seconds: float = 0.5, retry_delay=None, framework_version=None,
+                 clock=None):
+        """``mode='offline'`` 时不建远程客户端：重建路径**根本不该**有联网的可能。
+
+        仓由 `--store` / `TURTLE_ARCHIVE_ROOT` 决定（`datalayer.config`），
+        也可直接传一个 `DataStore`。传 ``store=False`` 可显式关掉仓（测试与临时脚本用）。
+        """
+
         self.token = token
+        self._mode = mode
+        # 离线重建时仓里没有的目标记在这里：产物末尾的缺口说明与 CLI 的收尾计数都用它。
+        self.offline_gaps: list[dict] = []
         # Inject the token straight into pro_api() instead of calling
         # ts.set_token(): set_token() persists the credential to ~/tk.csv,
         # which raises PermissionError when HOME is read-only (sandboxes/CI).
-        self.pro = self._new_pro_api()
+        self.pro = None if mode == MODE_OFFLINE else self._new_pro_api()
         self._store = {}  # {key: pd.DataFrame} for derived metrics computation
         self._yf_available = _yf_available
         self._cache_dir = os.path.join("output", ".collector_cache")
@@ -85,9 +102,21 @@ class TushareClient(
         # Broker API support: route calls through custom URL + enable VIP endpoints
         api_url = get_api_url()
         self._vip_mode = bool(api_url)
-        if api_url:
-            self.pro._DataApi__token = token
-            self.pro._DataApi__http_url = api_url
+        if api_url and self.pro is not None:
+            self._apply_broker_hacks()
+
+        if store is False:
+            self.store = None
+        elif store is None:
+            self.store = DataStore(resolve_archive_root(), framework_version=framework_version,
+                                   clock=clock)
+        else:
+            self.store = store
+        self._access = DataAccess(
+            self.store, client=self, token=token, mode=mode,
+            rate_limit_seconds=rate_limit_seconds, retry_delay=retry_delay,
+            batch_id=batch_id, clock=clock,
+        )
 
     def _new_pro_api(self):
         """Build a Tushare pro client, passing the token in-process.
@@ -107,103 +136,43 @@ class TushareClient(
             )
         return ts.pro_api(self.token, timeout=30)
 
-    @rate_limit
+    def _apply_broker_hacks(self) -> None:
+        """把 broker 的 token / URL 打到当前 pro 客户端上（连接重建后要重打一次）。"""
+
+        api_url = get_api_url()
+        if api_url and self.pro is not None:
+            self.pro._DataApi__token = self.token
+            self.pro._DataApi__http_url = api_url
+
     def _safe_call(self, api_name: str, **kwargs) -> pd.DataFrame:
-        """Call a Tushare API endpoint with retry logic.
+        """取数收口点：**转调** `datalayer.access.DataAccess`（`REQ-011`）。
 
-        Auto-upgrades to VIP endpoints when broker is active.
-
-        Args:
-            api_name: The API endpoint name (e.g., 'stock_basic').
-            **kwargs: Parameters passed to the API call.
-
-        Returns:
-            DataFrame with results.
-
-        Raises:
-            RuntimeError: After MAX_RETRIES failures.
+        重试、限流、VIP 路由与仓的读写都在 `DataAccess` 里；这里只做两件事：
+        ① 保留既有签名与异常语义（重试耗尽仍是 `RuntimeError`，错误原文不变）；
+        ② 离线模式下仓里没有的记录返回空表并记账——既有 `get_*` 方法本来就是
+        按「空表 = 数据缺失」渲染的，于是**换数据源不换模具**（`AC-5`）。
         """
-        # Auto-upgrade to VIP endpoint when broker is active
-        effective_name = api_name
-        if self._vip_mode and api_name in _VIP_MAP:
-            effective_name = _VIP_MAP[api_name]
-
-        last_err = None
-        for attempt in range(1, self.MAX_RETRIES + 1):
-            try:
-                api_func = getattr(self.pro, effective_name)
-                df = api_func(**kwargs)
-                return df
-            except Exception as e:
-                last_err = e
-                if is_permanent_api_error(e):
-                    # 权限类错误重试无意义（F3）：立即放弃，不占用 5 次重试。
-                    print(
-                        f"{effective_name}: permanent error ({e}); not retrying",
-                        file=sys.stderr,
-                    )
-                    break
-                if attempt < self.MAX_RETRIES:
-                    is_conn_err = isinstance(e, (ConnectionError, OSError)) or \
-                        "RemoteDisconnected" in type(e).__name__ or \
-                        "ConnectionAborted" in str(e) or \
-                        "RemoteDisconnected" in str(e)
-                    if is_conn_err:
-                        print(f"[retry {attempt}/{self.MAX_RETRIES}] {effective_name}: connection error, re-creating API client...", file=sys.stderr)
-                        self.pro = self._new_pro_api()
-                        # Re-apply broker hacks after re-creating client
-                        api_url = get_api_url()
-                        if api_url:
-                            self.pro._DataApi__token = self.token
-                            self.pro._DataApi__http_url = api_url
-                    else:
-                        print(f"[retry {attempt}/{self.MAX_RETRIES}] {effective_name}: {e}", file=sys.stderr)
-                    time.sleep(self.RETRY_DELAY * attempt)
-        raise RuntimeError(
-            f"Tushare API '{effective_name}' failed after {self.MAX_RETRIES} retries: {last_err}"
-        )
+        try:
+            return self._access.call(api_name, **kwargs)
+        except DataMissing as exc:
+            self.offline_gaps.append({"dataset": exc.dataset, "params": exc.params})
+            return pd.DataFrame()
 
     def _cached_basic_call(self, api_name: str, **kwargs) -> pd.DataFrame:
-        """Call stock_basic/hk_basic with 7-day file cache."""
-        ts_code = kwargs.get("ts_code", "all")
-        cache_file = os.path.join(self._cache_dir, f"{api_name}_{ts_code}.json")
-        if os.path.exists(cache_file):
-            mtime = os.path.getmtime(cache_file)
-            if time.time() - mtime < self.BASIC_CACHE_TTL:
-                return pd.read_json(cache_file)
-        df = self._safe_call(api_name, **kwargs)
-        if not df.empty:
-            os.makedirs(self._cache_dir, exist_ok=True)
-            df.to_json(cache_file, orient="records", force_ascii=False)
-        return df
+        """基本信息调用：缓存语义交给仓（`REQ-011` 的 `AC-8` —— 旧文件缓存停写）。
+
+        原来这里是 `output/.collector_cache/` 的 7 天 TTL 文件缓存；TTL 会把
+        「过期」和「要重新花钱」混为一谈（`DATA_LAYER_PLAN` D4）。现在
+        「已拉过就不再联网」由仓的唯一键去重保证，旧缓存目录**只读、不再写**。
+        """
+        return self._safe_call(api_name, **kwargs)
 
     def _cached_us_daily(self, ts_code: str = None) -> pd.DataFrame:
-        """Fetch us_daily with same-day file cache (bulk all-stock fetch).
+        """美股全市场日线：一次调用取回，整体作为一条记录进仓（不拆成 6000 条）。"""
 
-        First call fetches ALL US stocks (limit=6000) and caches to Parquet.
-        Subsequent same-day calls read from cache and filter by ts_code.
-        """
-        cache_file = os.path.join(self._cache_dir, "us_daily_all.parquet")
-        today = pd.Timestamp.now().strftime("%Y%m%d")
-
-        # Check cache: file exists AND was created today
-        if os.path.exists(cache_file):
-            mtime = os.path.getmtime(cache_file)
-            cache_date = pd.Timestamp.fromtimestamp(mtime).strftime("%Y%m%d")
-            if cache_date == today:
-                df = pd.read_parquet(cache_file)
-                if ts_code:
-                    df = df[df["ts_code"] == ts_code]
-                return df
-
-        # Bulk fetch all US stocks
         df = self._safe_call("us_daily", limit=6000,
                              fields="ts_code,trade_date,open,high,low,close,"
                                     "vol,amount,pe,pb,total_mv")
-        if not df.empty:
-            os.makedirs(self._cache_dir, exist_ok=True)
-            df.to_parquet(cache_file, index=False)
-
         if ts_code and not df.empty:
             df = df[df["ts_code"] == ts_code]
         return df

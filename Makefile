@@ -2,7 +2,7 @@
 PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python)
 COV_MIN ?= 74
 
-.PHONY: help test unit cov lint trace scope scope-write scope-check regression-check gates verify clean-pyc gui gui-check gui-collect
+.PHONY: help test unit cov lint trace scope scope-write scope-check regression-check gates verify clean-pyc gui gui-check gui-collect data-universe data-pull data-rebuild data-gaps data-import-legacy data-check
 
 help:  ## 显示可用目标
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -58,6 +58,24 @@ gui-check:  ## 只装配控制台（配置 + 插件 + 注册表）并打印摘�
 
 gui-collect:  ## 显式运行采集批次：make gui-collect ARGS='--profile frugal --ticker 600887.SH'
 	$(PYTHON) -m scripts.webui --collect $(ARGS)
+
+data-universe:  ## 自选股清单：make data-universe ARGS='add --ticker 600887.SH --name 伊利股份'
+	$(PYTHON) -m scripts.datalayer --universe $(ARGS)
+
+data-pull:  ## 一次动作全量拉取（先预估、再确认）：make data-pull ARGS='--profile bulk --yes'
+	$(PYTHON) -m scripts.datalayer --pull $(ARGS)
+
+data-rebuild:  ## 从仓离线重建产物（不联网）：make data-rebuild ARGS='--ticker 600887.SH'
+	$(PYTHON) -m scripts.datalayer --rebuild $(ARGS)
+
+data-gaps:  ## 缺口与完备度：make data-gaps ARGS='--ticker 600887.SH'
+	$(PYTHON) -m scripts.datalayer --gaps $(ARGS)
+
+data-import-legacy:  ## 一次性导入旧存档与旧缓存（幂等）：make data-import-legacy
+	$(PYTHON) -m scripts.datalayer --import-legacy $(ARGS)
+
+data-check:  ## 仓的规模、schema 与扫描自检
+	$(PYTHON) -m scripts.datalayer --check $(ARGS)
 
 clean-pyc:  ## 清理 __pycache__
 	find scripts tests -name '__pycache__' -type d -prune -exec rm -rf {} +

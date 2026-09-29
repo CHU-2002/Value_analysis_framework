@@ -104,8 +104,15 @@ class TestTushareClientInit:
 
 
 class TestCachedBasicCall:
-    def test_cached_basic_call_uses_cache(self, tmp_path):
-        """Second call should read from file cache, not API."""
+    """REQ-011 AC-8：基本信息的缓存语义整体交给统一原原始仓，旧文件缓存**停写**。
+
+    以前这里是 `output/.collector_cache/` 的 7 天 TTL 文件缓存；TTL 会把「过期」与
+    「重新花钱」混为一谈（DATA_LAYER_PLAN D4）。现在「已拉过就不再联网」由仓的唯一键
+    去重保证，`_cached_basic_call` 只是一层薄转调。
+    """
+
+    def test_basic_call_goes_through_the_single_facade(self, tmp_path):
+        """每次都走 `_safe_call`（唯一收口点），不再有独立的文件缓存层。"""
         client = _make_client()
         client._cache_dir = str(tmp_path)
         expected_df = pd.DataFrame({"ts_code": ["600887.SH"], "name": ["伊利股份"]})
@@ -113,35 +120,25 @@ class TestCachedBasicCall:
 
         with patch("tushare_collector.time.sleep"):
             result1 = client._cached_basic_call("stock_basic", ts_code="600887.SH")
-            result2 = client._cached_basic_call("stock_basic", ts_code="600887.SH")
-
-        assert client._safe_call.call_count == 1
-        assert result1.equals(expected_df)
-        assert list(result2["name"]) == ["伊利股份"]
-
-    def test_cached_basic_call_expired(self, tmp_path):
-        """Stale cache (>7 days) should trigger fresh API call."""
-        client = _make_client()
-        client._cache_dir = str(tmp_path)
-        expected_df = pd.DataFrame({"ts_code": ["600887.SH"], "name": ["伊利股份"]})
-        client._safe_call = MagicMock(return_value=expected_df)
-
-        with patch("tushare_collector.time.sleep"):
-            result1 = client._cached_basic_call("stock_basic", ts_code="600887.SH")
-
-        # Age the cache file beyond TTL
-        cache_file = os.path.join(str(tmp_path), "stock_basic_600887.SH.json")
-        old_time = time.time() - 8 * 86400
-        os.utime(cache_file, (old_time, old_time))
-
-        with patch("tushare_collector.time.sleep"):
             result2 = client._cached_basic_call("stock_basic", ts_code="600887.SH")
 
         assert client._safe_call.call_count == 2
+        assert result1.equals(expected_df)
         assert list(result2["name"]) == ["伊利股份"]
 
-    def test_cached_basic_call_empty_not_cached(self, tmp_path):
-        """Empty API results should NOT be written to cache."""
+    def test_basic_call_does_not_write_the_legacy_cache(self, tmp_path):
+        """旧缓存目录不再被写（AC-8：不出现「同一份数据两处都在写」）。"""
+        client = _make_client()
+        client._cache_dir = str(tmp_path)
+        client._safe_call = MagicMock(
+            return_value=pd.DataFrame({"ts_code": ["600887.SH"], "name": ["伊利股份"]}))
+
+        with patch("tushare_collector.time.sleep"):
+            client._cached_basic_call("stock_basic", ts_code="600887.SH")
+
+        assert list(tmp_path.iterdir()) == []
+
+    def test_basic_call_empty_result_is_not_a_file(self, tmp_path):
         client = _make_client()
         client._cache_dir = str(tmp_path)
         client._safe_call = MagicMock(return_value=pd.DataFrame())
@@ -149,55 +146,55 @@ class TestCachedBasicCall:
         with patch("tushare_collector.time.sleep"):
             client._cached_basic_call("stock_basic", ts_code="999999.SH")
 
-        cache_file = os.path.join(str(tmp_path), "stock_basic_999999.SH.json")
-        assert not os.path.exists(cache_file)
+        assert not os.path.exists(os.path.join(str(tmp_path), "stock_basic_999999.SH.json"))
 
 
 class TestCachedUsDaily:
-    """Tests for _cached_us_daily bulk cache with same-day TTL."""
+    """REQ-011 AC-8：美股全市场日线走统一门面，不再写 `us_daily_all.parquet`。
 
-    def test_first_call_fetches_and_caches(self, tmp_path):
-        """First call should hit API and write Parquet cache file."""
-        client = _make_client()
-        client._cache_dir = str(tmp_path)
-        bulk_df = pd.DataFrame([
+    去重发生在仓里（一次调用 = 一条记录），所以这里不再有「同日文件缓存」这一层。
+    """
+
+    @staticmethod
+    def _bulk_df():
+        return pd.DataFrame([
             {"ts_code": "AAPL", "trade_date": "20241231", "close": 254.49,
              "pe": 32.5, "pb": 48.2, "total_mv": 3850000},
             {"ts_code": "NVDA", "trade_date": "20241231", "close": 130.50,
              "pe": 60.0, "pb": 30.0, "total_mv": 3200000},
         ])
-        client._safe_call = MagicMock(return_value=bulk_df)
+
+    def test_first_call_fetches_through_the_facade(self, tmp_path):
+        """第一次调用取回全市场，且不落任何旧缓存文件。"""
+        client = _make_client()
+        client._cache_dir = str(tmp_path)
+        client._safe_call = MagicMock(return_value=self._bulk_df())
 
         result = client._cached_us_daily(ts_code="AAPL")
 
         client._safe_call.assert_called_once()
-        assert os.path.exists(os.path.join(str(tmp_path), "us_daily_all.parquet"))
+        assert client._safe_call.call_args.args[0] == "us_daily"
+        assert not os.path.exists(os.path.join(str(tmp_path), "us_daily_all.parquet"))
+        assert list(tmp_path.iterdir()) == []
         assert len(result) == 1
         assert result.iloc[0]["ts_code"] == "AAPL"
 
-    def test_second_call_uses_cache(self, tmp_path):
-        """Same-day second call should read from cache, not API."""
+    def test_each_call_goes_through_the_facade(self, tmp_path):
+        """去重是仓的职责，不是这一层的职责——每次都经收口点，由仓决定是否联网。"""
         client = _make_client()
         client._cache_dir = str(tmp_path)
-        bulk_df = pd.DataFrame([
-            {"ts_code": "AAPL", "trade_date": "20241231", "close": 254.49,
-             "pe": 32.5, "pb": 48.2, "total_mv": 3850000},
-            {"ts_code": "NVDA", "trade_date": "20241231", "close": 130.50,
-             "pe": 60.0, "pb": 30.0, "total_mv": 3200000},
-        ])
-        client._safe_call = MagicMock(return_value=bulk_df)
+        client._safe_call = MagicMock(return_value=self._bulk_df())
 
         client._cached_us_daily(ts_code="AAPL")
         result = client._cached_us_daily(ts_code="NVDA")
 
-        assert client._safe_call.call_count == 1  # Only one API call
+        assert client._safe_call.call_count == 2
         assert len(result) == 1
         assert result.iloc[0]["ts_code"] == "NVDA"
 
-    def test_filter_by_ts_code(self, tmp_path):
+    def test_filter_by_ts_code(self):
         """Filtering by ts_code should return correct subset."""
         client = _make_client()
-        client._cache_dir = str(tmp_path)
         bulk_df = pd.DataFrame([
             {"ts_code": "AAPL", "trade_date": "20241231", "close": 254.49},
             {"ts_code": "NVDA", "trade_date": "20241231", "close": 130.50},
@@ -209,10 +206,9 @@ class TestCachedUsDaily:
         assert len(result) == 1
         assert result.iloc[0]["close"] == 420.00
 
-    def test_no_filter_returns_all(self, tmp_path):
+    def test_no_filter_returns_all(self):
         """Calling without ts_code should return all rows."""
         client = _make_client()
-        client._cache_dir = str(tmp_path)
         bulk_df = pd.DataFrame([
             {"ts_code": "AAPL", "close": 254.49},
             {"ts_code": "NVDA", "close": 130.50},
@@ -222,38 +218,12 @@ class TestCachedUsDaily:
         result = client._cached_us_daily()
         assert len(result) == 2
 
-    def test_stale_cache_triggers_fresh_fetch(self, tmp_path):
-        """Cache from yesterday should trigger a new API call."""
+    def test_empty_result_filters_to_empty(self):
+        """空结果不应炸，也不该被当成「有数据」。"""
         client = _make_client()
-        client._cache_dir = str(tmp_path)
-        bulk_df = pd.DataFrame([
-            {"ts_code": "AAPL", "trade_date": "20241231", "close": 254.49,
-             "pe": 32.5, "pb": 48.2, "total_mv": 3850000},
-        ])
-        client._safe_call = MagicMock(return_value=bulk_df)
-
-        # First call populates cache
-        client._cached_us_daily(ts_code="AAPL")
-
-        # Age the cache file to yesterday
-        cache_file = os.path.join(str(tmp_path), "us_daily_all.parquet")
-        yesterday = time.time() - 86400
-        os.utime(cache_file, (yesterday, yesterday))
-
-        # Second call should hit API again
-        client._cached_us_daily(ts_code="AAPL")
-        assert client._safe_call.call_count == 2
-
-    def test_empty_result_not_cached(self, tmp_path):
-        """Empty API result should NOT write cache file."""
-        client = _make_client()
-        client._cache_dir = str(tmp_path)
         client._safe_call = MagicMock(return_value=pd.DataFrame())
 
         result = client._cached_us_daily(ts_code="AAPL")
-
-        cache_file = os.path.join(str(tmp_path), "us_daily_all.parquet")
-        assert not os.path.exists(cache_file)
         assert result.empty
 
 

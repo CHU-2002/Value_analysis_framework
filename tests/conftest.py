@@ -84,3 +84,13 @@ def _isolate_env_file(monkeypatch, tmp_path):
     import config as config_mod
 
     monkeypatch.setattr(config_mod, "__file__", str(tmp_path / "scripts" / "config.py"))
+
+
+@pytest.fixture(autouse=True)
+def _isolate_archive_root(monkeypatch, tmp_path):
+    """把统一原始仓（REQ-011）指到 tmp_path。
+
+    没有这一条时，任何构造 `TushareClient` 的测试都会去写真实的 `~/turtle_archive/store.db`
+    ——测试既不该依赖真实资产，也不该往里面写（docs/TESTING.md §3）。
+    """
+    monkeypatch.setenv("TURTLE_ARCHIVE_ROOT", str(tmp_path / "turtle_archive"))

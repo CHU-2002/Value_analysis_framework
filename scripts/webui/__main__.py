@@ -132,20 +132,29 @@ def main(argv=None) -> int:
         if not args.profile or not args.ticker:
             print("采集错误：--collect 需要 --profile 与至少一个 --ticker。", file=sys.stderr)
             return 2
-        from .archive import (
-            ArchiveBatch, ArchiveStore, gap_targets, resolve_token, targets_for_profile,
-        )
-        from .archive.adapters.tushare import TushareAdapter
-        from .core.errors import BatchRunning, NoToken, QuotaConfirmRequired
+        # REQ-011 §10.3：`--collect` 变成对 `datalayer.pull` 的**薄转调**——
+        # 参数与退出码语义不变（NO_TOKEN→2、KeyboardInterrupt→130），
+        # 但落盘从「旧存档目录」换成统一原始仓（旧路径停写，AC-8）。
+        # `REQ-009.4` 的实跑命令 `make gui-collect ARGS='--profile frugal --ticker … --period …'`
+        # 因此继续可用。
+        from datalayer.errors import BatchRunning, NoToken, QuotaConfirmRequired
+        from datalayer.gaps import gap_targets
+        from datalayer.pull import PullBatch, targets_for
+        from datalayer.security import resolve_token
+        from datalayer.store import DataStore
+        from tushare_collector import TushareClient
 
         token = resolve_token()
         try:
             if not token:
                 raise NoToken("未配置 Tushare token", hint="设置 TUSHARE_TOKEN 或在项目 .env 中配置后重试。")
-            store = ArchiveStore(config.archive_root)
-            targets = targets_for_profile(args.ticker, args.period or ("latest",), args.profile)
+            # 仓根与 `make data-*` 用同一套解析（`TURTLE_ARCHIVE_ROOT` 优先、
+            # `WEBUI_ARCHIVE_ROOT` 兜底）：否则同一个 `~/turtle_archive` 会被两条命令行
+            # 解析成两个不同的仓，用户看到的是「拉完还是缺」。
+            store = DataStore(os.environ.get("TURTLE_ARCHIVE_ROOT") or config.archive_root)
+            targets = targets_for(args.ticker, args.period or ("latest",), args.profile)
             if args.only_gaps:
-                # AC-4.6：先按存档结果收敛到缺口，再报调用量——预估与进度都只反映缺口。
+                # AC-4.6/AC-7：先按仓里的结果收敛到缺口，再报调用量——预估与进度都只反映缺口。
                 before = len(targets)
                 targets = gap_targets(targets, store.result_of)
                 print(f"只补缺口：{before} 个目标中 {len(targets)} 个仍需补齐", flush=True)
@@ -159,11 +168,12 @@ def main(argv=None) -> int:
                     f"本批（{args.profile}）预计 {estimate} 次请求，需要显式确认。",
                     hint="复核调用量后使用 --yes 确认。",
                 )
-            batch_id = args.batch_id or ArchiveBatch.create_id()
+            batch_id = args.batch_id or PullBatch.create_id()
             print(f"采集批次：{batch_id}", flush=True)
-            batch = ArchiveBatch(
-                store, targets, args.profile,
-                TushareAdapter(token), token=token, tier_label=args.tier_label,
+            client = TushareClient(token, store=store, batch_id=batch_id)
+            batch = PullBatch(
+                store, targets, args.profile, client._access,
+                token=token, tier_label=args.tier_label,
             ).run(batch_id=batch_id, confirm=args.yes, force=args.force)
         except (BatchRunning, NoToken, QuotaConfirmRequired) as exc:
             print(f"采集错误 [{exc.code}]：{exc.message}\n提示：{exc.hint}", file=sys.stderr)
