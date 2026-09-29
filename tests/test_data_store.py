@@ -725,3 +725,12 @@ def test_refresh_without_a_tier_label_keeps_the_recorded_one(store):
 
     record = store.find("600887.SH", "stock_basic", "latest", params=params)
     assert record["tier_label"] == "年包", "不带标签的刷新不能抹掉已有标签"
+
+    # 但换了账号（token 指纹不同）又不重新填标签时**不继承**：留空是诚实的，
+    # 把旧账号的标签挂到新账号买的数据上则不是。
+    other = DataAccess(store, client=access.client, token="another-token", mode="refresh",
+                       tier_label="", rate_limit_seconds=0)
+    other.call("stock_basic", **params)
+    record = store.find("600887.SH", "stock_basic", "latest", params=params)
+    assert record["tier_label"] == "", "换了账号就不该继承上一个账号的标签"
+    assert record["token_fingerprint"] != token_fingerprint("tok")

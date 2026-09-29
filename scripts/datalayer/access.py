@@ -277,10 +277,14 @@ class DataAccess:
             return
         # 档位标签是**人的记录**（账号档位），不是这次调用的产物：不带标签的刷新
         # （如临时 `--force`）不该把仓里已有的标签抹成空（独立复核 N10）。
+        # 只在**同一个 token** 的记录上继承：换了账号却不重新填标签时留空是诚实的，
+        # 把旧账号的标签挂到新账号买的数据上则不是（复核者建议的收口）。
         tier_label = self.tier_label
         if not tier_label:
             existing = self.store.find(ticker, dataset, period, params=params, include_rows=False)
-            tier_label = str((existing or {}).get("tier_label") or "")
+            if existing and str(existing.get("token_fingerprint") or "") == \
+                    token_fingerprint(self.token):
+                tier_label = str(existing.get("tier_label") or "")
         self.store.write_frame(
             ticker=ticker, dataset=dataset, period=period, params=params, frame=frame,
             result=result,
