@@ -10,6 +10,7 @@
 ## 它到底能做什么
 
 - **取数**：从 Tushare、yfinance 拉财报、分红、股东、质押、无风险利率等数据。
+- **一次拉全**：按自选股清单把所需数据一次拉进统一原始仓（不过期、可整体拷走），之后**断网**也能从仓重建数据包。
 - **读年报**：下载年报 PDF，自动切出管理层讨论、公司治理、重要事项等章节。
 - **做分析**：内置两大流程——价值分析（含通用估值子模块）与组合配置。
 - **定买卖计划**：对确定长期持有的公司，输出四档买入价格/资金比例、单日 30% 上限、极端高估卖出价及当前执行指令；固定财报期价值基准，不随每日股价漂移。
@@ -149,6 +150,42 @@ make gui-collect ARGS='--profile bulk --ticker 600887.SH --period 20260630 --yes
 采集前需在 `.env` 配置 `TUSHARE_TOKEN` 或导出同名环境变量。中断后用原 `--batch-id` 恢复；
 已有成功存档默认跳过，只有显式 `--force` 才覆盖。
 
+### 统一原始数据仓与一次拉全（REQ-011）
+
+远程原始响应现在落进**仓库之外**的唯一原始仓：`~/turtle_archive/store.db`（SQLite 单文件）加一份
+append-only 的 `manifest.jsonl`。它按「标的 × 数据集 × 期次 × 参数」唯一，**不过期、不主动删、可整体拷走**；
+删除只有一个显式动作（`wipe`）且要二次确认。旧的文件缓存 `output/.collector_cache/` 已**停写**（只读保留），
+既有条目可用 `make data-import-legacy` 一次性幂等导入。
+
+```bash
+# 自选股清单：决定「要维护哪些公司」，拉取目标由它推导
+make data-universe ARGS='add --ticker 600887.SH --name 伊利股份'
+
+# 一次动作全量拉取：先给调用量预估，显式确认后才发请求
+make data-pull ARGS='--profile bulk --yes'
+
+# 只补缺口：不动已完成的部分
+make data-pull ARGS='--only-gaps --yes'
+
+# 从仓离线重建产物（不联网、不花钱）
+make data-rebuild ARGS='--ticker 600887.SH'
+
+# 缺口与完备度 / 仓的规模与 schema 自检 / 导入旧存档与旧缓存
+make data-gaps ARGS='--ticker 600887.SH'
+make data-check
+make data-import-legacy
+```
+
+这些目标都转发到 `python -m scripts.datalayer …`（子命令 `universe` / `pull` / `rebuild` / `gaps` /
+`import-legacy` / `export` / `check` / `wipe`），退出码 `0` 成功、`2` 用法或前置错误（含未配 token、未确认）、
+`4` 仓不可用、`130` 中断。取数只有一个收口点：`scripts/datalayer/access.py` 的 `DataAccess`，
+`scripts/tushare_collector.py` 的 `_safe_call` 只剩一行转调，重试、限流与 VIP 路由都搬进了 `DataAccess`；
+重建是**纯离线**动作，产物 `output/<公司>/data_pack_market.md` 的小节与表头契约不变。
+
+`make gui-collect ARGS=…` 仍然保留，参数与退出码语义不变，但内部已改为薄转调数据层
+（落盘从旧存档目录换成统一原始仓；仓根沿用控制台那套配置，仍是 `~/turtle_archive`，可用 `WEBUI_ARCHIVE_ROOT` 改）。
+联网边界不变：**不引入任何定时 / 自动拉取，联网只能由显式动作触发**。
+
 ### 本地控制台 · 按键与视图（REQ-009.1 / REQ-009.2）
 
 `make gui` 打开后，左侧导航按用途分组，一屏看全这个项目能做什么：
@@ -274,6 +311,7 @@ Value_analysis_framework/
 ├── prompts/                      # v1 遗留提示词（只读）
 ├── ciguttprepare/                # 烟蒂策略提示词草稿
 ├── scripts/
+│   ├── datalayer/                # 统一原始数据仓：取数收口、全量拉取、离线重建、旧数据导入
 │   ├── results/                  # 结构化结果管线（含 change_report）
 │   ├── tushare_modules/          # Tushare 模块化实现
 │   ├── tushare_collector.py      # 取数入口

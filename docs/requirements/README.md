@@ -225,7 +225,7 @@ Issue 在**验收通过后**才关闭（`verified`），不在 PR 合并时自�
 | [REQ-006](REQ-006-requirement-test-dev-flow.md) | 工程化开发流程（建立与持续维护） | `verified`（子需求 `REQ-006.1`、`REQ-006.2` 均已 `verified`） |
 | [REQ-009](REQ-009-local-gui-console.md) | 本地图形化控制台（可扩展框架 + 按键执行 + 股票图表 + 报告与迭代记录浏览） | `verified`（子需求 `REQ-009.1`…`REQ-009.4` 均已 `verified`） |
 | [REQ-010](REQ-010-latest-valuation-publication.md) | 最新价值分析报告发布与历史版本保留 | `verified` |
-| [REQ-011](REQ-011-unified-data-acquisition.md) | 一次性全量数据获取与统一原始数据仓 | `accepted` |
+| [REQ-011](REQ-011-unified-data-acquisition.md) | 一次性全量数据获取与统一原始数据仓 | `in-progress`（子需求 `REQ-011.1`…`REQ-011.3` 均已实现，待 `AC-9` 实跑与独立验收） |
 | [REQ-012](REQ-012-console-v2.md) | 控制台 2.0（公司上下文 + 任务式交互 + 视图质量） | `accepted` |
 | [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `accepted` |
 | ~~REQ-007~~ | 门禁与治理工具加固 → 并入 REQ-006 的 T2 | `superseded` |
@@ -238,3 +238,8 @@ Issue 在**验收通过后**才关闭（`verified`），不在 PR 合并时自�
 
 > **编号顺序 ≠ 交付顺序**：`REQ-009` 的交付顺序是 `REQ-009.3`（可扩展框架，先）→ `REQ-009.4`
 > （手动采集与长期存档）→ `REQ-009.1`（按键执行器）→ `REQ-009.2`（视图）；编号仍按登记顺序分配、永不复用。
+
+> **`REQ-011` 的当前状态**：`REQ-011.1`（名单与统一原始仓）、`REQ-011.2`（一次拉全与补缺口）、
+> `REQ-011.3`（离线重建）三片已实现并带测试（`tests/test_data_store.py`、`tests/test_data_pull.py`、
+> `tests/test_offline_rebuild.py`），状态为 `in-progress`；父需求的 `AC-9`（真实 token 实跑）
+> 按 §7.1 由人执行，运行手册见需求条目的「## 实跑记录」，执行并出独立验收报告后才推进 `verified`。

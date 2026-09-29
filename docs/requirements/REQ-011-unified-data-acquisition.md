@@ -1,15 +1,15 @@
 ---
 id: REQ-011
 title: 一次性全量数据获取与统一原始数据仓
-status: accepted
+status: in-progress
 priority: P1
 owner: CHU-2002
 created: 2026-09-28
-updated: 2026-09-28
+updated: 2026-09-29
 issue: "#73"
 design: docs/DATA_LAYER_PLAN.md
 milestone: TBD
-pr: TBD
+pr: 本地分支 feat/req011-data-layer
 depends-on: REQ-001, REQ-002, REQ-009.4
 supersedes: TBD
 ---
@@ -109,34 +109,34 @@ GUI 侧因此出现了**把年报口径与季报口径画在同一条趋势线�
 
 ### REQ-011.1 自选股清单与统一原始仓
 
-- 状态：`accepted`
+- 状态：`in-progress`
 - 目标：先把「拉哪儿、拉到哪、怎么查」立住——名单 + 唯一结构化仓 + 旧数据迁移。
 - 验收标准：
   - **AC-1.1**：自选股清单可读可改，目标集合与预估条数由名单确定（对应 `AC-1`）。
   - **AC-1.2**：原始响应按 (`标的`, `数据集`, `期次`, `参数`) 唯一落仓，记录含 `AC-3` 列出的全部字段，写入原子（对应 `AC-3`）。
   - **AC-1.3**：期次口径为结构化字段，可按口径筛选（对应 `AC-4`）。
   - **AC-1.4**：`~/turtle_archive` 与 `output/.collector_cache/` 的既有数据可一次性幂等导入（对应 `AC-8`）。
-- 追溯：`tests/test_data_store.py`；PR #TBD
+- 追溯：`tests/test_data_store.py`；PR 待开（本地分支 `feat/req011-data-layer`）
 
 ### REQ-011.2 一次动作全量拉取与缺口补齐
 
-- 状态：`accepted`
+- 状态：`in-progress`
 - 目标：把 `REQ-009.4` 的批次能力从「CLI 手写参数」升级为「按名单一次拉全」，并保留续跑与补缺口。
 - 验收标准：
   - **AC-2.1**：一条命令或一个动作按名单枚举目标并启动单个批次，先预估后确认（对应 `AC-2`）。
   - **AC-2.2**：去重、`--force`、断点续跑、同批次不并发、四类计数报告（对应 `AC-6`）。
   - **AC-2.3**：可按缺口发起补齐批次，完备度收敛（对应 `AC-7`）。
-- 追溯：`tests/test_data_pull.py`；PR #TBD
+- 追溯：`tests/test_data_pull.py`；PR 待开（本地分支 `feat/req011-data-layer`）
 
 ### REQ-011.3 离线重建派生产物
 
-- 状态：`accepted`
+- 状态：`in-progress`
 - 目标：让「租一次拉全」的资产真正喂到下游——不联网也能产出 `data_pack_market.md` 等产物。
 - 验收标准：
   - **AC-3.1**：禁网环境下从仓重建 `data_pack_market.md`，既有下游解析契约不变（对应 `AC-5`）。
   - **AC-3.2**：重建与拉取是两个不同动作，CLI 与界面均可分辨（对应 `AC-5`）。
   - **AC-3.3**：图表所需序列可直接从仓取结构化数据，不再依赖 Markdown 小节标题与列名（供 `REQ-012.3` 的口径修正使用）。
-- 追溯：`tests/test_offline_rebuild.py`；PR #TBD
+- 追溯：`tests/test_offline_rebuild.py`；PR 待开（本地分支 `feat/req011-data-layer`）
 
 ## 范围
 
@@ -200,15 +200,56 @@ GUI 侧因此出现了**把年报口径与季报口径画在同一条趋势线�
 
 ## 实跑记录
 
-收口验收时按 `AC-9` 补充环境、命令与观察。
+**尚未执行**：`AC-9` 要求真实 token 的实跑（拉全 → 中断 → 续跑 → 断网重建 → 补缺口），
+按 `docs/requirements/README.md` §7.1 与 `AGENTS.md` 的护栏，**实跑类判据由人执行**。
+实现交付时提供可复制的运行手册（见下），执行后再把环境、命令与观察回填到本小节，
+并由独立验收者出报告，才把本编号推进到 `verified`。
+
+### AC-9 实跑手册（待执行）
+
+```bash
+# 0) 前置：TUSHARE_TOKEN 已在环境变量或仓库 .env 里（不要写进命令行）
+export TURTLE_ARCHIVE_ROOT=~/turtle_archive
+
+# 1) 登记自选股清单（不改任何代码）
+make data-universe ARGS='add --ticker 600887.SH --name 伊利股份 --market SH'
+make data-universe ARGS='list'
+
+# 2) 一次全量拉取：先看预估，再确认（记录预估与实际调用数、配额档位）
+make data-pull ARGS='--profile bulk --periods 20231231,20241231,20251231'
+make data-pull ARGS='--profile bulk --periods 20231231,20241231,20251231 --yes'
+
+# 3) 重新执行同一条命令：应当全部「命中存档」、新增请求为 0（绝不重复花钱）
+make data-pull ARGS='--profile bulk --periods 20231231,20241231,20251231 --yes'
+
+# 4) 中途中断后续跑：Ctrl-C 中断，再用同一个 --batch-id 重跑
+make data-pull ARGS='--profile bulk --periods 20231231,20241231,20251231 --yes'
+# （记录 batch_id）→ Ctrl-C → make data-pull ARGS='--batch-id <id> --yes'
+
+# 5) 断网（关 Wi-Fi / 拔网线）后从仓重建，并与重建前的联网产物对比
+cp output/600887_伊利/data_pack_market.md /tmp/data_pack_online.md
+make data-rebuild ARGS='--ticker 600887.SH'
+diff /tmp/data_pack_online.md output/600887_伊利/data_pack_market.md
+
+# 6) 只补缺口
+make data-gaps ARGS='--ticker 600887.SH'
+make data-pull ARGS='--only-gaps --yes'
+
+# 7) 仓的自检与规模
+make data-check
+```
+
+观察项：① 预估条数 vs 实际新增请求数；② 第二次执行的新增请求数（应为 0）；
+③ 中断后重启的「新增请求」是否只覆盖未完成目标；④ 断网重建的产物小节是否与联网一致、
+完备度行里的无权限计数是否不再算成成功；⑤ 本次实跑发现的问题登记去向。
 
 ## 追溯
 
 | 项 | 内容 |
 |----|------|
-| 设计文档 | [`docs/DATA_LAYER_PLAN.md`](../DATA_LAYER_PLAN.md)（仓 schema、取数门面、编排状态机、离线重建、迁移、兼容与过渡） |
-| 实现 PR | TBD |
-| 测试 | `tests/test_data_store.py`、`tests/test_data_pull.py`、`tests/test_offline_rebuild.py`（规划中，尚未创建） |
+| 设计文档 | [`docs/DATA_LAYER_PLAN.md`](../DATA_LAYER_PLAN.md)（仓 schema、取数门面、编排状态机、离线重建、迁移、兼容与过渡；实现期的偏差集中在 §19） |
+| 实现 PR | 待开（本地分支 `feat/req011-data-layer`） |
+| 测试 | `tests/test_data_store.py`（`REQ-011.1`）、`tests/test_data_pull.py`（`REQ-011.2`）、`tests/test_offline_rebuild.py`（`REQ-011.3`） |
 | 文档更新 | `README.md`、`docs/ARCHITECTURE.md`、`docs/GUI_CONSOLE_OVERVIEW.md`、`CHANGELOG.md` |
 
 ## 备注
@@ -247,3 +288,8 @@ GUI 侧因此出现了**把年报口径与季报口径画在同一条趋势线�
 - **开放问题 4**：仓放在仓库外（延续 `~/turtle_archive` 的资产语义）还是 `output/` 之下？
   **设计已定：仍是仓库之外的 `~/turtle_archive/store.db`**（同目录内建索引、不搬字节）；
   GUI 侧要读它必须**显式新增允许根**而不是放宽 jail——这条留给 `REQ-012.4`。见 §4.6。
+- **实现期留痕（2026-09-29）**：实现与设计不符的地方（唯一键与「记录服务请求」的读取模型、
+  扫描范围、缺口批注位置、`gaps.py` 搬家、`--collect` 转调后的枚举差异、开放问题的落点）
+  全部记在 [`docs/DATA_LAYER_PLAN.md`](../DATA_LAYER_PLAN.md) §19，**验收标准一个字没改**。
+  本编号的三个子需求已随实现把状态推到 `in-progress`；`AC-9` 的真实 token 实跑待人工执行
+  （运行手册见「## 实跑记录」），执行并出独立验收报告之后才推进 `verified`。

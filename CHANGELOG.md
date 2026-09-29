@@ -19,6 +19,25 @@
 
 ### Added
 
+- REQ-011 统一原始数据仓与一次动作全量拉取：新增 `scripts/datalayer/`——`store.py`（SQLite 单文件原始仓
+  + append-only `manifest.jsonl`，按「标的 × 数据集 × 期次 × 参数」唯一、写入原子、可整体拷走）、
+  `access.py`（唯一取数收口点 `DataAccess`，`online` / `refresh` / `offline` 三种模式，重试、限流与 VIP
+  路由集中在此）、`universe.py`（显式维护的自选股清单，拉取目标由它推导）、`registry.py`（数据集语义声明：
+  shape / 期次口径 / 累计口径 / 档位 / 变体 / 时间窗口）、`endpoints.py`（AST 扫取数调用点得到接口清单与
+  字段并集）、`pull.py`（一次动作全量拉取：预估、确认、断点续跑、只补缺口）、`rebuild.py`（**离线**从仓
+  重建 `data_pack_market.md`，产物的小节与表头契约不变）、`legacy.py`（一次性幂等导入旧存档与旧缓存）、
+  `gaps.py`（结果分类与完备度，原 `scripts/webui/archive/gaps.py` 改为转调它）、`dataframe_codec.py`
+  （DataFrame ⇄ JSON 往返 dtype 契约）以及 `security.py` / `config.py` / `errors.py` / `cli.py`；
+  零新增第三方依赖（只用标准库与仓库既有依赖）
+- REQ-011 期次口径结构化：`scripts/periods.py` 新增 `end_date_to_period` / `period_to_end_date` /
+  `end_date_to_period_type` / `end_date_to_label`，并把原先私有的
+  `tushare_modules/assembly.py::_yoy_period_label` 提升为 `periods.end_date_to_label`（assembly 改为调用它）；
+  仓内记录带结构化 `shape` / `period_type`（annual/half/quarter/point/series）/ `cumulative`，
+  图表不必再靠 Markdown 小节标题与列名猜口径
+- REQ-011 数据层命令：`make data-universe` / `data-pull` / `data-rebuild` / `data-gaps` /
+  `data-import-legacy` / `data-check`（转发到 `python -m scripts.datalayer …`，子命令 `universe` / `pull` /
+  `rebuild` / `gaps` / `import-legacy` / `export` / `check` / `wipe`），与既有 `gui-*` 并列；
+  退出码 `0` 成功 / `2` 用法或前置错误（含未配 token、未确认）/ `4` 仓不可用 / `130` 中断
 - REQ-010 当前价值报告发布与历史版本保留：`scripts/value_publication.py` 把「最新分析 run」与
   「最新价值报告」分开——`publish` 先解析到最新**成功且可消费**（`complete` + `run_manifest.json`）
   的分析 run 并校验产物（报告非占位、`value_computed.{md,json}` 齐全、快照 schema 与 `values.V_base` 合规），
@@ -113,6 +132,18 @@
   的 evidence id（实跑观察：environment 16 条里 9 条、business_moat 26 条里 21 条越界）
 
 ### Changed
+
+- REQ-011 取数收口与落点变更：`scripts/tushare_collector.py::_safe_call` 只剩一行转调
+  `datalayer.access.DataAccess`，重试、限流与 VIP 路由搬进 `DataAccess`；远程原始响应落进仓库之外的
+  `~/turtle_archive/store.db`（资产语义：不过期、不主动删、可整体拷走，删除要显式动作 + 二次确认）
+- REQ-011 旧文件缓存停写：`output/.collector_cache/` **停写**（只读保留），`_cached_basic_call` /
+  `_cached_us_daily` 不再写文件缓存；既有条目由 `make data-import-legacy` 一次性幂等导入
+- REQ-011 `--collect` 转为薄转调：`make gui-collect ARGS=…`（`python -m scripts.webui --collect`）**保留**，
+  参数与退出码语义不变，内部改为转调 `datalayer.pull`，落盘从旧存档目录换成统一原始仓；
+  兼容期 `manifest.jsonl` 与 `batches/*.json` 继续写，控制台采集面板的读路径暂时不变
+  （数据页/读仓属 `REQ-012.4`）
+- REQ-011 边界与手动边界：`scripts/datalayer/`（买回来的、不过期）与 `scripts/webui/datastore/`
+  （算出来的、可失效）不得互相接线；不引入任何定时 / 自动拉取，联网只能由显式动作触发
 
 - 评审改为**按子需求/大特性收口**触发，不再每个 PR 都拉评审：只有把某个编号
   （`REQ-NNN` / `REQ-NNN.S`）推进到 `verified` 的那个 PR 才需要独立验收报告，并必须把该编号

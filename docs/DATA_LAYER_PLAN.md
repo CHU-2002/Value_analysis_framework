@@ -8,7 +8,12 @@
 
 **阅读顺序**：§1 一句话方案 → §2 原则 → §3 架构 → §4 存储模型 → §5 标的宇宙 → §6 取数门面 →
 §7 拉取编排 → §8 离线重建 → §9 迁移 → §10 兼容与过渡 → §11 CLI 与接口 → §12 目录布局 →
-§13 安全 → §14 测试与预算 → §15 交付顺序 → §16 反模式 → §17 演进路线 → §18 开放问题。
+§13 安全 → §14 测试与预算 → §15 交付顺序 → §16 反模式 → §17 演进路线 → §18 开放问题 →
+§19 实现偏差与已定决策。
+
+> **实现期间改了设计的地方集中在 §19**（唯一键与「记录服务请求」的读取模型、扫描范围、
+> 缺口批注位置、模块清单等）。§4.3 / §5.2 / §6.3 / §8.2 / §12 里被改到的句子都就地加了
+> 「见 §19」的指引，先读 §19 再看细节不会走偏。
 
 ---
 
@@ -219,6 +224,11 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 迁移与续跑才能对齐）。`params_json` 存剔除后的入参，故 `param_key` 可由 `params_json` 复算——
 由一条测试断言（防止有人改了归一化方式而旧记录再也命中不了）。
 
+> **实现偏差（见 §19.1）**：`param_key` 还要剔除**投影类**键（`fields` / `start_date` /
+> `end_date` / `limit`）与 `period`。`period` 已经是一列；投影类键只决定「要哪几列、要哪一段」，
+> 不改变数据语义。把它们算进指纹，会出现「拉取时的 `fields` 与调用点的 `fields` 差一个字段
+> 就永远读不到仓里的数据」——离线重建会静默变成一片「数据缺失」。
+
 ### 4.4 期次口径（AC-4）
 
 #### 4.4.1 先解决「仓库里已经有三套期次写法」这件事
@@ -320,6 +330,11 @@ endpoints.py::scan_safe_calls()      ← AST 扫 scripts/**/*.py 里的 _safe_ca
 
 - `scan_safe_calls()` 用 `ast` 解析（不是正则），返回 `{接口名: [参数键集合]}`；
   它同时记录**调用点的文件与行号**，便于「这个接口是谁要的」排查。
+  **扫描范围只有取数链**（`scripts/tushare_collector.py` + `scripts/tushare_modules/*.py`）：
+  那是 `DataAccess` 的收口点，也是唯一「漏一处就静默缺数据」的地方；
+  `scripts/screener_core.py` 有它**自己**的客户端与 `_safe_call`，并入收口点是 §17 的演进项
+  （见 §19.2）。第一参数不是字面量的调用点由 `scan_dynamic_calls()` 单独列出，
+  并在 `--check` 里打印——否则「扫到的就是全部」这句话就成了谎话。
 - 期次范围：`period_report` 型接口按「最近 N 年 / 显式期次列表」展开；`timeseries` 与 `snapshot`
   只用 `latest`（真·全量时间序列由接口自身的日期范围决定，由 `params_json` 记录）。
 - **一致性断言**（写进 `test_data_pull.py`）：`PROFILES['bulk'] ⊇ scan_safe_calls().keys()`。
@@ -446,6 +461,11 @@ output/<公司>/data_pack_market.md
 **为什么不动格式代码**：`data_pack_market.md` 的小节与表头是 `REQ-002`/`REQ-006` 与下游脚本的输入契约。
 重写装配会让「重建」与「联网产出」出现两份实现、必然漂移。所以重建 = 换数据源，不换模具。
 
+**实现偏差（见 §19.3）**：读取路径不是「一条记录对一次请求」，而是**记录服务请求**：
+调用的 `fields` 按交集投影（接口本来没给的列在联网路径上也没有），
+按期次各存的记录会**组合**成调用点要的整段历史（报告期接口的调用点从不按期次过滤），
+时间窗口不被覆盖时判为未命中（缺口可见，不拿更短的历史冒充）。
+
 ### 8.2 缺口的表达
 
 离线重建遇到仓里没有的目标时：
@@ -454,6 +474,13 @@ output/<公司>/data_pack_market.md
 2. 该缺口进入 `warnings`，并在 `--rebuild` 结束时打印计数与建议命令
    （`make data-pull --only-gaps`）；
 3. **不静默**：产物末尾的完备度行（`共 N/M 个数据板块成功获取`）按仓的实际情况计算。
+
+> **实现偏差（见 §19.4）**：既有 `get_*` 方法本来就是按「空表 = 数据缺失」渲染的，
+> 所以离线模式下仓里没有的记录**返回空表**（而不是抛异常），渲染结果与联网路径的空响应
+> 完全一致（这就是「换数据源不换模具」）。缺口批注因此落在产物**末尾**的
+> 「重建缺口 N 条 + 补齐命令」里，而**不是**逐小节内联——逐小节内联要求改装配代码，
+> 而装配代码是契约。完备度行的原样一行保留（下游与既有测试都在看它），
+> 紧跟一行按仓统计的分解（有效/空/无权限/限频/错误 + 数据截至）。
 
 > 这里顺手修掉 `REQ-009.4` 记录的现状盲区：现在的完备度把「无权限」当成功
 > （实跑证据：`yc_cb` 连续 5 次无权限而末尾仍写 `14/14`）。重建路径改用
@@ -562,26 +589,35 @@ make data-import-legacy
 ```
 scripts/
 ├── datalayer/                  ← 新增（REQ-011 的主体）
-│   ├── __init__.py
+│   ├── __init__.py             包文档 + schema 版本 + 结果枚举 + `scripts/` 扁平导入约定
+│   ├── __main__.py             `python -m scripts.datalayer` 入口
 │   ├── cli.py                  argparse 子命令（§11）
-│   ├── store.py                SQLite 仓：schema / 事务 / 唯一键 / manifest 双写 / 导出
-│   ├── access.py               DataAccess 门面（online / refresh / offline）+ 重试与限流
+│   ├── config.py               仓根解析（`--store` / `TURTLE_ARCHIVE_ROOT` / `~/turtle_archive`）与默认期次范围
+│   ├── errors.py               数据层错误类型与 CLI 退出码语义
+│   ├── security.py             `resolve_token` + 转出 `redact` / `token_fingerprint`
+│   ├── store.py                SQLite 仓：schema / 事务 / 唯一键 / manifest 双写 / 导出 / 批次
+│   ├── access.py               DataAccess 门面（online / refresh / offline）+ 重试与限流 + 记录服务请求
 │   ├── dataframe_codec.py      DataFrame ⇄ columns_json+rows_json 往返（§6.3）
 │   ├── universe.py             标的宇宙 CRUD 与 import-output
-│   ├── registry.py             数据集声明（shape / 期次语义 / 累计语义 / 档位归属）
-│   ├── endpoints.py            AST 扫 _safe_call → 接口清单与调用点
+│   ├── registry.py             数据集声明（shape / 期次语义 / 累计语义 / 档位 / 变体 / 时间窗口）
+│   ├── endpoints.py            AST 扫取数调用点 → 接口清单、字段并集、字面量入参
 │   ├── pull.py                 目标枚举 + 编排（承接 REQ-009.4 的批次语义）
 │   ├── rebuild.py              仓 → 既有 assembly → data_pack_market.md
 │   ├── legacy.py               ~/turtle_archive 与 .collector_cache 的幂等导入
-│   └── gaps.py                 缺口与完备度（复用既有 classify_result）
+│   └── gaps.py                 缺口与完备度（**分类的唯一实现**，webui 侧转调它）
 ├── periods.py                  ← **不新建解析器**：期次口径的唯一权威（§4.4）；
-│                                  本需求往里补 end_date ↔ 项目期次 的换算，
-│                                  并把 assembly.py::_yoy_period_label 提升进来
+│                                  本需求补了 end_date ↔ 项目期次 的换算，
+│                                  并把 assembly.py::_yoy_period_label 提升为 end_date_to_label
 ├── tushare_collector.py        ← 只改一处：_safe_call 转调 DataAccess（§6.1）
 └── webui/
     ├── __main__.py --collect   ← 薄别名（§10.3）
-    └── archive/                ← 保留 GUI 面；其 store/batch/quota/gaps 逐步改为转调 datalayer
+    └── archive/                ← 保留 GUI 面；gaps.py 已改为转调 datalayer.gaps
 ```
+
+> **实现偏差（见 §19.5）**：`gaps.py` 的分类实现**搬到了** `scripts/datalayer/gaps.py`，
+> `scripts/webui/archive/gaps.py` 保留同名导出并转调它（分类是「买回来的数据」的语义，
+> 属于数据层；GUI 只是展示）。`archive/store.py` / `batch.py` / `quota.py` 本期仍留在
+> webui 侧供 GUI 面板与既有测试使用，只是 `--collect` 不再走它们（§10.3）。
 
 测试：
 
@@ -701,3 +737,127 @@ REQ-011.3  ← 离线重建（换数据源不换模具）+ 口径结构化供 RE
    `datalayer/migrations/0002_*.py`？）要在 `REQ-011.1` 开工时定。
 5. **配额档案的自定义档位**：`universe.tier` 指向自定义接口列表时，谁校验它与 `scan_safe_calls()`
    的关系？倾向：自定义档位必须是扫描集合的子集，由测试断言。
+
+---
+
+## 19. 实现偏差与已定决策（2026-09-29 实现期）
+
+写下来是因为 `DEVELOPMENT.md` §13.5 的规矩：**实现方式与设计不符时改设计文档，不改小验收标准**。
+每条给出「为什么非改不可」，不是口味问题。
+
+### 19.1 唯一键与「记录服务请求」的读取模型（改 §4.3 / §6.1）
+
+原设计把「唯一键 = (标的, 数据集, **期次**, **参数**)」和「一次读取命中一条记录」当一回事。
+实现时发现两者不能同时成立：
+
+- 拉取按 `REQ-009.4` 的语义**按期次各拉一条**（`income?period=20251231`）；
+- 而装配代码**从不按期次过滤**——`get_income()` 是一次调用取回整段历史，
+  参数里根本没有 `period`；调用点的 `fields=` 也各不相同。
+
+于是「一次请求 = 一条记录」会让离线重建对每一个报告期接口都判定「数据缺失」——
+`AC-5` 直接不成立。做法：
+
+1. `param_key` 只对**语义入参**取指纹：剔除凭据、剔除投影类键
+   （`fields` / `start_date` / `end_date` / `limit`）、剔除 `period`（它已是一列）。
+   唯一键仍是 `UNIQUE (ticker, dataset, period, param_key)`，按期次的记录一条不少。
+2. 读取走 `store.find_family()`：先按 (标的, 数据集, 结果) 收敛，再按
+   **`record_serves(record_params, request_params)`** 过滤——请求的每个语义入参要么记录里
+   就是同一个值，要么记录里没有这个参数（这时在帧里找同名列再过滤行）。记录**多出**的参数
+   不算冲突，所以「不带 `report_type`」的请求可以由 `report_type=1` 与 `report_type=6`
+   两条记录组合服务。
+3. 多条候选按日期列合并去重（列多的优先、同日只留一份），再按请求投影字段、裁剪窗口与行数。
+4. 投影按**交集**：接口本来没返回的列，在联网路径上也没有，两边行为一致
+   （原设计写「缺列即未命中」，实测会把既有 fixture 全部判成缺口）。
+5. 时间窗口只在**仓里更窄**时判未命中（`start_date` 更晚 = 历史更短），
+   端点侧的 `end_date` 只表示「数据截至」，不当作覆盖不足。
+
+### 19.2 扫描范围只有取数链（改 §5.2 / §12）
+
+`scan_safe_calls()` 只看 `scripts/tushare_collector.py` 与 `scripts/tushare_modules/*.py`。
+`scripts/screener_core.py` 有它自己的 `_safe_call` 与客户端（第三套取数），把它算进
+「拉取范围必须覆盖的集合」会逼我们立刻把它并进收口点——那是 §17 的演进项，
+触发条件（选股器要与数据包用同一份行情）还没到。第一参数不是字面量的调用点
+（`self._safe_call(api, …)`）由 `scan_dynamic_calls()` 列出并在 `--check` 打印。
+
+### 19.3 拉取参数由代码扫出来，字面量入参也算（改 §5.2 / §7）
+
+- 字段：`endpoints.union_fields(dataset)` 取该接口所有调用点的 `fields=` **并集**（首见顺序），
+  拉取用并集、读取按请求投影。
+- 字面量语义入参：`endpoints.union_params(dataset)` 取 `type="P"`、`curve_type="0"` 这类
+  字面量；值本身是变量的（`report_type=report_type`）由 `registry` 的 `variants` 声明
+  （`income` / `balancesheet` → `1`（合并）+ `6`（母公司）；`cashflow` → `1`）。
+  `endpoints.param_conflicts()` 把「同一入参出现不同字面量」列出来，由测试断言为空：
+  静默取第一个会让「拉全」变成「只拉到其中一种」，缺的那种在离线重建里只显示成「数据缺失」。
+- `ts_code` **算**字面量入参：`yc_cb` 的调用点写死 `ts_code="1001.CB"`，
+  要是不照抄，拉回来的记录会挂在清单标的（`600887.SH`）下、读取永远不命中。
+  这类目标的 `ticker` 就是那个字面量值。
+- 时间窗口：调用点按「距今 N 年/月」算日期，静态扫不到具体日期，所以由
+  `registry.DatasetSpec.window` 声明**代码需要的最大窗口**（`daily`/`hk_daily` 1 年、
+  `weekly` 10 年、`yc_cb` 1 个月），拉取时按同一表达式算 `start_date`/`end_date`。
+- 预估因此是「目标条数」（含 `report_type` 等变体），并且是清单 + 档位 + 期次范围的确定函数。
+
+### 19.4 缺口批注落在产物末尾（改 §8.2）
+
+见 §8.2 的就地说明：离线模式缺记录时 `_safe_call` 返回空表（与联网的空响应同形），
+缺口汇总写在产物末尾的「重建缺口 N 条 + 补齐命令」里；完备度行保留原格式并在下一行
+给出按仓统计的分解。
+
+### 19.5 `gaps.py` 搬家，webui 侧转调（改 §12 / §10）
+
+分类（`classify_result` / `completeness` / `gap_targets`）过去在 `webui/archive/gaps.py`。
+`datalayer` 若反向 import 它，数据层就依赖 GUI；抄一份就是两条会漂移的分类路径。
+做法：**实现搬到 `datalayer/gaps.py`**，`webui/archive/gaps.py` 改为纯转调，
+`REQ-009.4` 的既有判据与测试一行不改。`archive/store.py` / `batch.py` / `quota.py` 仍留在
+webui 侧（GUI 面板与既有测试在用），但 `--collect` 已转调 `datalayer.pull`（§10.3），
+于是旧存档目录（`~/turtle_archive/<TICKER>/…`）**停写**——`AC-8` 的「不出现两处都在写」成立。
+
+`webui/archive/quota.py::PROFILES["bulk"]` 补上了 `hk_basic` / `us_basic`：
+这两个接口一直被 `get_basic_info` 调用，却不在任何档位里，港股/美股的基本信息因此
+永远进不了存档。补它对 A 股标的的目标集合没有影响（会被市场后缀过滤掉），
+并由测试断言它、`datalayer.registry.PROFILES` 与扫描集合三者一致。
+
+### 19.6 `--collect` 转调之后的行为差异（改 §10.3）
+
+`make gui-collect` 的参数与退出码语义不变，但两种目标枚举方式有一处差异需要留痕：
+
+| 项 | 旧（`targets_for_profile`） | 新（`datalayer.pull.targets_for`） |
+|----|------------------------------|-------------------------------------|
+| 接口清单来源 | 手写的 `PROFILES` 常量 | 注册表声明（与扫描集合断言一致） |
+| 报告期接口的变体 | 不区分 `report_type` | `income` / `balancesheet` 各 1+6 两条 |
+| 港股/美股基本信息 | 任何档位都不拉 | `bulk` 档位纳入（A 股标的会被过滤） |
+| 时间窗口/字段 | 由调用点各自决定 | 字段并集 + 注册表声明的窗口 |
+
+所以同一条命令的「调用量预估」数字会变大（多了变体与港股/美股基本信息），
+这是**口径修正**而不是回退：预估仍然先打印、仍要 `--yes` 确认、仍然零请求退出。
+
+### 19.7 已定的开放问题（§18）
+
+| # | 结论 | 落点 |
+|---|------|------|
+| 1 | **全局默认 + 清单每条可覆盖**：默认期次 = 最近 5 个年报期（`datalayer.config.default_periods`），目标档位取清单的 `tier`；期次枚举对报告期接口生效 | `config.default_periods`、`universe.tier`、`pull.plan` |
+| 2 | 本期把 `hk_*` / `us_*` **纳入仓与 `bulk` 档位**（`hk_basic` / `us_basic` 补进档位），但不为它们单独造「按标的的全量拉」路径；`us_daily` 仍是「一次调用 = 一条记录」 | `registry`、`pull.targets_for` |
+| 3 | **不动目录名**：`universe` 只存 `ticker` / `display_name` / `market` / `enabled` / `tier` / `note`；`suggest_from_output()` 只在建议里带 `dir`，不写入 | `universe.suggest_from_output` |
+| 4 | **schema 演进按 `meta.schema_version` 记录，暂不建 `migrations/` 目录**：1.0 是首个 schema，加字段前先看 `meta.schema_version`；真需要迁移脚本时再按 `datalayer/migrations/NNNN_*.py` 约定补 | `store.SCHEMA_VERSION`、`store.meta_get` |
+| 5 | **自定义档位本期不做**：`universe.tier` 只接受 `registry.PROFILES` 里的名字（`frugal` / `bulk`），未知档位报错；「自定义档位必须是扫描集合的子集」这条判据留给引入自定义档位的那个改动 | `universe.validate_tier` |
+
+### 19.8 兼容期双写的现状
+
+`store.append_batch()` 同时写 SQLite 与 `batches/<id>.json`，`append_manifest()` 写
+`manifest.jsonl`——GUI 的采集面板读路径不变（`REQ-012.4` 切到仓之后再降级为
+「只写 manifest」）。`store.load_batch()` 在仓里没有该批次时会回退读旧的
+`batches/<id>.json` 并导入仓，所以升级前创建的批次仍能续跑。
+
+### 19.9 批次计数的读法（不改实现，只写清口径）
+
+`usage` 里的「新增请求 / 命中存档」说的是**这一轮批次运行里发生了什么**：
+
+- 目标在本批次里**已经完成**过（`load_batch` 的 `completed` 里有它）→ 这一轮既不请求也不
+  计「命中存档」，直接跳过。这是 `REQ-009.4` 已验收的 `ArchiveBatch` 行为，逐字保留：
+  同一 `--batch-id` 续跑不会因为「上一轮拉过」而把计数翻一遍。
+- 目标在本批次里**没见过**、但仓里已有可用记录 → 不计新增请求，计一次「命中存档」。
+- 于是「换一个新 `--batch-id` 跑同一批目标」得到的是 `new_requests=0, archive_hits=N`
+  ——这才是「绝不重复花钱」的观测方式，也是实跑手册里第 3 步的判据。
+
+`AC-6` 要的是「批次结束报告四类计数」与「已有记录即跳过」，这两条都成立；
+把「同批次已完成的」再计一遍「命中存档」会让 usage 变成「累计值」而不是「本轮值」，
+反而看不出这一轮到底花了多少。
