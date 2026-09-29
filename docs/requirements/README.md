@@ -225,21 +225,26 @@ Issue 在**验收通过后**才关闭（`verified`），不在 PR 合并时自�
 | [REQ-006](REQ-006-requirement-test-dev-flow.md) | 工程化开发流程（建立与持续维护） | `verified`（子需求 `REQ-006.1`、`REQ-006.2` 均已 `verified`） |
 | [REQ-009](REQ-009-local-gui-console.md) | 本地图形化控制台（可扩展框架 + 按键执行 + 股票图表 + 报告与迭代记录浏览） | `verified`（子需求 `REQ-009.1`…`REQ-009.4` 均已 `verified`） |
 | [REQ-010](REQ-010-latest-valuation-publication.md) | 最新价值分析报告发布与历史版本保留 | `verified` |
-| [REQ-011](REQ-011-unified-data-acquisition.md) | 一次性全量数据获取与统一原始数据仓 | `in-progress`（子需求 `REQ-011.1`…`REQ-011.3` 均已实现，待 `AC-9` 实跑与独立验收） |
+| [REQ-011](REQ-011-unified-data-acquisition.md) | 一次性全量数据获取与统一原始数据仓 | `verified`（子需求 `REQ-011.1`…`REQ-011.3` 均已 `verified`） |
 | [REQ-012](REQ-012-console-v2.md) | 控制台 2.0（公司上下文 + 任务式交互 + 视图质量） | `accepted` |
 | [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `accepted` |
 | ~~REQ-007~~ | 门禁与治理工具加固 → 并入 REQ-006 的 T2 | `superseded` |
 | ~~REQ-008~~ | 覆盖率洼地补测 → 并入 REQ-006 的 T4 | `superseded` |
 
 子需求（`REQ-NNN.S`）见 [`ledger.md`](ledger.md) 的「子需求台账」表；当前 `REQ-006.1`、`REQ-006.2`、
-`REQ-009.1`、`REQ-009.2`、`REQ-009.3`、`REQ-009.4` **均为 `verified`**；父需求 `REQ-009` 也已
-`verified`（`AC-8` 真实浏览器实跑留档 + 无上下文的独立 agent 三轮验收，报告
-[`2026-09-27-REQ-009.md`](../verification/2026-09-27-REQ-009.md)）。`REQ-001`…`REQ-006` 在子需求机制建立前登记，按 §6.1 不回填。
+`REQ-009.1`、`REQ-009.2`、`REQ-009.3`、`REQ-009.4`、`REQ-011.1`、`REQ-011.2`、`REQ-011.3`
+**均为 `verified`**；父需求 `REQ-009`、`REQ-011` 也已 `verified`（各自都有真实环境实跑留档 +
+无上下文独立评审者的验收报告）。`REQ-001`…`REQ-006` 在子需求机制建立前登记，按 §6.1 不回填。
 
 > **编号顺序 ≠ 交付顺序**：`REQ-009` 的交付顺序是 `REQ-009.3`（可扩展框架，先）→ `REQ-009.4`
 > （手动采集与长期存档）→ `REQ-009.1`（按键执行器）→ `REQ-009.2`（视图）；编号仍按登记顺序分配、永不复用。
 
-> **`REQ-011` 的当前状态**：`REQ-011.1`（名单与统一原始仓）、`REQ-011.2`（一次拉全与补缺口）、
-> `REQ-011.3`（离线重建）三片已实现并带测试（`tests/test_data_store.py`、`tests/test_data_pull.py`、
-> `tests/test_offline_rebuild.py`），状态为 `in-progress`；父需求的 `AC-9`（真实 token 实跑）
-> 按 §7.1 由人执行，运行手册见需求条目的「## 实跑记录」，执行并出独立验收报告后才推进 `verified`。
+> **`REQ-011` 的收口留痕**（2026-09-29）：三片 `REQ-011.1`（名单与统一原始仓）、`REQ-011.2`
+> （一次拉全与补缺口）、`REQ-011.3`（离线重建）与父需求一起推进到 `verified`，跟踪 Issue
+> [#73](https://github.com/CHU-2002/Value_analysis_framework/issues/73) 按 §7.1 同时关闭。
+> `AC-9` 的真实 token 实跑由**没有参与实现**的独立 agent 执行：预估 33（bulk）→ 实际新增 25 /
+> 命中存档 8；中断后续跑只补未完成目标；禁网重建 19/19 小节与联网产物一致；`--only-gaps`
+> 收敛到仅剩 1 条无权限。验收报告见
+> [`2026-09-29-REQ-011.md`](../verification/2026-09-29-REQ-011.md)（四轮对抗式复核共 6 个阻断项 +
+> 10 条非阻断项，全部修掉并补了回归用例），逐条实跑留痕见
+> [`docs/run-records/2026-09-29-REQ-011-AC-9-真实token实跑.md`](../run-records/2026-09-29-REQ-011-AC-9-真实token实跑.md)。
