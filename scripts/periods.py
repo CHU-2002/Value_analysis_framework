@@ -62,6 +62,16 @@ _REPORT_TYPE_ALIASES = {
 
 _YEAR_RE = re.compile(r"(20\d{2})")
 _PERIOD_RE = re.compile(r"^(20\d{2})(Q1|H1|Q3|FY)$")
+_END_DATE_RE = re.compile(r"^(20\d{2})(\d{2})(\d{2})$")
+
+# 接口期次（Tushare 的 ``end_date``）的月日 ↔ 项目期次后缀。
+# 这是仓库里「接口期次」与「项目期次」之间**唯一**的换算表（REQ-011 AC-4）：
+# 数据层要记 `period_type` 时必须经过这里，不得自己判 ``endswith("1231")``。
+_END_DATE_SUFFIX = {"1231": "FY", "0630": "H1", "0331": "Q1", "0930": "Q3"}
+_SUFFIX_END_DATE = {suffix: mmdd for mmdd, suffix in _END_DATE_SUFFIX.items()}
+
+# 项目期次后缀 → 口径枚举：年度 / 半年 / 单季（时点与时间序列由数据集的 shape 决定）。
+_PERIOD_TYPE_BY_SUFFIX = {"FY": "annual", "H1": "half", "Q1": "quarter", "Q3": "quarter"}
 
 # Ordered so that a more specific label wins: "半年度报告" also contains
 # "年度报告", and "半年报" also contains "年报".
@@ -115,6 +125,72 @@ def report_type_keywords(report_type: str) -> tuple[str, ...]:
 
 def is_valid_period(period: str) -> bool:
     return isinstance(period, str) and bool(_PERIOD_RE.match(period.strip().upper()))
+
+
+def is_end_date(value) -> bool:
+    """``"20260630"`` 这类接口期次（Tushare 的 ``end_date``）判定。"""
+
+    return isinstance(value, str) and bool(_END_DATE_RE.match(value.strip())) and \
+        value.strip()[4:] in _END_DATE_SUFFIX
+
+
+def end_date_to_period(end_date: str) -> str:
+    """接口期次 → 项目期次：``20260630`` → ``2026H1``、``20261231`` → ``2026FY``。
+
+    只认四个报告期末（0331/0630/0930/1231）；其他月日抛 ``ValueError``
+    ——「猜一个最接近的口径」正是 `REQ-012` 图表混口径的根因。
+    """
+
+    match = _END_DATE_RE.match(str(end_date).strip())
+    if not match:
+        raise ValueError(f"Invalid end_date: {end_date!r}")
+    year, month, day = match.groups()
+    suffix = _END_DATE_SUFFIX.get(f"{month}{day}")
+    if not suffix:
+        raise ValueError(f"Unsupported end_date (not a report period end): {end_date!r}")
+    return f"{year}{suffix}"
+
+
+def period_to_end_date(period: str) -> str:
+    """项目期次 → 接口期次：``2026H1`` → ``20260630``、``2026FY`` → ``20261231``。
+
+    与 :func:`end_date_to_period` 互逆（``period_to_end_date(end_date_to_period(x)) == x``）。
+    """
+
+    year, report_type = parse_period(period)
+    return f"{year}{_SUFFIX_END_DATE[REPORT_TYPE_SUFFIX[report_type]]}"
+
+
+def end_date_to_period_type(end_date) -> str:
+    """接口期次 → 口径枚举：``annual`` / ``half`` / ``quarter``，认不出时返回 ``unknown``。
+
+    这是 `REQ-011` 的 `AC-4` 用来把「年度序列」与「单季序列」分开的判据；
+    时点（``point``）与时间序列（``series``）由数据集的 shape 决定，不走这里。
+    """
+
+    try:
+        _, report_type = parse_period(end_date_to_period(end_date))
+    except ValueError:
+        return "unknown"
+    return _PERIOD_TYPE_BY_SUFFIX.get(REPORT_TYPE_SUFFIX[report_type], "unknown")
+
+
+def end_date_to_label(end_date: str) -> str:
+    """接口期次 → 数据包表头标签：``20121231`` → ``2012``、``20260630`` → ``2026H1``。
+
+    这条换算原先以 ``_yoy_period_label`` 的私有名字写在
+    ``scripts/tushare_modules/assembly.py`` 里（`REQ-011` 把它提升为公开函数，
+    口径只有一处权威）；年报写成裸年份是**既有数据包契约**，不能顺手改成 ``2026FY``。
+    认不出的月日保持原样（历史实现如此），不足 8 位也原样返回。
+    """
+
+    text = str(end_date)
+    if len(text) < 8:
+        return text
+    year, mmdd = text[:4], text[4:8]
+    return {"1231": year, "0630": f"{year}H1", "0331": f"{year}Q1", "0930": f"{year}Q3"}.get(
+        mmdd, f"{year}{mmdd}"
+    )
 
 
 def parse_period(period: str) -> tuple[int, str]:

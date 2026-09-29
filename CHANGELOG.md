@@ -19,6 +19,25 @@
 
 ### Added
 
+- REQ-011 统一原始数据仓与一次动作全量拉取：新增 `scripts/datalayer/`——`store.py`（SQLite 单文件原始仓
+  + append-only `manifest.jsonl`，按「标的 × 数据集 × 期次 × 参数」唯一、写入原子、可整体拷走）、
+  `access.py`（唯一取数收口点 `DataAccess`，`online` / `refresh` / `offline` 三种模式，重试、限流与 VIP
+  路由集中在此）、`universe.py`（显式维护的自选股清单，拉取目标由它推导）、`registry.py`（数据集语义声明：
+  shape / 期次口径 / 累计口径 / 档位 / 变体 / 时间窗口）、`endpoints.py`（AST 扫取数调用点得到接口清单与
+  字段并集）、`pull.py`（一次动作全量拉取：预估、确认、断点续跑、只补缺口）、`rebuild.py`（**离线**从仓
+  重建 `data_pack_market.md`，产物的小节与表头契约不变）、`legacy.py`（一次性幂等导入旧存档与旧缓存）、
+  `gaps.py`（结果分类与完备度，原 `scripts/webui/archive/gaps.py` 改为转调它）、`dataframe_codec.py`
+  （DataFrame ⇄ JSON 往返 dtype 契约）以及 `security.py` / `config.py` / `errors.py` / `cli.py`；
+  零新增第三方依赖（只用标准库与仓库既有依赖）
+- REQ-011 期次口径结构化：`scripts/periods.py` 新增 `end_date_to_period` / `period_to_end_date` /
+  `end_date_to_period_type` / `end_date_to_label`，并把原先私有的
+  `tushare_modules/assembly.py::_yoy_period_label` 提升为 `periods.end_date_to_label`（assembly 改为调用它）；
+  仓内记录带结构化 `shape` / `period_type`（annual/half/quarter/point/series）/ `cumulative`，
+  图表不必再靠 Markdown 小节标题与列名猜口径
+- REQ-011 数据层命令：`make data-universe` / `data-pull` / `data-rebuild` / `data-gaps` /
+  `data-import-legacy` / `data-check`（转发到 `python -m scripts.datalayer …`，子命令 `universe` / `pull` /
+  `rebuild` / `gaps` / `import-legacy` / `export` / `check` / `wipe`），与既有 `gui-*` 并列；
+  退出码 `0` 成功 / `2` 用法或前置错误（含未配 token、未确认）/ `4` 仓不可用 / `130` 中断
 - REQ-010 当前价值报告发布与历史版本保留：`scripts/value_publication.py` 把「最新分析 run」与
   「最新价值报告」分开——`publish` 先解析到最新**成功且可消费**（`complete` + `run_manifest.json`）
   的分析 run 并校验产物（报告非占位、`value_computed.{md,json}` 齐全、快照 schema 与 `values.V_base` 合规），
@@ -45,6 +64,16 @@
   开可见窗口）把 `REQ-009` 的 `AC-8` 动作跑一遍并落截图与观察记录，做**页面级**检查
   （面板有没有降级、图表张数、时间线条数、按键的真实退出码）；只用 Python 标准库
   （CDP 的 WebSocket 自己按 RFC 6455 实现），不新增依赖。用法见 `docs/DEVELOPMENT.md` §4.1
+- **`REQ-011` 收口（`verified`）**：`AC-9` 的真实 token 实跑由独立 agent 执行并留档
+  （[`docs/run-records/2026-09-29-REQ-011-AC-9-真实token实跑.md`](docs/run-records/2026-09-29-REQ-011-AC-9-真实token实跑.md)）：
+  预估 33 次请求（`bulk`）→ 实际新增 25 + 命中存档 8；SIGINT 中断后批次 `paused 11/17`、
+  同 `--batch-id` 续跑补完且中断前 39 条记录的 `fetched_at` 一条未变；禁网（socket 打桩）重建出
+  **19/19 个小节与联网产物逐条相同**、§3P/§4P/§9 有真实数字；`--only-gaps` 只拉了 17 个真缺口并把
+  完备度收敛到「仅剩 1 条无权限」。同批把实跑发现的两处**手册**可复现性问题就地修正
+  （中断步骤要加 `--force` 或换新期次；「第二次新增请求为 0」要补 `no_permission` 前提），
+  另三条观察项登记进 `ledger.md` 的 Inbox。验收报告：
+  [`docs/verification/2026-09-29-REQ-011.md`](docs/verification/2026-09-29-REQ-011.md)
+  （四轮对抗式复核共 6 个阻断项 + 10 条非阻断项，全部修掉并补了回归用例；验收标准一个字没改）
 
 ### Fixed
 
@@ -113,6 +142,30 @@
   的 evidence id（实跑观察：environment 16 条里 9 条、business_moat 26 条里 21 条越界）
 
 ### Changed
+
+- REQ-011 独立复核修复（2026-09-29，同一交付内，两轮）：**`--force` 真的是重拉**（复验轮发现
+  `MODE_REFRESH` 从未被设置，`--force` 只是空操作：命令成功、实际什么都没拉；现在 `force=True`
+  且门面在线时切到 `refresh`，离线模式绝不切）；**离线读取不再删行**（一次响应内部的
+  「同一期次多行」是数据本身，只在多条候选记录之间按期次择一）；缺口判据与读取路径同源
+  （新增 `DataStore.serves_target()` / `gaps.pending_targets()`，「窗口更窄」或「语义入参
+  核不出来」的目标不再被判成完备）；`new_requests` 只数**实际出网**的请求；`--tier-label` /
+  配额档案 / 批次 id 真的写进每条记录；`hk_daily` 的窗口声明按代码需要改为十年；
+  **`PermissionError` 不再被当成连接错误**（既有的 `_safe_call` 缺陷：它会让取数重建真实客户端
+  并按上限重试，从而真的发出请求）；控制台采集页新增只读面板「离线重建（不花钱）」，
+  与会花钱的采集入口分开；`python -m scripts.datalayer gaps` 同时给出「仓内口径」与
+  「清单口径」两个完备度并标注定义；不带档位标签的刷新不再抹掉仓里已有的 `tier_label`（仅在 token 指纹相同时继承，换账号留空）；
+  `--force` 用完把取数门面的模式还原（不再残留 `refresh` 影响下一轮）。
+- REQ-011 取数收口与落点变更：`scripts/tushare_collector.py::_safe_call` 只剩一行转调
+  `datalayer.access.DataAccess`，重试、限流与 VIP 路由搬进 `DataAccess`；远程原始响应落进仓库之外的
+  `~/turtle_archive/store.db`（资产语义：不过期、不主动删、可整体拷走，删除要显式动作 + 二次确认）
+- REQ-011 旧文件缓存停写：`output/.collector_cache/` **停写**（只读保留），`_cached_basic_call` /
+  `_cached_us_daily` 不再写文件缓存；既有条目由 `make data-import-legacy` 一次性幂等导入
+- REQ-011 `--collect` 转为薄转调：`make gui-collect ARGS=…`（`python -m scripts.webui --collect`）**保留**，
+  参数与退出码语义不变，内部改为转调 `datalayer.pull`，落盘从旧存档目录换成统一原始仓；
+  兼容期 `manifest.jsonl` 与 `batches/*.json` 继续写，控制台采集面板的读路径暂时不变
+  （数据页/读仓属 `REQ-012.4`）
+- REQ-011 边界与手动边界：`scripts/datalayer/`（买回来的、不过期）与 `scripts/webui/datastore/`
+  （算出来的、可失效）不得互相接线；不引入任何定时 / 自动拉取，联网只能由显式动作触发
 
 - 评审改为**按子需求/大特性收口**触发，不再每个 PR 都拉评审：只有把某个编号
   （`REQ-NNN` / `REQ-NNN.S`）推进到 `verified` 的那个 PR 才需要独立验收报告，并必须把该编号

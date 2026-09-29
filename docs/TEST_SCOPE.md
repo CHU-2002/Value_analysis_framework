@@ -14,8 +14,8 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 
 | 项 | 当前 | 上限 | 使用率 |
 |----|------|------|--------|
-| 测试文件数 | 40 | 52 | 77% |
-| 收集到的用例数 | 1719 | 2000 | 86% |
+| 测试文件数 | 43 | 52 | 83% |
+| 收集到的用例数 | 1797 | 2000 | 90% |
 
 （用例数含 `parametrize` 展开，由 `pytest --collect-only` 统计；函数数见下表末列，仅作参考。）
 
@@ -30,12 +30,15 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_comparable_periods.py` | REQ-002 | `unit` | — | 39 |
 | `tests/test_config.py` | 基线 | `unit` | `scripts/config.py` | 43 |
 | `tests/test_coordinator.py` | 基线 | `unit` | — | 9 |
+| `tests/test_data_pull.py` | REQ-009.4, REQ-011, REQ-011.2 | `unit` | — | 23 |
+| `tests/test_data_store.py` | REQ-011, REQ-011.1 | `unit` | — | 28 |
 | `tests/test_derived_metrics.py` | 基线 | `unit` | — | 83 |
 | `tests/test_discover_report.py` | REQ-001, REQ-006.1 | `unit` | `scripts/discover_report.py` | 62 |
 | `tests/test_download_report.py` | REQ-001 | `unit` | `scripts/download_report.py` | 85 |
 | `tests/test_format_utils.py` | 基线 | `unit` | `scripts/format_utils.py` | 21 |
 | `tests/test_integration.py` | 基线 | `integration` | — | 3 |
 | `tests/test_latest_valuation_publication.py` | REQ-010 | `unit` | — | 39 |
+| `tests/test_offline_rebuild.py` | REQ-011.3, REQ-012.3, REQ-012.4 | `unit` | — | 22 |
 | `tests/test_output_format.py` | 基线 | `unit` | — | 22 |
 | `tests/test_pdf_preprocessor.py` | REQ-006.2 | `unit` | `scripts/pdf_preprocessor.py` | 92 |
 | `tests/test_period_delta_module.py` | REQ-004, REQ-006.2 | `unit` | — | 21 |
@@ -54,7 +57,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_runs_ledger.py` | REQ-003, REQ-006.1 | `unit` | — | 38 |
 | `tests/test_screener.py` | REQ-006.1 | `unit` | — | 99 |
 | `tests/test_test_scope.py` | REQ-003, REQ-006 | `unit` | `scripts/test_scope.py` | 16 |
-| `tests/test_tushare_client.py` | REQ-006.1, REQ-006.2 | `unit` | — | 212 |
+| `tests/test_tushare_client.py` | REQ-006.1, REQ-006.2, REQ-011 | `unit` | — | 211 |
 | `tests/test_tushare_pack_sections.py` | REQ-006.2 | `unit` | — | 13 |
 | `tests/test_two_layout_e2e.py` | REQ-005, REQ-006 | `unit` | — | 5 |
 | `tests/test_update_docs_contract.py` | REQ-005, REQ-006, REQ-006.1 | `unit` | — | 20 |

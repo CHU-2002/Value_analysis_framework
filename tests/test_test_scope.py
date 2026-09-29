@@ -104,19 +104,25 @@ def _write_scope(tmp_path, entries):
 
 
 def _run_check(monkeypatch, tmp_path, entries, *, registry=None, collected=10,
-               max_files=40, max_cases=1600):
+               max_files=None, max_cases=None):
     """跑 --check。
 
     registry 给定时把 SCOPE_PATH 指向与 entries 对齐的最小登记表——
     否则单文件夹具会额外触发「登记表漂移」，让预算/归属的失败路径无法隔离
     （删掉对应检查测试也照样通过）。
+
+    `max_files` / `max_cases` 不传时**不覆盖**真实上限：`test_check_passes_for_the_real_registry`
+    用的是真实登记表，夹具里再写一份过期上限（40/1600）会让「真实登记表能不能过」这条断言
+    随测试文件数增长而假失败——上限的唯一来源是 `scripts/test_scope.py`。
     """
     if registry is not None:
         monkeypatch.setattr(test_scope, "SCOPE_PATH", _write_scope(tmp_path, registry))
     monkeypatch.setattr(test_scope, "collect_scope", lambda: entries)
     monkeypatch.setattr(test_scope, "collect_cases_via_pytest", lambda: collected)
-    monkeypatch.setattr(test_scope, "MAX_TEST_FILES", max_files)
-    monkeypatch.setattr(test_scope, "MAX_COLLECTED_CASES", max_cases)
+    if max_files is not None:
+        monkeypatch.setattr(test_scope, "MAX_TEST_FILES", max_files)
+    if max_cases is not None:
+        monkeypatch.setattr(test_scope, "MAX_COLLECTED_CASES", max_cases)
     return test_scope.main(["--check"])
 
 

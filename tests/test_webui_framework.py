@@ -1004,7 +1004,8 @@ def test_check_mode_lists_registered_panels(tmp_path, capsys):
     assert payload["panels"] == [
         "agent.actions",
         "charts.annual_price", "charts.metrics", "charts.revenue_profit",
-        "collect.archive", "collect.batches", "collect.gaps", "commands.catalog",
+        "collect.archive", "collect.batches", "collect.gaps", "collect.rebuild",
+        "commands.catalog",
         "commands.jobs", "companies.artifacts", "companies.list", "demo.future",
         "demo.table", "report.view", "runs.status", "runs.timeline",
     ]

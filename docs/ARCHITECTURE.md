@@ -28,9 +28,11 @@
 │  coordinator_v2.md（完整分析）/ coordinator_update.md（增量更新）│
 ├─────────────────────────────────────────────────────────────┤
 │ 计算层 scripts/                                               │
-│  tushare_modules/（采集）、引擎（value/valuation/portfolio）、 │
-│  pdf_preprocessor、periods（期次）、discover_report、          │
-│  download_report、screener_core、报告输出                     │
+│  【买数据】datalayer/（原始仓 + DataAccess 收口 + 离线重建）、 │
+│  tushare_collector.py、tushare_modules/                       │
+│  【算数字】引擎（value/valuation/portfolio）、pdf_preprocessor、│
+│  periods（期次）、discover_report、download_report、           │
+│  screener_core、报告输出                                      │
 ├─────────────────────────────────────────────────────────────┤
 │ 迭代层 scripts/version.py + runs.py + analysis_status.py      │
 │  框架指纹、run-store（runs/{run_id}/）、台账、状态判定          │
@@ -47,12 +49,35 @@
 ### 1. 采集与解析（确定性）
 
 ```
-股票代码
-  ├─ tushare_collector.py ─▶ data_pack_market.md（§1–§17，含上年同期可比列）
+远程原始响应 ─▶ ~/turtle_archive/store.db ─▶（离线重建，不联网）─▶ output/<公司>/data_pack_market.md
+
+股票代码 + 自选股清单（universe）
+  ├─ datalayer/（DataAccess 唯一取数收口点）─▶ 统一原始仓 store.db + manifest.jsonl
+  ├─ datalayer rebuild（离线）─▶ data_pack_market.md（§1–§17，含上年同期可比列）
   ├─ discover_report.py + download_report.py ─▶ 定期报告 PDF（年报/中报/一季报/三季报）
   └─ pdf_preprocessor.py ─▶ pdf_sections_{period}.json（9 个章节）
 ```
 
+- `scripts/datalayer/` 是「买数据」这一半：`store.py`（SQLite 单文件原始仓 + append-only `manifest.jsonl`）、
+  `access.py`（唯一取数收口点 `DataAccess`，三种模式 `online` / `refresh` / `offline`）、
+  `universe.py`（自选股清单）、`registry.py`（数据集语义声明：shape / 期次口径 / 累计口径 / 档位 / 变体 / 时间窗口）、
+  `endpoints.py`（AST 扫取数调用点得到接口清单与字段并集）、`pull.py`（一次动作全量拉取：预估、确认、断点续跑、只补缺口）、
+  `rebuild.py`（**离线**从仓重建产物）、`legacy.py`（一次性幂等导入旧存档与旧缓存）、
+  `gaps.py`（结果分类与完备度）、`dataframe_codec.py`（DataFrame ⇄ JSON 往返 dtype 契约）、
+  `security.py` / `config.py` / `errors.py` / `cli.py`。
+- 仓在**仓库之外**的 `~/turtle_archive/store.db`，资产语义：不过期、不主动删、可整体拷走；
+  删除要显式动作 + 二次确认。旧文件缓存 `output/.collector_cache/` **停写**（只读保留）。
+- 取数收口：`scripts/tushare_collector.py` 的 `_safe_call` 只有一行转调 `DataAccess`；
+  重试 / 限流 / VIP 路由都搬进了 `DataAccess`，`_cached_basic_call` / `_cached_us_daily` 不再写文件缓存。
+- **重建只换数据源，不换模具**：`data_pack_market.md` 的小节与表头契约不变，
+  `scripts/results/prepare.py` 与 `scripts/value_analysis_engine.py` 的输入契约不变。
+- 期次口径：`scripts/periods.py` 是唯一权威，本次新增 `end_date_to_period` / `period_to_end_date` /
+  `end_date_to_period_type` / `end_date_to_label`（最后一个由 `tushare_modules/assembly.py` 原先私有的
+  `_yoy_period_label` 提升而来，assembly 改为调用它）；仓内记录带结构化 `shape` / `period_type`
+  （annual/half/quarter/point/series）/ `cumulative`，图表不必再靠 Markdown 小节标题与列名猜口径。
+- 边界：`scripts/datalayer/`（买回来的、不过期）与 `scripts/webui/datastore/`（算出来的、可失效）
+  是两件事，**不得互相接线**（判据是「删了要不要重新花钱」）。手动边界不变：不引入任何定时 / 自动拉取，
+  联网只能由显式动作触发；零新增第三方依赖（只用标准库 + 仓库既有依赖）。
 - `data_pack_market.md` 覆盖基本信息、三大报表（合并 + 母公司）、分红、周线、财务指标、风险、无风险利率、回购、质押与 §17 衍生指标。
 - 报表列包含**最新非年报期次 + 其上一年同期 + 近 5 年年报**，用于同比与单季拆分；`Q1`/`H1`/`Q3` 为年内累计口径，单季由累计相减得到。
 - 期次标识由 `scripts/periods.py` 统一定义：`2026Q1` / `2026H1` / `2026Q3` / `2026FY`，提供解析、互转、同比期与单季减项。
@@ -273,6 +298,7 @@ python3 scripts/analysis_status.py --root output --all --json
 
 | 路径 | 用途 |
 |------|------|
+| `~/turtle_archive/store.db` | 统一原始数据仓（SQLite 单文件 + append-only `manifest.jsonl`）：不过期、不主动删、可整体拷走 |
 | `output/{code}_{company}/` | 单标的公司目录（gitignored） |
 | `output/{code}_{company}/latest.json` | 当前生效 run 指针 |
 | `output/{code}_{company}/record.json` | 分析记录卡（覆盖期次、框架、下游新鲜度） |
@@ -280,7 +306,7 @@ python3 scripts/analysis_status.py --root output --all --json
 | `output/{code}_{company}/runs/{run_id}/` | 不可变 run（含 `inputs/` 快照） |
 | `output/{code}_{company}/sources/pdf/` | 原始输入（PDF、`pdf_sections_{period}.json`、`sources_index.json`） |
 | `output/portfolio_{timestamp}/` | 组合运行目录 |
-| `output/.collector_cache/` | Tushare 采集缓存 |
+| `output/.collector_cache/` | Tushare 采集文件缓存（REQ-011 起**停写**，只读保留） |
 | `contexts/` `modules/` `synthesis/` `evidence/` | 单个 run 内的标准产物 |
 
 ## 测试策略

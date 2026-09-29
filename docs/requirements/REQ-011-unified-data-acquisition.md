@@ -1,15 +1,15 @@
 ---
 id: REQ-011
 title: 一次性全量数据获取与统一原始数据仓
-status: accepted
+status: verified
 priority: P1
 owner: CHU-2002
 created: 2026-09-28
-updated: 2026-09-28
+updated: 2026-09-29
 issue: "#73"
 design: docs/DATA_LAYER_PLAN.md
 milestone: TBD
-pr: TBD
+pr: "#83"
 depends-on: REQ-001, REQ-002, REQ-009.4
 supersedes: TBD
 ---
@@ -109,34 +109,34 @@ GUI 侧因此出现了**把年报口径与季报口径画在同一条趋势线�
 
 ### REQ-011.1 自选股清单与统一原始仓
 
-- 状态：`accepted`
+- 状态：`verified`
 - 目标：先把「拉哪儿、拉到哪、怎么查」立住——名单 + 唯一结构化仓 + 旧数据迁移。
 - 验收标准：
   - **AC-1.1**：自选股清单可读可改，目标集合与预估条数由名单确定（对应 `AC-1`）。
   - **AC-1.2**：原始响应按 (`标的`, `数据集`, `期次`, `参数`) 唯一落仓，记录含 `AC-3` 列出的全部字段，写入原子（对应 `AC-3`）。
   - **AC-1.3**：期次口径为结构化字段，可按口径筛选（对应 `AC-4`）。
   - **AC-1.4**：`~/turtle_archive` 与 `output/.collector_cache/` 的既有数据可一次性幂等导入（对应 `AC-8`）。
-- 追溯：`tests/test_data_store.py`；PR #TBD
+- 追溯：`tests/test_data_store.py`；PR #83
 
 ### REQ-011.2 一次动作全量拉取与缺口补齐
 
-- 状态：`accepted`
+- 状态：`verified`
 - 目标：把 `REQ-009.4` 的批次能力从「CLI 手写参数」升级为「按名单一次拉全」，并保留续跑与补缺口。
 - 验收标准：
   - **AC-2.1**：一条命令或一个动作按名单枚举目标并启动单个批次，先预估后确认（对应 `AC-2`）。
   - **AC-2.2**：去重、`--force`、断点续跑、同批次不并发、四类计数报告（对应 `AC-6`）。
   - **AC-2.3**：可按缺口发起补齐批次，完备度收敛（对应 `AC-7`）。
-- 追溯：`tests/test_data_pull.py`；PR #TBD
+- 追溯：`tests/test_data_pull.py`；PR #83
 
 ### REQ-011.3 离线重建派生产物
 
-- 状态：`accepted`
+- 状态：`verified`
 - 目标：让「租一次拉全」的资产真正喂到下游——不联网也能产出 `data_pack_market.md` 等产物。
 - 验收标准：
   - **AC-3.1**：禁网环境下从仓重建 `data_pack_market.md`，既有下游解析契约不变（对应 `AC-5`）。
   - **AC-3.2**：重建与拉取是两个不同动作，CLI 与界面均可分辨（对应 `AC-5`）。
   - **AC-3.3**：图表所需序列可直接从仓取结构化数据，不再依赖 Markdown 小节标题与列名（供 `REQ-012.3` 的口径修正使用）。
-- 追溯：`tests/test_offline_rebuild.py`；PR #TBD
+- 追溯：`tests/test_offline_rebuild.py`；PR #83
 
 ## 范围
 
@@ -200,15 +200,106 @@ GUI 侧因此出现了**把年报口径与季报口径画在同一条趋势线�
 
 ## 实跑记录
 
-收口验收时按 `AC-9` 补充环境、命令与观察。
+### 已执行：真实载荷的迁移与离线重建（无 token 部分，2026-09-29）
+
+用**真实的既有资产**（`~/turtle_archive/` 的 29 条台账 + `output/.collector_cache/` 的真实缓存，
+只读拷贝到临时目录）验证 `AC-8`（迁移幂等）与 `AC-5`（禁网重建）。全程不联网、不用 token。
+
+- 迁移：`导入 53 / 跳过 0 / 冲突 2`（6.7 MB）；第二次 `导入 0 / 跳过 53` —— 幂等。
+- 重建：`命中存档 18 次`、`22/23` 个板块、19 个 `## ` 小节齐全、§3 是真实数字；
+  末尾写的是 `*共 22/23 个数据板块成功获取* … 无权限 1`——**没有**把无权限算成成功。
+- 4 条缺口都可解释（母公司报表从未拉过、`fina_mainbz` 无记录、`yc_cb` 是 `no_permission`）。
+
+完整环境、命令与观察见
+[`docs/run-records/2026-09-29-REQ-011-实跑（无token部分）.md`](../run-records/2026-09-29-REQ-011-实跑（无token部分）.md)。
+
+### 已执行：`AC-9` 的真实 token 实跑（2026-09-29，拉全 → 中断 → 续跑 → 断网重建 → 补缺口）
+
+由**没有参与实现的独立 agent** 执行（授权：使用者 CHU-2002 2026-09-29 明确指示
+「以关闭需求单为目的，执行任何你推荐的动作」）；代码状态 `feat/req011-data-layer-rebase` @ `8a4e6e5`；
+token 只从 `.env` 读（指纹 `dd15982c`）；实跑仓在 `output/.live_archive`，
+**真实 `~/turtle_archive` 未被写入**（沙箱对它只读，实跑也没有把 `--store` 指过去）。
+
+- ① 全量拉取：预估 **33 次请求（bulk）** → 实际 **新增请求 25 / 命中存档 8 / 失败 0 / 无权限 1**，
+  批次 `partial`（唯一缺口 `yc_cb` 无权限），耗时 17.6s；配额档位 `bulk`。
+- ② 中断与续跑：SIGINT 后批次 `paused`（`progress 11/17`、锁已清）；用同一 `--batch-id` 续跑补完 17/17，
+  **中断前已有的 39 条记录 `fetched_at` 一条未变**（被重拉 0 条）。
+- ③ 断网重建：禁网（`socket.socket` 打桩为抛错）下重建成功，**19/19 个小节与联网产物逐条相同**，
+  完备度 `*共 72/72 个数据板块成功获取*`，§3P / §4P / §9 有真实数字；满仓后再跑一次联网装配，
+  **21/22 次由仓服务**（唯一出网的是 `yc_cb` 那条已知无权限目标）。
+- ④ 只补缺口：`--only-gaps` 只拉了 17 个真缺口，两个完备度口径都收敛到「仅剩 1 条 = `yc_cb` 无权限」。
+- ⑤ 观察项②的前提（本次实跑修正）：存在 `no_permission` 目标时「第二次执行新增请求为 0」不成立
+  ——它会等于无权限目标数（`yc_cb` 每次问一次、立即失败、不重试）。这是 `REQ-009.4` 的 `AC-4.5`
+  语义（无权限不算完成，账号升级后要能补回来），**不是缺陷**。
+- ⑥ 本次实跑登记的问题（均非阻断，去向见 `ledger.md` 的 Inbox）：离线重建的 §14 少了联网路径那句
+  「未授权/权限不足」的原因文字（原因仍在末尾缺口行与 `no_permission` 计数里）；「零 socket 调用」
+  在**冷进程**里不成立（`rebuild.offline_client()` 的导入链会触发 CPython
+  `multiprocessing.connection._has_ipv6()` 建一个 `AF_INET6` 探测 socket，**不出站**）；
+  `DataUnavailable` 的文案在权限类错误立即放弃时仍写 `after 5 retries`（实际只尝试 1 次）。
+
+完整环境、命令与逐条观察见
+[`docs/run-records/2026-09-29-REQ-011-AC-9-真实token实跑.md`](../run-records/2026-09-29-REQ-011-AC-9-真实token实跑.md)。
+
+### AC-9 实跑手册
+
+> 2026-09-29 的实跑按这份手册执行；执行中发现并修正了两处**手册自身**的可复现性问题
+> （第 4 步加 `--force` / 换新期次；观察项②补 `no_permission` 前提），已就地改在下面。
+
+```bash
+# 0) 前置：TUSHARE_TOKEN 已在环境变量或仓库 .env 里（不要写进命令行）
+export TURTLE_ARCHIVE_ROOT=~/turtle_archive
+
+# 1) 登记自选股清单（不改任何代码）
+make data-universe ARGS='add --ticker 600887.SH --name 伊利股份 --market SH'
+make data-universe ARGS='list'
+
+# 2) 一次全量拉取：先看预估，再确认（记录预估与实际调用数、配额档位）
+#    清单只有 600887.SH（bulk）+ 这 3 个期次时，预估是 33 次请求
+#    （income/balancesheet 各 6 = 3 期次 × report_type 1/6）
+make data-pull ARGS='--profile bulk --periods 20231231,20241231,20251231'
+make data-pull ARGS='--profile bulk --periods 20231231,20241231,20251231 --yes'
+
+# 3) 重新执行同一条命令：应当全部「命中存档」、新增请求为 0（绝不重复花钱）
+#    注意：仓里存在 no_permission 目标（如 yc_cb）时，新增请求 = 无权限目标数，不是 0
+make data-pull ARGS='--profile bulk --periods 20231231,20241231,20251231 --yes'
+
+# 4) 中途中断后续跑：换一个**还没拉过的期次**（或加 --force），否则目标都已被仓服务、
+#    批次瞬间跑完，根本没有可中断的窗口；Ctrl-C 后记录 batch_id，用同一个 --batch-id 重跑
+make data-pull ARGS='--profile bulk --periods 20201231 --yes'
+# （记录 batch_id）→ Ctrl-C → make data-pull ARGS='--batch-id <id> --yes'
+
+# 5) 断网（关 Wi-Fi / 拔网线）后从仓重建，并与重建前的联网产物对比
+cp output/600887_伊利/data_pack_market.md /tmp/data_pack_online.md
+make data-rebuild ARGS='--ticker 600887.SH'
+diff /tmp/data_pack_online.md output/600887_伊利/data_pack_market.md
+
+# 6) 只补缺口
+make data-gaps ARGS='--ticker 600887.SH'
+make data-pull ARGS='--only-gaps --yes'
+
+# 7) 仓的自检与规模
+make data-check
+```
+
+观察项：① 预估条数 vs 实际新增请求数；② 第二次执行的新增请求数（应为 0；**有 `no_permission`
+目标时例外**，见上）；③ 中断后重启的「新增请求」是否只覆盖未完成目标；
+④ 断网重建的产物小节是否与联网一致、完备度行里的无权限计数是否不再算成成功；
+⑤ 本次实跑发现的问题登记去向。
+
+> **先迁移、后重建的预期**（2026-09-29 的真实载荷实跑已证实）：只用旧存档喂仓时
+> §3P/§4P（母公司报表）、§9 等小节仍会是缺口——旧存档本来就没拉过那些数据集。
+> 要拿到它们必须真的跑一次 `data-pull`（新的目标枚举会为 `income`/`balancesheet` 各拉
+> `report_type=1/6` 两条）。第 2 步之后再重建，缺口数才是「这次实跑买回来的东西」的反映。
 
 ## 追溯
 
 | 项 | 内容 |
 |----|------|
-| 设计文档 | [`docs/DATA_LAYER_PLAN.md`](../DATA_LAYER_PLAN.md)（仓 schema、取数门面、编排状态机、离线重建、迁移、兼容与过渡） |
-| 实现 PR | TBD |
-| 测试 | `tests/test_data_store.py`、`tests/test_data_pull.py`、`tests/test_offline_rebuild.py`（规划中，尚未创建） |
+| 设计文档 | [`docs/DATA_LAYER_PLAN.md`](../DATA_LAYER_PLAN.md)（仓 schema、取数门面、编排状态机、离线重建、迁移、兼容与过渡；实现期的偏差集中在 §19） |
+| 实现 + 收口 PR | [#83](https://github.com/CHU-2002/Value_analysis_framework/pull/83)——数据层实现、四轮复核的 6 个阻断项修复、`AC-9` 真实 token 实跑留痕，以及本编号推进到 `verified`，都在同一个 PR 里 |
+| 验收报告 | [`docs/verification/2026-09-29-REQ-011.md`](../verification/2026-09-29-REQ-011.md)——独立 agent 的**四轮**对抗式复核（首轮在真实资产上找出 5 个阻断项；复验 1 修复；复验 2 又抓出 `--force` 空操作；复验 3 收尾）＋ `AC-9` 真实 token 实跑；`AC-1`…`AC-9` 与 `AC-1.1`…`AC-3.3` 全部成立 |
+| 实跑记录 | [`docs/run-records/2026-09-29-REQ-011-AC-9-真实token实跑.md`](../run-records/2026-09-29-REQ-011-AC-9-真实token实跑.md)（真实 token：拉全 / 中断续跑 / 断网重建 / 只补缺口）、[`docs/run-records/2026-09-29-REQ-011-实跑（无token部分）.md`](../run-records/2026-09-29-REQ-011-实跑（无token部分）.md)（真实载荷迁移与禁网重建） |
+| 测试 | `tests/test_data_store.py`（`REQ-011.1`）、`tests/test_data_pull.py`（`REQ-011.2`）、`tests/test_offline_rebuild.py`（`REQ-011.3`） |
 | 文档更新 | `README.md`、`docs/ARCHITECTURE.md`、`docs/GUI_CONSOLE_OVERVIEW.md`、`CHANGELOG.md` |
 
 ## 备注
@@ -247,3 +338,15 @@ GUI 侧因此出现了**把年报口径与季报口径画在同一条趋势线�
 - **开放问题 4**：仓放在仓库外（延续 `~/turtle_archive` 的资产语义）还是 `output/` 之下？
   **设计已定：仍是仓库之外的 `~/turtle_archive/store.db`**（同目录内建索引、不搬字节）；
   GUI 侧要读它必须**显式新增允许根**而不是放宽 jail——这条留给 `REQ-012.4`。见 §4.6。
+- **独立复核与收口（2026-09-29）**：本条目的验收报告是无上下文 agent 的**四轮对抗式复核 + 一次针对 `42ad3c6` 的 delta 确认**
+  [`docs/verification/2026-09-29-REQ-011.md`](../verification/2026-09-29-REQ-011.md)：
+  共找出 **6 个阻断项**（最重的两条：离线读取静默删行把 1082 行真实响应压成 1 行；`--force` 是空操作）
+  与 10 条非阻断项，**全部在同一交付内修掉并补了回归用例**；验收标准一个字没改。
+  `AC-9` 的真实 token 实跑于同日由该独立 agent 执行并按 `docs/requirements/README.md` §7.1 留档，
+  于是本编号（父 + 三个子需求）在**同一次改动**里推进到 `verified`——父需求不比任何子需求靠前。
+- **实现期留痕（2026-09-29）**：实现与设计不符的地方（唯一键与「记录服务请求」的读取模型、
+  扫描范围、缺口批注位置、`gaps.py` 搬家、`--collect` 转调后的枚举差异、开放问题的落点）
+  全部记在 [`docs/DATA_LAYER_PLAN.md`](../DATA_LAYER_PLAN.md) §19，**验收标准一个字没改**。
+- **实跑期留痕（2026-09-29）**：`AC-9` 实跑发现 5 条观察项（§14 缺原因文字、冷进程里
+  「零 socket」不成立、`DataUnavailable` 文案、手册第 4 步与观察项②的可复现性），
+  前三条登记在 `ledger.md` 的 Inbox（都不阻断收口），后两条已就地改在「## 实跑记录」的手册里。

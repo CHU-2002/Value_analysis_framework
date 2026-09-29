@@ -9,17 +9,9 @@ import pandas as pd
 
 from format_utils import format_number, format_table, format_header
 
-
-def _yoy_period_label(end_date: str) -> str:
-    """把 ``YYYYMMDD`` 变成可读期次标签：``20121231``→``2012``、``20260630``→``2026H1``。"""
-
-    text = str(end_date)
-    if len(text) < 8:
-        return text
-    year, mmdd = text[:4], text[4:8]
-    return {"1231": year, "0630": f"{year}H1", "0331": f"{year}Q1", "0930": f"{year}Q3"}.get(
-        mmdd, f"{year}{mmdd}"
-    )
+# 期次标签的唯一权威是 `scripts/periods.py`（REQ-011 把原先写在这里的私有实现提升为公开函数）。
+# 这里保留 `_yoy_period_label` 这个名字，是为了不破坏任何按旧名字导入的调用点。
+from periods import end_date_to_label as _yoy_period_label  # noqa: F401
 
 
 class AssemblyMixin:
