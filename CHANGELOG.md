@@ -64,6 +64,16 @@
   开可见窗口）把 `REQ-009` 的 `AC-8` 动作跑一遍并落截图与观察记录，做**页面级**检查
   （面板有没有降级、图表张数、时间线条数、按键的真实退出码）；只用 Python 标准库
   （CDP 的 WebSocket 自己按 RFC 6455 实现），不新增依赖。用法见 `docs/DEVELOPMENT.md` §4.1
+- **`REQ-011` 收口（`verified`）**：`AC-9` 的真实 token 实跑由独立 agent 执行并留档
+  （[`docs/run-records/2026-09-29-REQ-011-AC-9-真实token实跑.md`](docs/run-records/2026-09-29-REQ-011-AC-9-真实token实跑.md)）：
+  预估 33 次请求（`bulk`）→ 实际新增 25 + 命中存档 8；SIGINT 中断后批次 `paused 11/17`、
+  同 `--batch-id` 续跑补完且中断前 39 条记录的 `fetched_at` 一条未变；禁网（socket 打桩）重建出
+  **19/19 个小节与联网产物逐条相同**、§3P/§4P/§9 有真实数字；`--only-gaps` 只拉了 17 个真缺口并把
+  完备度收敛到「仅剩 1 条无权限」。同批把实跑发现的两处**手册**可复现性问题就地修正
+  （中断步骤要加 `--force` 或换新期次；「第二次新增请求为 0」要补 `no_permission` 前提），
+  另三条观察项登记进 `ledger.md` 的 Inbox。验收报告：
+  [`docs/verification/2026-09-29-REQ-011-独立复核.md`](docs/verification/2026-09-29-REQ-011-独立复核.md)
+  （四轮对抗式复核共 6 个阻断项 + 10 条非阻断项，全部修掉并补了回归用例；验收标准一个字没改）
 
 ### Fixed
 
