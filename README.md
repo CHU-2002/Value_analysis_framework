@@ -183,7 +183,9 @@ make data-import-legacy
 重建是**纯离线**动作，产物 `output/<公司>/data_pack_market.md` 的小节与表头契约不变。
 
 `make gui-collect ARGS=…` 仍然保留，参数与退出码语义不变，但内部已改为薄转调数据层
-（落盘从旧存档目录换成统一原始仓；仓根沿用控制台那套配置，仍是 `~/turtle_archive`，可用 `WEBUI_ARCHIVE_ROOT` 改）。
+（落盘从旧存档目录换成统一原始仓）。仓根与 `make data-*` 走**同一套解析**：`TURTLE_ARCHIVE_ROOT`
+优先，其次 `WEBUI_ARCHIVE_ROOT`（控制台的 `--archive-root` 与它同源），默认 `~/turtle_archive`；
+`make data-*` 另可用 `--store` 显式指定——两条命令行不会各指一个仓。
 联网边界不变：**不引入任何定时 / 自动拉取，联网只能由显式动作触发**。
 
 ### 本地控制台 · 按键与视图（REQ-009.1 / REQ-009.2）
