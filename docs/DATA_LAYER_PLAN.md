@@ -880,6 +880,7 @@ webui 侧（GUI 面板与既有测试在用），但 `--collect` 已转调 `data
 | B3 | 同一个真实仓两个矛盾的完备度：`data-gaps` 说 22/23、`--only-gaps` 说 17 个目标里 10 个完备；真跑缺口批次时 3 个目标被仓命中却计成「新增请求」 | ① 新增 `DataStore.serves_target()`（**与读取路径同源**：语义入参核得出来 + 时间窗口够宽）与 `gaps.pending_targets()`，`plan(only_gaps=True)`、`PullBatch` 的跳过判断、webui `--collect` 一律改用它；② 计数器按 `access.remote_calls` 的**实际出网**记；③ `data-gaps` 同时打印「仓内口径」与「清单口径」两个数并标注定义 | `test_only_gaps_uses_the_read_path_not_just_the_result_enum`、`test_counters_follow_real_outbound_calls_not_the_target_loop` |
 | B4 | `--tier-label` 是死选项：批次收了它却从不传给取数门面，仓里的 `tier_label` / `quota_profile` 永远为空（也回退了 `REQ-009.4` 的存档语义） | `PullBatch.run` 把 `tier_label` / `quota_profile`（=档位）/ `batch_id` 交给 `DataAccess`，于是每条记录都带 | `test_batch_progress_double_written_to_catalog_and_compat_json` 与真实载荷实跑 |
 | B5 | `hk_daily` 的窗口声明（1 年）小于代码需要（10 年）：重建报缺口、`--only-gaps` 判完备、`--force` 也只会按窄窗口重拉 → 永远补不上 | 注册表把 `hk_daily` 的窗口改成 10 年；并用 B3 的 `serves_target` 让「窗口更窄」的目标留在缺口里 | `test_only_gaps_uses_the_read_path_not_just_the_result_enum` |
+| B6（**复验轮**新增） | `--force` 是空操作：`MODE_REFRESH` 全仓没有任何调用方设置，`access.call` 仍在 online 模式先查仓 → 命令成功、实际什么都没拉 | `PullBatch.run` 在 `force=True` 且门面是 `online` 时切到 `refresh`（`offline` 绝不切，重建不联网） | `test_force_refetches_every_target`（并把假 pro 改成**遵守 `fields=`**，否则「投影必然失败 → 总是回落联网」会让用例为错误的理由通过） |
 
 复核同时提出的非阻断项也在同批修掉/留痕：
 

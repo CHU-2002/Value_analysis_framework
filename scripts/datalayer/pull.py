@@ -22,6 +22,7 @@ from collections import Counter
 from datetime import datetime, timezone
 
 from . import registry
+from .access import MODE_ONLINE, MODE_REFRESH
 from .errors import BatchRunning, NoToken, QuotaConfirmRequired, UsageError
 from .gaps import DONE_KINDS, classify_result, completeness, pending_targets
 
@@ -134,6 +135,9 @@ def estimate(targets, profile: str = "", tiers=None) -> dict:
 
 def format_estimate(report: dict) -> str:
     lines = [f"调用量预估：{report['total']} 次请求（{report.get('profile') or '未指定档位'}）"]
+    if report.get("by_tier"):
+        grouped = " · ".join(f"{tier} {count}" for tier, count in report["by_tier"].items())
+        lines.append(f"  按档位：{grouped}")
     lines.extend(f"  {dataset:<18}{count}" for dataset, count in report["by_dataset"].items())
     return "\n".join(lines)
 
@@ -270,6 +274,11 @@ class PullBatch:
         os.write(descriptor, str(os.getpid()).encode("ascii"))
         os.close(descriptor)
 
+        # `--force` 的语义是「重拉」，而取数门面默认在 online 模式**先查仓**：
+        # 不切模式的话，只要仓里的记录还能被读取路径服务，force 就是个空操作
+        # ——命令成功、实际什么都没拉（独立复核 B6）。离线模式绝不切（重建不联网）。
+        if force and self.access.mode == MODE_ONLINE:
+            self.access.mode = MODE_REFRESH
         batch.update(status="running", owner_pid=os.getpid(),
                      heartbeat_at=self.clock().isoformat())
         batch.setdefault("usage", {"new_requests": 0, "archive_hits": 0})

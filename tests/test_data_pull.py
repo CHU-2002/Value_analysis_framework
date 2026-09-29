@@ -40,17 +40,40 @@ class _FakePro:
     """假的远程对象：记录每一次被真实调用的 ``(接口名, 入参)``，并按 ``responder`` 回答。
 
     它是「绝不重复花钱」的唯一判据——用例断言的是它的 ``calls``，不是实现里的计数器。
+
+    **默认遵守 `fields=`**（返回请求的那几列）：独立复核 B6 指出，早先的假对象返回
+    `{"value": [1]}`——与请求的字段不相交，于是读取路径的投影必然失败、总是回落联网，
+    `force` 的用例因此「为错误的理由通过」。真实接口会按 `fields=` 返回列，
+    假对象也必须这样，否则测出来的是假象。
     """
 
     def __init__(self, responder=None):
         self.calls = []
         self.responder = responder
 
+    @staticmethod
+    def _frame(params):
+        fields = [item.strip() for item in str(params.get("fields") or "").split(",")
+                  if item.strip()]
+        if not fields:
+            return pd.DataFrame({"value": [1]})
+        return pd.DataFrame({name: [_sample_value(name)] for name in fields})
+
     def __getattr__(self, name):
         def call(**params):
             self.calls.append((name, params))
-            return self.responder(name) if self.responder else pd.DataFrame({"value": [1]})
+            return self.responder(name) if self.responder else self._frame(params)
         return call
+
+
+def _sample_value(column: str):
+    if column in ("end_date", "trade_date", "ann_date", "cal_date"):
+        return "20260630"
+    if column in ("report_type", "type", "curve_type"):
+        return "1"
+    if column in ("ts_code",):
+        return "600887.SH"
+    return 1.0
 
 
 def _client(store, pro):
@@ -92,8 +115,15 @@ def _sample_targets():
 
 
 def _write_result(store, target, result, frame=None):
-    """把一个目标手工写成「仓里已有记录」，用于构造部分完备的仓（不花钱）。"""
+    """把一个目标手工写成「仓里已有记录」，用于构造部分完备的仓（不花钱）。
 
+    不给 `frame` 时按目标的 `fields=` 造一份**像真实响应**的帧（列名与请求相交）：
+    真实的记录总是带着请求过的列，用 `{"value": [1]}` 这种不相交的帧会让
+    「这条记录能不能服务这次读取」的判据失真（独立复核 B6 就是这么看走眼的）。
+    """
+
+    if frame is None and result in ("ok", "empty"):
+        frame = _FakePro._frame(target["params"]) if result == "ok" else pd.DataFrame()
     store.write_frame(ticker=target["ticker"], dataset=target["dataset"],
                       period=target["period"], params=target["params"], frame=frame,
                       result=result,
@@ -281,11 +311,17 @@ def test_force_refetches_every_target(tmp_path):
     targets = _sample_targets()
     _run(store, targets, _FakePro(), "FORCE")
     pro = _FakePro()
-    forced = _run(store, targets, pro, "FORCE", force=True)
+    # 换一个批次 id：usage 在**同一批次**内是累计值（续跑不重置），要断言「这一轮」就得新开一批。
+    forced = _run(store, targets, pro, "FORCE2", force=True)
     assert [name for name, _ in pro.calls] == [target["dataset"] for target in targets]
     assert len(pro.calls) == len(targets)
     assert forced["status"] == "done"
     assert all(store.result_of(target) == "ok" for target in targets)
+    # 关键：仓里**本来就能服务**这些目标（假 pro 遵守 fields=，投影不会失败），
+    # 所以这一轮的重拉只可能来自「force 真的切到了 refresh 模式」（独立复核 B6）。
+    assert all(store.serves_target(target) for target in targets)
+    assert forced["usage"]["new_requests"] == len(targets)
+    assert forced["usage"]["archive_hits"] == 0
 
 
 def test_keyboard_interrupt_pauses_batch_then_resume_pulls_only_remaining(tmp_path):
@@ -418,7 +454,7 @@ def test_only_gaps_plan_reports_requested_count_and_gap_total(tmp_path):
     universe.add("600887.SH", "伊利股份", tier="frugal")
     targets = pull.plan(universe, periods=["20260630"], store=store)["targets"]
     assert len(targets) == 8
-    _write_result(store, targets[0], "ok", frame=pd.DataFrame({"value": [1]}))
+    _write_result(store, targets[0], "ok")
     _write_result(store, targets[1], "empty")
 
     partial = pull.plan(universe, periods=["20260630"], store=store, only_gaps=True)
@@ -436,7 +472,7 @@ def test_gap_pull_converges_completeness_to_all_targets(tmp_path):
     universe.add("600887.SH", "伊利股份", tier="frugal")
     targets = pull.plan(universe, periods=["20260630"], store=store)["targets"]
     for target in targets[:3]:
-        _write_result(store, target, "ok", frame=pd.DataFrame({"value": [1]}))
+        _write_result(store, target, "ok")
 
     before = gaps.completeness_by_targets(targets, store.result_of)["counts"]
     assert before["complete"] == 3 and before["error"] == 5   # error = 「还没拉过」的缺口
@@ -461,7 +497,7 @@ def test_only_gaps_keeps_empty_as_done_but_no_permission_as_gap(tmp_path):
     universe = Universe(store)
     universe.add("600887.SH", "伊利股份", tier="frugal")
     targets = pull.plan(universe, periods=["20260630"], store=store)["targets"]
-    _write_result(store, targets[0], "ok", frame=pd.DataFrame({"value": [1]}))
+    _write_result(store, targets[0], "ok")
     _write_result(store, targets[1], "empty")
     _write_result(store, targets[2], "no_permission")
 

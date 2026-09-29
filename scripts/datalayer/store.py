@@ -512,11 +512,16 @@ class DataStore:
         if not self._window_covers(records, params):
             return False
         request = semantic_params(params)
+        requested_fields = [item.strip() for item in str(params.get("fields") or "").split(",")
+                            if item.strip()]
         for record in records:
             frame = decode_frame(record["columns_json"], record["rows_json"])
             if frame.empty:
                 # 「确实为空」也算有记录（与 `REQ-009.4` 的 `AC-4.5` 一致）。
                 return True
+            if requested_fields and not any(name in frame.columns for name in requested_fields):
+                # 与 `_replay` 的投影规则同源：请求的列一列都不在帧里 → 这次读取会判未命中。
+                continue
             if rows_for_request(frame, request, record.get("params") or {}) is not None:
                 return True
         return False
