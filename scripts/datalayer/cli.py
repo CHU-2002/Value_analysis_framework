@@ -220,7 +220,9 @@ def cmd_pull(args) -> int:
     print(PullBatch.summary_line(batch))
     if args.json:
         print(json.dumps(batch, ensure_ascii=False, indent=2))
-    return 0 if batch["status"] == "done" else 1
+    # 退出码表（§11）里没有「批次部分完成」这一档：`partial` 也是**正常跑完**的一轮
+    # （无权限/限频是数据的事实，不是命令的错误）。要用退出码判成功，看 `--json` 的 status。
+    return 0
 
 
 def _dominant_tier(universe) -> str:
@@ -241,13 +243,12 @@ def cmd_rebuild(args) -> int:
         raise UsageError("清单为空且没有 --ticker：不知道要重建哪个标的")
     if args.out and len(tickers) > 1:
         raise UsageError("--out 只能配合单个 --ticker 使用")
-    codes = 0
     for ticker in tickers:
         report = rebuild(store, ticker, out_path=args.out, output_root=args.output_root)
         print(format_report(report))
-        if report["missing"]:
-            codes = 1
-    return codes
+    # 缺口是**数据的事实**（无权限/限频/还没拉），不是命令的错误：退出码表里没有这一档。
+    # 要按缺口分支请用 `gap_targets()` / `--json`，不要靠退出码。
+    return 0
 
 
 def cmd_gaps(args) -> int:
@@ -259,7 +260,7 @@ def cmd_gaps(args) -> int:
     if args.json:
         print(json.dumps({"ticker": args.ticker, "dataset": args.dataset, **report},
                          ensure_ascii=False, indent=2))
-        return 0 if not report["gaps"] else 1
+        return 0
     counts = report["counts"]
     print(f"完备度：{counts['complete']}/{counts['total']}（有效 {counts['ok']} · 空 {counts['empty']} · "
           f"无权限 {counts['no_permission']} · 频率受限 {counts['rate_limited']} · "
@@ -269,7 +270,7 @@ def cmd_gaps(args) -> int:
               f"{' — ' + (gap['error_excerpt'] or '') if gap.get('error_excerpt') else ''}")
     if report["gaps"]:
         print("补齐：make data-pull ARGS='--only-gaps --yes'")
-    return 0 if not report["gaps"] else 1
+    return 0
 
 
 def cmd_import_legacy(args) -> int:
@@ -281,7 +282,8 @@ def cmd_import_legacy(args) -> int:
     print(format_report(report))
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
-    return 0 if not report["conflicts"] else 1
+    # 冲突按设计「不覆盖、只报告」：报告里逐条列出，命令本身算跑完。
+    return 0
 
 
 def cmd_export(args) -> int:

@@ -303,14 +303,19 @@ def test_cli_exposes_rebuild_and_pull_as_two_actions():
 
 
 def test_cli_rebuild_writes_the_pack_without_a_token(store, tmp_path):
-    """AC-3.2：`rebuild` 不需要 token（离线动作），并且真的写出产物。"""
+    """AC-3.2：`rebuild` 不需要 token（离线动作），并且真的写出产物。
+
+    缺口不是命令的错误：退出码表只有 0/2/4/130（§11），缺口作为一种**数据事实**
+    写在产物末尾与 stdout 里，要按缺口分支请用 `gap_targets()`。
+    """
 
     out = tmp_path / "pack.md"
     with patch("datalayer.security.resolve_token", return_value=""):
         code = cli.main(["rebuild", "--store", str(store.root), "--ticker", "600887.SH",
                          "--out", str(out)])
-    assert code == 1  # 空仓有缺口 → 非零，但产物已写出
+    assert code == 0
     assert out.is_file()
+    assert "重建缺口" in out.read_text(encoding="utf-8")  # 空仓：缺口可见但不改退出码
 
 
 def test_cli_pull_requires_a_token_and_makes_no_request(tmp_path):
