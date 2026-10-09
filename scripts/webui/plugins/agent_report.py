@@ -95,6 +95,7 @@ def command_specs(config=None) -> list:
             validate=partial(_validate, action=action, root=root, cli=cli_value),
             exclusive=True,
             exclusive_group="agent-report",
+            exclusive_key=partial(_exclusive_key, root=root),
             outputs={"artifacts_endpoint": "/api/v1/agent/jobs/{job_id}/artifacts"},
         )
         for command_id, action, title, description in ACTIONS
@@ -107,6 +108,13 @@ def _validate(params, *, action, root, cli):
     except (ValueError, FileNotFoundError) as exc:
         raise InvalidParam(str(exc)) from exc
     return {"ticker": ticker}
+
+
+def _exclusive_key(params, *, root):
+    directories = agent_action.find_company_dirs(root, params["ticker"])
+    if len(directories) != 1:
+        raise InvalidParam("公司目录状态已变化，请刷新后重新提交。")
+    return str(safe_join(root, directories[0].name))
 
 
 def _preflight(ctx, **_):

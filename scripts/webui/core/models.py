@@ -152,6 +152,7 @@ class CommandSpec:
     validate: object = None      # callable(params) -> normalized params; runs before enqueue
     exclusive: bool = False     # reject an active command with the same normalized params
     exclusive_group: str = ""   # optional mutual exclusion across related commands
+    exclusive_key: object = None  # callable(normalized params) -> resource identity
     outputs: dict = field(default_factory=dict)  # optional output resolver metadata
 
     def to_json(self) -> dict:

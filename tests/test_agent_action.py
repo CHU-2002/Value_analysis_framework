@@ -452,6 +452,19 @@ def test_preflight_and_all_submission_paths_reject_before_launch(tmp_path, monke
         runner.submit("agent_update_analysis", {"ticker": "600887"})
     assert runner.list_jobs() == [] and not calls
     assert list(company.iterdir()) == []
+    # CLI submissions using a different market suffix resolve to the same
+    # directory and must share its lock, without launching the fake CLI.
+    import fcntl
+    fake.chmod(0o755)
+    locks = config.output_root / ".agent_locks"
+    locks.mkdir()
+    with (locks / f"{company.name}.lock").open("a") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        completed, marker = run_script(
+            tmp_path, "--action", "value-analysis", "--ticker", "600887.SZ",
+            "--output-root", config.output_root, "--cli", fake)
+        assert completed.returncode == agent_action.EXIT_BUSY
+        assert not marker.exists()
 
 
 def test_jobs_normalize_deduplicate_cancel_and_preserve_redacted_audit(tmp_path, monkeypatch):
@@ -480,6 +493,8 @@ def test_jobs_normalize_deduplicate_cancel_and_preserve_redacted_audit(tmp_path,
     job = next(item for item in results if isinstance(item, dict))
     with pytest.raises(DuplicateJob):
         runner.submit("agent_value_analysis", {"ticker": "600887"})
+    with pytest.raises(DuplicateJob):
+        runner.submit("agent_value_analysis", {"ticker": "600887.SZ"})
     wait_for(lambda: marker.exists() and (tmp_path / "child.pid").exists())
     runner.cancel(job["id"])
     wait_for(lambda: runner.get(job["id"])["status"] == "cancelled")

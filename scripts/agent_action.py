@@ -260,7 +260,7 @@ def main(argv=None) -> int:
         # Inherit stdout/stderr so the task runner can stream progress.
         lock_root = Path(args.output_root) / ".agent_locks"
         lock_root.mkdir(parents=True, exist_ok=True)
-        with (lock_root / f"{ticker}.lock").open("a") as lock:
+        with (lock_root / f"{company_dir.name}.lock").open("a") as lock:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:

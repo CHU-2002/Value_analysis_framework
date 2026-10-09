@@ -397,6 +397,7 @@ class JobRunner:
             danger=spec.danger,
             exclusive=spec.exclusive,
             exclusive_group=spec.exclusive_group,
+            exclusive_key=spec.exclusive_key(values) if spec.exclusive_key else None,
             outputs=spec.outputs,
         )
 
@@ -813,15 +814,21 @@ class JobRunner:
     # ---------------------------------------------------------------- 入队与调度
 
     def _enqueue(self, *, command, title, argv, params, action="", description="",
-                 steps=(), outputs=None, danger=False, exclusive=False, exclusive_group="") -> dict:
+                 steps=(), outputs=None, danger=False, exclusive=False, exclusive_group="",
+                 exclusive_key=None) -> dict:
         with self._wake:
             if exclusive and any(
-                item.params == params and item.status not in TERMINAL
+                item.status not in TERMINAL
+                and ((item.outputs.get("exclusive_key") == exclusive_key)
+                     if exclusive_key is not None else item.params == params)
                 and (item.command == command or (exclusive_group and not item.action
                      and self._spec_lookup(item.command).exclusive_group == exclusive_group))
                 for item in self._jobs.values()
             ):
                 raise DuplicateJob("同一家公司已有互斥任务正在执行。", hint="等任务结束或先取消它。")
+            job_outputs = dict(outputs or {})
+            if exclusive_key is not None:
+                job_outputs["exclusive_key"] = exclusive_key
             running = sum(1 for item in self._jobs.values() if item.status in ACTIVE)
             if running >= int(self.config.max_concurrent_jobs):
                 # 刻意不用 `or 20`：队列上限为 0 是**合法配置**（等于「不排队、超限即拒」），
@@ -846,7 +853,7 @@ class JobRunner:
                 action=action,
                 description=description,
                 steps=list(steps),
-                outputs=dict(outputs or {}),
+                outputs=job_outputs,
                 danger=bool(danger),
                 queued_at=queued_at,
                 log=deque(maxlen=max(10, int(self.config.job_log_tail))),

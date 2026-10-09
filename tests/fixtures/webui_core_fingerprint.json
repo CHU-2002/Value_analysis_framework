@@ -5,8 +5,8 @@
   "core/server.py": "89b614dbb8573bd3e7bb5859b52a10997332a84f57888bdc2071075db4f46351",
   "static/index.html": "63e0cff495a4ba7d149237b92ee395293a7293206ccb6d94341e2b53af38e35c",
   "static/app.js": "d7c76fd3db3fdbbb74cffee04581f70029d726547cdf27e64610e8f372c81265",
-  "core/models.py": "cd0941aca9e5347f7891be23b93600aa86d8f0cbcf85b280424ff3c5fdc9ed65",
-  "core/jobs.py": "e1135caded74a4200709bf7bcc7165426145ae4ac376d9c07fa4f3e04c1468f1",
+  "core/models.py": "f1021fc3f651616960027926a96b3aad8433a920f19bff78c20facc83d665ac8",
+  "core/jobs.py": "e8d9e32d0e5e30750d6540e4bcd5c4831dfd720b7a110e4ac8e0bd8af9de97a5",
   "core/security.py": "740ae0c4fafd453e86f3df983d0dc73fd6b8a53f1e904aa89be622c09202f0ff",
   "static/kinds/form.js": "2aa4b80ffcd604fc3e998948ec14180f59798044c037f155a60ec39630a48a82",
   "static/kinds/jobs.js": "49ea5c34824296b403293a2b0447c67377e178996688a04aed8889e7eb545aa9"
