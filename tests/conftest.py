@@ -82,8 +82,11 @@ integration = pytest.mark.skipif(
 def _isolate_env_file(monkeypatch, tmp_path):
     """Prevent _load_env_file from finding the real .env during tests."""
     import config as config_mod
+    import datalayer.security as data_security
 
     monkeypatch.setattr(config_mod, "__file__", str(tmp_path / "scripts" / "config.py"))
+    # 数据层有独立的 dotenv 解析入口；不能让本机真实凭据掩盖 CI 的缺凭据分支。
+    monkeypatch.setattr(data_security, "__file__", str(tmp_path / "scripts" / "datalayer" / "security.py"))
 
 
 @pytest.fixture(autouse=True)
