@@ -890,6 +890,9 @@ webui 侧（GUI 面板与既有测试在用），但 `--collect` 已转调 `data
   造成了几次发往 `api.tushare.pro` 的出站调用）。现在 `_is_connection_error` 明确排除
   `PermissionError`。这是从既有 `_safe_call` 搬过来时一并修正的，行为变化记在 `CHANGELOG`。
 - **N1** 测试文件头里「已知与实现不符的三处」已过期 → 改成「已修掉 + 对应回归用例」。
+- **§8.2 的缺口说明**（2026-09-30 维护）：离线未命中且**仓里记着失败原因**时，`_safe_call` 抛一个
+  与联网路径同形的 `RuntimeError`，让既有的 `except RuntimeError` 分支把原因原样渲染出来
+  （`AC-9` 观察项①）；仓里没有解释性记录时仍返回空表、写「数据缺失」。
 - **N2** 混合档位时预估缺「按档位分组的条数」→ `estimate(..., tiers=...)` 加 `by_tier`。
 - **N3** 重建缺口清单不带期次（出现「income、income」）→ 带上期次。
 - **N4** pull 写的记录 `batch_id` 恒为 `None` → 批次确定 id 后回填给门面。
