@@ -1,0 +1,113 @@
+{
+  "main": "cbbd0de7a21250fd7ffcc631802626107292c51a",
+  "adds": [
+    {
+      "identifier": "600887.SH",
+      "result": {
+        "message": "已添加 600887 伊利股份",
+        "ticker": "600887.SH",
+        "created": true
+      },
+      "rows": [
+        {
+          "ticker": "600887.SH",
+          "company": "600887 伊利股份",
+          "market": "SH",
+          "tier": "bulk",
+          "enabled": "启用",
+          "completeness": "还没有数据",
+          "gaps": 0,
+          "note": null
+        },
+        {
+          "ticker": "601398.SH",
+          "company": "601398 工商银行",
+          "market": "SH",
+          "tier": "bulk",
+          "enabled": "启用",
+          "completeness": "还没有数据",
+          "gaps": 0,
+          "note": null
+        }
+      ]
+    },
+    {
+      "identifier": "600887",
+      "result": {
+        "message": "这家公司已在自选股清单里",
+        "ticker": "600887.SH",
+        "created": false
+      },
+      "rows": [
+        {
+          "ticker": "600887.SH",
+          "company": "600887 伊利股份",
+          "market": "SH",
+          "tier": "bulk",
+          "enabled": "启用",
+          "completeness": "还没有数据",
+          "gaps": 0,
+          "note": null
+        },
+        {
+          "ticker": "601398.SH",
+          "company": "601398 工商银行",
+          "market": "SH",
+          "tier": "bulk",
+          "enabled": "启用",
+          "completeness": "还没有数据",
+          "gaps": 0,
+          "note": null
+        }
+      ]
+    },
+    {
+      "identifier": "600887_伊利",
+      "result": {
+        "message": "这家公司已在自选股清单里",
+        "ticker": "600887.SH",
+        "created": false
+      },
+      "rows": [
+        {
+          "ticker": "600887.SH",
+          "company": "600887 伊利股份",
+          "market": "SH",
+          "tier": "bulk",
+          "enabled": "启用",
+          "completeness": "还没有数据",
+          "gaps": 0,
+          "note": null
+        },
+        {
+          "ticker": "601398.SH",
+          "company": "601398 工商银行",
+          "market": "SH",
+          "tier": "bulk",
+          "enabled": "启用",
+          "completeness": "还没有数据",
+          "gaps": 0,
+          "note": null
+        }
+      ]
+    }
+  ],
+  "removed": {
+    "message": "已停止跟踪这家公司，所有产物均已保留",
+    "ticker": "600887.SH",
+    "removed": true
+  },
+  "retained_company_files": 260,
+  "unchanged_real_output_files": 400,
+  "cli_first": {
+    "imported": 1,
+    "skipped": 15,
+    "total": 1
+  },
+  "cli_second": {
+    "imported": 0,
+    "skipped": 16,
+    "total": 1
+  },
+  "assertions": "passed"
+}
