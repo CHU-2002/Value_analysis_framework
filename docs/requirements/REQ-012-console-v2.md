@@ -9,7 +9,7 @@ updated: 2026-10-09
 issue: "#74"
 design: docs/CONSOLE_V2_PLAN.md
 milestone: TBD
-pr: TBD
+pr: "#92"
 depends-on: REQ-009, REQ-009.1, REQ-009.2, REQ-009.4, REQ-010, REQ-011
 supersedes: TBD
 ---
@@ -112,7 +112,7 @@ supersedes: TBD
     且**全部通过注册表扩展点实现**（对应 `AC-11`）。
   - **AC-1.3**：默认落地页是工作台，内容与空状态符合 `AC-2`。
   - **AC-1.4**：全站统一公司显示名（对应 `AC-9`）。
-- 追溯：`tests/test_console_context.py`；PR #TBD；用例数与逐文件登记见 `docs/TEST_SCOPE.md`；实现见「## 备注」的「实现记录」
+- 追溯：`tests/test_console_context.py`；PR #92；用例数与逐文件登记见 `docs/TEST_SCOPE.md`；实现见「## 备注」的「实现记录」
 
 ### REQ-012.2 任务式动作层
 
@@ -128,7 +128,7 @@ supersedes: TBD
     给出可复制的 agent 命令与已解析好的路径，任务进入**等待状态**（不占并发、不轮询子进程）；
     用户回来说「已跑完」后，服务端**校验该步声明的产物**（存在且晚于该步开始时间）才继续后续步骤，
     校验不通过则停在该步并说明缺什么。<!-- 2026-09-28 修订：原条款为「由一次动作编排完成，逐步可见进度。」，见「## 变更记录」 -->
-- 追溯：`tests/test_console_actions.py`；PR #TBD；用例数与逐文件登记见 `docs/TEST_SCOPE.md`；实现见「## 备注」的「实现记录」
+- 追溯：`tests/test_console_actions.py`；PR #92；用例数与逐文件登记见 `docs/TEST_SCOPE.md`；实现见「## 备注」的「实现记录」
 
 ### REQ-012.3 视图质量与口径修正
 
@@ -140,7 +140,7 @@ supersedes: TBD
   - **AC-3.3**：数据新鲜度可见，「刷新视图」与「重新拉取」语义分离（对应 `AC-6`）。
   - **AC-3.4**：列表支持搜索/排序/分页，能力做在通用渲染层（对应 `AC-8`）。
   - **AC-3.5**：错误与降级文案符合 `AC-10`。
-- 追溯：`tests/test_console_views.py`；PR #TBD；用例数与逐文件登记见 `docs/TEST_SCOPE.md`；实现见「## 备注」的「实现记录」。
+- 追溯：`tests/test_console_views.py`；PR #92；用例数与逐文件登记见 `docs/TEST_SCOPE.md`；实现见「## 备注」的「实现记录」。
   **本片改到了 `REQ-009.2` 的已验收产出**（`plugins/charts.py`、`render/panels.py`、
   `static/kinds/chart.js` 与核心指纹清单里的 `static/app.js`），收口时按
   [`docs/DEVELOPMENT.md`](../DEVELOPMENT.md) §10（独立验收：改到已验收产出的片，
@@ -156,7 +156,7 @@ supersedes: TBD
   - **AC-4.2**：一次动作发起全量拉取，先给预估与确认，再显示进度；可中断与续跑（对应 `REQ-011` 的 `AC-2`/`AC-6`）。
   - **AC-4.3**：「只补缺口」是一个独立动作（不是让用户理解 `--only-gaps`）。
   - **AC-4.4**：「从仓重建派生数据（离线，不花钱）」与「拉取（联网，花钱）」在界面上是两个可分辨的动作（对应 `AC-6`）。
-- 追溯：`tests/test_console_data_page.py`；PR #TBD；用例数与逐文件登记见 `docs/TEST_SCOPE.md`；实现见「## 备注」的「实现记录」
+- 追溯：`tests/test_console_data_page.py`；PR #92；用例数与逐文件登记见 `docs/TEST_SCOPE.md`；实现见「## 备注」的「实现记录」
 - **前置**：`REQ-011.1` 与 `REQ-011.2` 已交付；本片是 GUI 侧接线，不重复实现数据层。
 
 ## 范围
@@ -312,7 +312,7 @@ make gui                                     # 终端 1：控制台（默认 127
 | 项 | 内容 |
 |----|------|
 | 设计文档 | [`docs/CONSOLE_V2_PLAN.md`](../CONSOLE_V2_PLAN.md)（IA 图、扩展点增量、动作/预检模型、图表口径模型）；文首「§0 实现状态」登记了落地情况与六条设计偏差 |
-| 实现 PR | TBD |
+| 实现 PR | #92 |
 | 测试 | `tests/test_console_context.py`、`tests/test_console_actions.py`、`tests/test_console_views.py`、`tests/test_console_data_page.py`——四支均为本需求新开（`REQ-009` 的 4 个 webui 文件已 64/64 零余量，按 `AC-7` 不得再往里加用例）。逐文件用例数由 `python scripts/test_scope.py --report` 给出（本需求四支合计 ≤ 73 例，仓库合计 ≤ 1872/2000、47/52——**用例数仍在变动，以 `docs/TEST_SCOPE.md` 的实测为准**） |
 | 实跑 | `scripts/gui_walkthrough.py --base http://127.0.0.1:8791`（`--action` 用默认值 `data.rebuild`）；证据 `output/.webui_walkthrough/20261009T060554Z/`（18 张截图 + `observations.md/json`，`failures` 为空） |
 | 文档更新 | `README.md`（本地控制台一节）、`docs/GUI_CONSOLE_OVERVIEW.md`（面板/页面一节）、`docs/GUI_CONSOLE_PLAN.md`（指向本文档的指针）、`docs/CONSOLE_V2_PLAN.md`（§0 实现状态与 §17 开放问题的实际结论）、`docs/ARCHITECTURE.md`（新增 GUI 层小节）、`CHANGELOG.md` |
