@@ -11,6 +11,7 @@ from ..core import envelope
 from ..core.errors import NotFound
 from ..core.models import NavItem, PanelSpec
 from ..core.security import safe_join
+from .companies import display_name
 
 
 def _manifest(ctx):
@@ -141,20 +142,26 @@ def _rebuild_entries(ctx):
     root = Path(ctx.config.output_root)
     rows = []
     for pack in sorted(root.glob("*/data_pack_market.md")) if root.is_dir() else ():
-        company = pack.parent.name
+        directory = pack.parent.name
         ticker = ""
+        company = ""
         record = pack.parent / "record.json"
         if record.is_file():
             try:
                 payload = json.loads(record.read_text(encoding="utf-8"))
-                ticker = str((payload.get("subject") or {}).get("ticker", "")).strip()
+                subject = payload.get("subject") or {}
+                ticker = str(subject.get("ticker", "")).strip()
+                company = str(subject.get("company", "")).strip()
             except (OSError, json.JSONDecodeError):
-                ticker = ""
+                ticker = company = ""
         rows.append({
-            "company": company,
+            # 显示名必须与公司页 / 图表页 / 数据页**逐字相同**（`REQ-012` 的 `AC-9`）。
+            # 这里原先是 `pack.parent.name`（目录名 `600887_伊利`）——独立验收抓到的
+            # 阻断项：同一家公司在采集存档页与公司页是两个名字，「全站统一显示名」不成立。
+            "company": display_name(ticker, company, directory),
             "pack": pack.relative_to(root).as_posix(),
             "updated": datetime.fromtimestamp(pack.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
-            "rebuild": f"make data-rebuild ARGS='--ticker {ticker or company}'",
+            "rebuild": f"make data-rebuild ARGS='--ticker {ticker or directory}'",
         })
     return {"columns": [
         {"key": "company", "title": "公司"},

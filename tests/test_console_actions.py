@@ -607,7 +607,7 @@ def test_continue_without_the_declared_artifact_stays_on_the_handoff_step(tmp_pa
     parked = registry.jobs.get(job["id"])
     assert parked["status"] == AWAITING, "产物没出现就不许继续"
     assert parked["handoff"]["missing"] == list(expects)
-    assert "还没检测到" in json.dumps(parked, ensure_ascii=False)
+    assert "还没就绪" in json.dumps(parked, ensure_ascii=False)
     registry.jobs.abandon_action(job["id"])
 
 

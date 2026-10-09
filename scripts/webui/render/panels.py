@@ -45,8 +45,17 @@ def render_table(data: dict) -> str:
     rows = list((data or {}).get("rows") or [])
     # 空表要给**引导**而不是空白（`REQ-012.1` 的 `AC-1.3`）：provider 可以给出
     # `guide`/`empty_hint`，这里渲染成一块可读的空状态。
+    #
+    # **顶层与 `meta` 都要认**：`REQ-012.4` 的两个面板把引导写在 `meta.guide` /
+    # `meta.empty_hint` 里（provider 的惯例是把「这份数据怎么来的」都放 meta），
+    # 只读顶层会让空仓渲染成一句引导都没有的空表——独立验收抓到的非阻断项，
+    # 而测试只断言 provider 的字典、不断言 HTML，所以 CI 是绿的。
     if not rows:
-        guide = str((data or {}).get("guide") or (data or {}).get("empty_hint") or "").strip()
+        meta = (data or {}).get("meta") or {}
+        guide = str(
+            (data or {}).get("guide") or (data or {}).get("empty_hint")
+            or meta.get("guide") or meta.get("empty_hint") or ""
+        ).strip()
         if guide:
             return (
                 '<div class="panel-table panel-table-empty">'

@@ -25,7 +25,7 @@ from webui.config import Config
 from webui.core.context import RequestContext
 from webui.core.errors import BadRequest
 from webui.core.jobs import JobRunner
-from webui.core.models import CommandSpec, Param
+from webui.core.models import CommandSpec, CommandStep, JobTypeSpec, Param
 from webui.core.registry import build_registry
 from webui.core.router import find_route
 from webui.core.routes import install_core_routes
@@ -33,6 +33,7 @@ from webui.datastore import DataStore as WebDataStore, parsers
 from webui.plugins import actions as actions_plugin
 from webui.plugins import charts as charts_plugin
 from webui.plugins import commands as commands_plugin
+from webui.plugins import collect as collect_plugin
 from webui.plugins import companies as companies_plugin
 from webui.plugins import data_page as data_page_plugin
 from webui.plugins import home as home_plugin
@@ -60,7 +61,7 @@ def make_app(tmp_path: Path, **overrides):
     install_core_routes(registry, config)
     registry.config = config
     for module in (commands_plugin, companies_plugin, charts_plugin, home_plugin,
-                   data_page_plugin, actions_plugin):
+                   data_page_plugin, actions_plugin, collect_plugin):
         module.contribute(registry)
     registry.datastore = WebDataStore(config, spec_lookup=registry.dataset_spec)
     registry.jobs = JobRunner(
@@ -91,6 +92,17 @@ def panel_data(registry, panel_id: str, **query):
 
 def panel_payload(registry, panel_id: str, **query):
     return call_route(registry, "GET", f"/api/v1/panels/{panel_id}", **query)["data"]
+
+
+def panel_data(registry, panel_id: str, **query):
+    """面板的原始数据（服务端 kind 的表格数据不在载荷里，它已渲染成 HTML）。"""
+    from webui.core.context import RequestContext as Ctx
+    from webui.core.routes import resolve_params
+
+    spec = registry.panel_spec(panel_id)
+    context = Ctx(method="GET", path=f"/api/v1/panels/{panel_id}", query=dict(query),
+                  config=registry.config, registry=registry)
+    return spec.provider(context, **resolve_params(spec, context))
 
 
 def make_store(ctx_or_config, tmp_path: Path):
@@ -421,3 +433,88 @@ def test_data_page_and_company_pages_use_the_same_display_name(tmp_path):
     home_row = panel_data(registry, "home.universe")["rows"][0]
     assert universe_row["company"] == company_row["name"] == home_row["company"] == "600887 伊利股份"
     assert TICKER not in (universe_row["company"], home_row["company"])
+
+
+# --------------------------------------------------------------- 独立验收发现的阻断项（回归）
+
+
+def test_pull_action_carries_the_estimate_that_the_ui_shows(tmp_path):
+    """AC-4 / AC-4.2：**真实接口**的动作条目必须带预估值（预计调用量）。
+
+    门② 的阻断项：`pull_estimate()` 在生产链路里**没有调用者**，前端 `action.estimate`
+    分支是不可达死代码——用户在一次花配额的联网拉取前看不到调用量。这条用例走
+    `GET /api/v1/actions`（不是直接调 provider 函数），否则同样的接线缺陷会再次漏过。
+    """
+    config, registry = make_app(tmp_path)
+    make_store(config, tmp_path)
+    actions = {item["id"]: item
+               for item in call_route(registry, "GET", "/api/v1/actions")["data"]["actions"]}
+
+    pull = actions["data.pull_all"]
+    assert pull["estimate"], f"拉取动作必须给预估：{pull.get('estimate')}"
+    assert pull["estimate"]["requests"] > 0
+    assert pull["estimate"]["detail"], "预估要给依据（哪些数据集、各多少次）"
+
+    fill = actions["data.fill_gaps"]
+    assert fill["estimate"]["requests"] > 0
+    assert fill["estimate"]["requests"] <= pull["estimate"]["requests"], (
+        "只补缺口的预估不该超过全量拉取"
+    )
+
+    # 预估**必须同时进确认文案**：用户是在弹窗里做决定的那一刻看到它的。
+    assert pull["confirm"]["title"] and pull["estimate"]["requests"]
+    client = (Path(__file__).resolve().parents[1] / "scripts" / "webui" / "static"
+              / "kinds" / "actions.js").read_text(encoding="utf-8")
+    assert "action.estimate" in client, "前端要读服务端给的预估"
+    assert "estimate: action.estimate" in client, "确认弹窗也要带上预估"
+
+
+def test_estimate_failure_does_not_break_the_action_catalogue(tmp_path):
+    """AC-4 的边界：预估算不出来时只丢预估，动作清单照常可用（不显示编出来的数字）。"""
+    config, registry = make_app(tmp_path)
+    make_store(config, tmp_path)
+    registry.job_type(JobTypeSpec(
+        id="demo.explosive_estimate", title="预估会炸的动作", group="演示",
+        steps=(CommandStep("datalayer_rebuild",
+                           bind={"ticker": "600887.SH", "output_root": "output"}),),
+        estimate=lambda ctx, selection: 1 / 0,
+    ))
+    actions = {item["id"]: item
+               for item in call_route(registry, "GET", "/api/v1/actions")["data"]["actions"]}
+    entry = actions["demo.explosive_estimate"]
+    assert entry["enabled"] is True
+    assert entry["estimate"] == {}, "算不出来就不给这个键，而不是编一个数字"
+
+
+def test_collect_page_uses_the_same_display_name_as_the_company_pages(tmp_path):
+    """AC-9 / AC-1.4：采集存档页的「公司」列必须与公司页**逐字相同**。
+
+    门② 的阻断项：`collect.rebuild` 用 `pack.parent.name`（目录名 `600887_伊利`），
+    而公司页/图表页/数据页是 `600887 伊利股份`——同一家公司两个名字。这条判据必须落在
+    **渲染出来的 HTML** 上（只断 provider 字典会漏，实测就是漏在这里）。
+    """
+    config, registry = make_app(tmp_path)
+    make_store(config, tmp_path)
+    for name in ("600887_伊利", "000858_五粮液"):
+        directory = tmp_path / "output" / name
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "data_pack_market.md").write_text("# pack", encoding="utf-8")
+    # 只给其中一家 `record.json`：另一家走「目录名约定」兜底（老产物的真实形态）。
+    (tmp_path / "output" / "600887_伊利" / "record.json").write_text(
+        json.dumps({"subject": {"ticker": "600887.SH", "company": "伊利股份"}},
+                   ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    html = panel_payload(registry, "collect.rebuild")["html"]
+    assert "600887 伊利股份" in html, f"采集存档页要用统一显示名：{html[:200]}"
+    assert "000858 五粮液" in html, "没有 record.json 的老产物也要按约定拼显示名"
+    for directory_name in ("600887_伊利", "000858_五粮液"):
+        assert f">{directory_name}<" not in html, f"目录名不该出现在显示名位置：{directory_name}"
+
+    # 与公司页/工作台是**同一个字符串**（不是「看起来像」）：按显示名对齐两边的行。
+    company_rows = {row["name"] for row in panel_data(registry, "companies.list")["rows"]}
+    home_rows = {row["company"] for row in panel_data(registry, "home.universe")["rows"]}
+    assert company_rows == home_rows == {"600887 伊利股份", "000858 五粮液"}
+    for name in company_rows:
+        assert name in html, f"采集存档页缺这一家：{name}"

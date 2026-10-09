@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import shutil
@@ -364,6 +365,14 @@ class Walkthrough:
         size = self.cdp.screenshot(path)
         self.note(f"  截图 {name}（{size // 1024} KB）")
 
+    def shot_bytes(self, name: str):
+        """已落盘截图的字节（用来断言「前后对照」不是同一张图）。"""
+        path = self.out / name
+        try:
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            return ""
+
     # -- 步骤（REQ-012 的 AC-12 全路径） --------------------------------------
 
     def select_company(self, ticker: str) -> None:
@@ -602,20 +611,33 @@ class Walkthrough:
         if not target:
             self.note("  （没有任何多口径的图，跳过切换判据）")
         else:
-            switched = self.cdp.evaluate(
+            # 「切换前」先截一张：切换与截图必须在**两次** evaluate 之间，
+            # 否则两张截图是同一份字节、切换前这一屏没有证据（独立验收抓到的）。
+            before = self.cdp.evaluate(
                 """(() => {
                   const panel = document.querySelector("[data-panel-id='%s']");
                   const node = panel && panel.querySelector('[data-chart-basis]');
                   if (!node) return { error: 'no-basis-switcher' };
                   const canvas = panel.querySelector('canvas');
-                  const before = canvas.toDataURL();
+                  const options = [...node.options].map((item) => item.value);
+                  return { options: options, beforeLength: canvas.toDataURL().length,
+                           basis: node.value };
+                })()""" % target
+            )
+            self.note(f"  口径切换前（{target}）：{before}")
+            self.shot("06a-charts-before-switch.png")
+            switched = self.cdp.evaluate(
+                """(() => {
+                  const panel = document.querySelector("[data-panel-id='%s']");
+                  const node = panel && panel.querySelector('[data-chart-basis]');
                   const options = [...node.options].map((item) => item.value);
                   if (!options.includes('quarter')) return { skipped: true, options: options };
                   node.value = 'quarter';
                   node.dispatchEvent(new Event('change', { bubbles: true }));
-                  return { options: options, beforeLength: before.length };
+                  return { options: options, switched: true };
                 })()""" % target
             )
+            switched = {**(before or {}), **(switched or {})}
             self.note(f"  口径切换（{target}）：{switched}")
             time.sleep(3.0)
             self.shot("06b-charts-quarter.png")
@@ -638,6 +660,14 @@ class Walkthrough:
                 and "basis=quarter" in after["hash"],
                 "切到单季口径后图重画、标注跟着换、URL 带 basis=quarter",
                 f"口径切换没有生效：切换前={switched} 切换后={after}",
+            )
+            # 两张截图必须是**不同**的字节：否则「切换前」这一屏没有证据。
+            # 这一条是脚本对自己的判据（独立验收就是靠比对 md5 发现两张图一模一样的）。
+            self.check(
+                self.shot_bytes("06a-charts-before-switch.png")
+                != self.shot_bytes("06b-charts-quarter.png"),
+                "切换前/后两张截图不是同一份字节（有前后对照）",
+                "切换前后的截图完全相同：这一屏没有前后对照证据",
             )
         self.shot("06-charts.png")
 
@@ -768,6 +798,50 @@ class Walkthrough:
             f"切换后 URL 没跟上：{state['hash']}",
         )
         self.shot("10-switched-company.png")
+
+    def step_display_name_consistency(self, ticker: str) -> None:
+        """⑩ 同一家公司在公司页 / 图表页 / 采集存档页的显示名必须**逐字相同**（`AC-9`）。
+
+        为什么单独一步：独立验收发现「采集存档页把目录名当显示名」时，走查**全绿**——
+        它到那一页只看降级与技术化错误，从不比较跨页显示名。`AGENTS.md` 的常设授权说
+        「脚本全绿本身不算证据」，这一条就是补上那个洞：判据落在**跨页的字符串相等**上，
+        而且顺带钉住「显示名里不许出现目录名的下划线形态」。
+        """
+        self.note(f"⑩ 显示名一致性（AC-9）：{ticker} 在公司页 / 图表页 / 采集存档页")
+        names = {}
+        self.open_page("companies")
+        names["公司列表"] = self.cdp.evaluate(
+            """(() => {
+              const rows = [...document.querySelectorAll('#panels .panel[data-panel-id="companies.list"] tbody tr')];
+              const hit = rows.find((row) => row.textContent.includes('%s'.split('.')[0]));
+              return hit ? hit.children[0].textContent.trim() : '';
+            })()""" % ticker
+        )
+        self.open_page("charts", f"company={urllib.parse.quote(ticker)}")
+        names["图表页顶栏"] = self.panel_state()["company"]
+        self.open_page("collect")
+        names["采集存档页"] = self.cdp.evaluate(
+            """(() => {
+              const table = document.querySelector('#panels .panel[data-panel-id="collect.rebuild"]');
+              if (!table) return '';
+              const rows = [...table.querySelectorAll('tbody tr')];
+              const hit = rows.find((row) => row.textContent.includes('%s'.split('.')[0]));
+              return hit ? hit.children[0].textContent.trim() : '';
+            })()""" % ticker
+        )
+        self.note(f"  三处显示名：{names}")
+        picked = {page: name for page, name in names.items() if name}
+        self.check(
+            len(picked) >= 2 and len(set(picked.values())) == 1,
+            f"三处显示名逐字相同：{set(picked.values())}",
+            f"同一家公司在不同页面的显示名不一致：{names}",
+        )
+        self.check(
+            all("_" not in name for name in picked.values()),
+            "显示名里没有目录名形态（下划线）",
+            f"显示名里出现了目录名：{picked}",
+        )
+        self.shot("11-display-name.png")
 
     # -- 旧步骤（REQ-009 的回归路径，继续保留） ------------------------------
 
@@ -1084,6 +1158,7 @@ def main(argv=None) -> int:
             walkthrough.step_switch_company(ticker, other)
         else:
             walkthrough.note("（只有一家公司，跳过「切换公司」这一步）")
+        walkthrough.step_display_name_consistency(ticker)
         # REQ-009 的既有路径（AC-8 的回归）：公司页 → 点进图表 → 悬停 → 按键页
         walkthrough.step_companies()
         walkthrough.step_company_click_to_charts()

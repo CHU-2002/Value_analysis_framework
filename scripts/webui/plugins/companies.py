@@ -125,13 +125,28 @@ def display_name(ticker: str, company: str, label: str = "") -> str:
     """
     code = str(ticker or "").split(".")[0].strip()
     name = str(company or "").strip()
+    label_code, label_name = _split_label(label)
+    # 缺的部分从目录名补（`600887_伊利` → 代码 `600887`、简称 `伊利`）。
+    # **两边都要补**：只补名字会让「有 ticker 没名字」与「有名字没 ticker」两家公司在
+    # 不同页面上拼出两个结果——门② 的阻断项（`600887` vs `600887 伊利`）就是这条链上的。
+    code = code or label_code
+    name = name or label_name
     if code and name:
         return f"{code} {name}"
     if name:
         return name
     if code:
         return code
-    return display_name_from_label(label)
+    return str(label or "").strip()
+
+
+def _split_label(label: str) -> tuple:
+    """目录名 → (`代码`, `简称`)；不合「数字代码_简称」约定就返回两个空串。"""
+    text = str(label or "").strip()
+    code, separator, rest = text.partition("_")
+    if separator and rest and _CODE_RE.match(code):
+        return code, rest
+    return "", ""
 
 
 #: 目录名约定里的「代码」：A 股/港股/美股的数字代码（`000858` / `600887` / `00700`）。

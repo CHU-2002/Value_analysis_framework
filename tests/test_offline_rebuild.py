@@ -504,7 +504,10 @@ def test_gui_exposes_a_rebuild_panel_that_is_read_only(seeded, tmp_path):
 
     spec = registry.panels["collect.rebuild"]
     rows = spec.provider(_Ctx(config))["rows"]
-    assert rows and rows[0]["company"] == "600887_伊利"
+    # 「公司」列是**统一显示名**（`REQ-012` 的 `AC-9`）：`record.json` 里只有 ticker 时
+    # 按 `<代码> <简称>` 拼，而不是把目录名 `600887_伊利` 摆上去（门② 抓到的阻断项）。
+    assert rows and rows[0]["company"] == "600887 伊利"
+    assert "_" not in rows[0]["company"]
     assert "data-rebuild" in rows[0]["rebuild"] and "600887.SH" in rows[0]["rebuild"]
     assert "collect.rebuild" in [panel for item in registry.nav_items
                                   for panel in item.panels]
