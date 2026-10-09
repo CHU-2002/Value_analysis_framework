@@ -9,7 +9,7 @@ updated: 2026-10-10
 issue: "#75"
 design: docs/CONSOLE_V2_PLAN.md
 milestone: TBD
-pr: "#77, #114, #115"
+pr: "#77, #114, #115, #116"
 depends-on: REQ-009, REQ-009.1, REQ-012
 supersedes: TBD
 ---
@@ -244,3 +244,5 @@ supersedes: TBD
 ## 验收收口（2026-10-10）
 
 实现 #77/#114 与独立缺陷修复 #115 已合入。未参与实现的独立 agent 在正式main `608212d` 验收父需求及三个子需求，全部 AC 通过；完整门禁1903 passed /3 skipped/76.60%，追溯18 passed，48文件1906例。真实浏览器11项零失败，真实Codex实跑954.5秒生成complete run、报告与变化报告；原始失败保留、全部问题登记T5~T12。报告正文仅留本地沙箱，仓库保存命令、usage、SHA与独立结论。证据：[独立验收](../verification/2026-10-10-REQ-013.md)、[真实Codex](../run-records/2026-10-10-REQ-013-Codex.md)、[门③回归](../regression/2026-10-10.md)。
+
+- 验收收口PR：#116（父需求与三个子需求署名，独立报告接线与台账状态同步）。
