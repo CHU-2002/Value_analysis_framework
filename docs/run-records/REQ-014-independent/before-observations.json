@@ -1,0 +1,28 @@
+{
+  "base": "http://127.0.0.1:8895",
+  "browser": "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+  "observations": [
+    {
+      "passed": false,
+      "observation": "空清单引导指向添加与导入入口"
+    },
+    {
+      "passed": false,
+      "observation": "同一数据页存在 add 的可点动作元素"
+    },
+    {
+      "passed": false,
+      "observation": "同一数据页存在 import 的可点动作元素"
+    },
+    {
+      "passed": false,
+      "observation": "同一数据页存在 remove 的可点动作元素"
+    }
+  ],
+  "failures": [
+    "空清单引导指向添加与导入入口",
+    "同一数据页存在 add 的可点动作元素",
+    "同一数据页存在 import 的可点动作元素",
+    "同一数据页存在 remove 的可点动作元素"
+  ]
+}

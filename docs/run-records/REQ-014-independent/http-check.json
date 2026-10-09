@@ -1,0 +1,134 @@
+{
+  "adds": [
+    {
+      "identifier": "600887.SH",
+      "report": {
+        "message": "已添加 600887 伊利股份",
+        "ticker": "600887.SH",
+        "created": true
+      },
+      "rows": [
+        {
+          "ticker": "600887.SH",
+          "company": "600887 伊利股份",
+          "market": "SH",
+          "tier": "bulk",
+          "enabled": "启用",
+          "completeness": "还没有数据",
+          "gaps": 0,
+          "note": null
+        },
+        {
+          "ticker": "601398.SH",
+          "company": "601398 工商银行",
+          "market": "SH",
+          "tier": "bulk",
+          "enabled": "启用",
+          "completeness": "还没有数据",
+          "gaps": 0,
+          "note": null
+        }
+      ]
+    },
+    {
+      "identifier": "600887",
+      "report": {
+        "message": "这家公司已在自选股清单里",
+        "ticker": "600887.SH",
+        "created": false
+      },
+      "rows": [
+        {
+          "ticker": "600887.SH",
+          "company": "600887 伊利股份",
+          "market": "SH",
+          "tier": "bulk",
+          "enabled": "启用",
+          "completeness": "还没有数据",
+          "gaps": 0,
+          "note": null
+        },
+        {
+          "ticker": "601398.SH",
+          "company": "601398 工商银行",
+          "market": "SH",
+          "tier": "bulk",
+          "enabled": "启用",
+          "completeness": "还没有数据",
+          "gaps": 0,
+          "note": null
+        }
+      ]
+    },
+    {
+      "identifier": "600887_伊利",
+      "report": {
+        "message": "这家公司已在自选股清单里",
+        "ticker": "600887.SH",
+        "created": false
+      },
+      "rows": [
+        {
+          "ticker": "600887.SH",
+          "company": "600887 伊利股份",
+          "market": "SH",
+          "tier": "bulk",
+          "enabled": "启用",
+          "completeness": "还没有数据",
+          "gaps": 0,
+          "note": null
+        },
+        {
+          "ticker": "601398.SH",
+          "company": "601398 工商银行",
+          "market": "SH",
+          "tier": "bulk",
+          "enabled": "启用",
+          "completeness": "还没有数据",
+          "gaps": 0,
+          "note": null
+        }
+      ]
+    }
+  ],
+  "invalid": [
+    {
+      "status": 400,
+      "response": {
+        "ok": false,
+        "schema_version": "1.0",
+        "data": null,
+        "warnings": [],
+        "meta": {},
+        "error": {
+          "code": "BAD_REQUEST",
+          "message": "请输入有效的公司代码",
+          "hint": ""
+        }
+      }
+    },
+    {
+      "status": 400,
+      "response": {
+        "ok": false,
+        "schema_version": "1.0",
+        "data": null,
+        "warnings": [],
+        "meta": {},
+        "error": {
+          "code": "BAD_REQUEST",
+          "message": "请输入有效的公司简称（最多 80 个字）",
+          "hint": ""
+        }
+      }
+    }
+  ],
+  "removed": {
+    "message": "已停止跟踪这家公司，所有产物均已保留",
+    "ticker": "600887.SH",
+    "removed": true
+  },
+  "retained_company_files": 260,
+  "unchanged_real_output_files": 400,
+  "assertions": "passed"
+}

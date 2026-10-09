@@ -1,0 +1,272 @@
+.venv/bin/python -m compileall -q scripts tests
+git diff --check
+.venv/bin/python -m pytest -q -n auto --cov=scripts --cov-report=term-missing:skip-covered --cov-fail-under=74
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [  3%]
+........................................................................ [  7%]
+........................................................................ [ 11%]
+........................................................................ [ 15%]
+........................................................................ [ 18%]
+........................................................................ [ 22%]
+..........................................sss........................... [ 26%]
+........................................................................ [ 30%]
+........................................................................ [ 34%]
+........................................................................ [ 37%]
+........................................................................ [ 41%]
+........................................................................ [ 45%]
+........................................................................ [ 49%]
+........................................................................ [ 52%]
+........................................................................ [ 56%]
+........................................................................ [ 60%]
+.........................................................F.............. [ 64%]
+........................................................................ [ 68%]
+................F..................F.................................... [ 71%]
+........................................................................ [ 75%]
+......................................................F................. [ 79%]
+........................................................................ [ 83%]
+........................................................................ [ 87%]
+........................................................................ [ 90%]
+........................................................................ [ 94%]
+........................................................................ [ 98%]
+.....................ss........                                          [100%]
+=================================== FAILURES ===================================
+__________ test_pull_action_publishes_an_estimate_before_any_request ___________
+[gw4] darwin -- Python 3.12.13 /Users/everett.li/Project/Turtle_investment_framework/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/32/9wwdf6zx1pj2c9ngb_7sztgh0000gn/T/pytest-of-everett.li/pytest-1854/popen-gw4/test_pull_action_publishes_an_0')
+
+    def test_pull_action_publishes_an_estimate_before_any_request(tmp_path):
+        """AC-4.2：拉取先给**预估**（服务端算）与确认文案，再显示进度。"""
+        config, registry = make_app(tmp_path)
+        make_store(config, tmp_path)
+        actions = {item["id"]: item
+                   for item in call_route(registry, "GET", "/api/v1/actions")["data"]["actions"]}
+        pull = actions["data.pull_all"]
+>       assert pull["enabled"] is True, "有清单 + 有凭据 → 可以拉取"
+E       AssertionError: 有清单 + 有凭据 → 可以拉取
+E       assert False is True
+
+tests/test_console_data_page.py:278: AssertionError
+______ test_running_pull_goes_through_the_whitelisted_data_layer_command _______
+[gw4] darwin -- Python 3.12.13 /Users/everett.li/Project/Turtle_investment_framework/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/32/9wwdf6zx1pj2c9ngb_7sztgh0000gn/T/pytest-of-everett.li/pytest-1854/popen-gw4/test_running_pull_goes_through0')
+
+    def test_running_pull_goes_through_the_whitelisted_data_layer_command(tmp_path):
+        """AC-4.2：一次动作发起全量拉取——真的是**已注册的按键**（白名单，不新开通道）。"""
+        config, registry = make_app(tmp_path)
+        make_store(config, tmp_path)
+        captured = {}
+
+        def fake_popen(argv, **kwargs):
+            captured["argv"] = argv
+            raise AssertionError("测试只看到此为止：真正的拉取由被编排的 CLI 负责")
+
+        registry.jobs = JobRunner(
+            config, spec_lookup=registry.command_spec, job_lookup=registry.job_type_spec,
+            history_dir=tmp_path / "jobs", env={"TUSHARE_TOKEN": "test-token-value-0123456789"},
+            popen=fake_popen,
+        )
+>       job = call_route(registry, "POST", "/api/v1/actions/data.pull_all/run",
+                         body={"context": {}})["data"]
+
+tests/test_console_data_page.py:349:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_console_data_page.py:81: in call_route
+    return route.handler(context, **params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+ctx = RequestContext(method='POST', path='/api/v1/actions/data.pull_all/run', query={}, body=b'{"context": {}}', config=Conf...rue), registry=<webui.core.registry.Registry object at 0x115969910>, request_id='', secrets=(), log=None, bound_port=0)
+action_id = 'data.pull_all', _ = {}, payload = {'context': {}}, params = {}
+context = {}, resolved = {}
+runner = <webui.core.jobs.JobRunner object at 0x1159e1220>
+spec = JobTypeSpec(id='data.pull_all', title='拉取全部数据', kind='chain', description='按自选股清单完整拉取一次原始数据（联网，会消耗调用配额）。', group='数据',...'}, preflight=<function _pull_blockers at 0x10d1c2e80>, estimate=<function _estimate_pull at 0x10d1c2fc0>, endpoint='')
+entry = {'blockers': ['没有配置数据源凭据：把 TUSHARE_TOKEN 放进项目 .env 或环境变量后重试。'], 'confirm': {'body': '这一步会访问数据源、消耗调用配额，并把新记录写进原始仓。已存在的记...'confirm_label': '开始拉取', 'title': '确认要联网拉取全部数据？'}, 'danger': True, 'description': '按自选股清单完整拉取一次原始数据（联网，会消耗调用配额）。', ...}
+
+    def _run_action(ctx, action_id, **_):
+        """提交一个动作。参数与上下文由服务端解析（`AC-2.1`：用户不手敲内部参数）。"""
+        payload = envelope.json_body(ctx)
+        params = payload.get("params") or {}
+        if not isinstance(params, dict):
+            raise BadRequest("params 必须是对象", hint="参数按名称放在 params 对象里。")
+        context = payload.get("context")
+        if not isinstance(context, dict):
+            context = {}
+        # **解析后的**上下文才拿去提交：前端只传「哪家公司」（`company`），
+        # `company_dir` / `ticker` / `primary_period` 这些编排要用的值由服务端解析出来
+        # （`AC-2.1`：用户不手敲路径）。少这一步时动作会在起进程前报
+        # 「需要一个还没解析出来的值 {ticker}」——实测踩到。
+        resolved = _selection(ctx, context)
+        runner = _runner(ctx)
+        spec = ctx.registry.job_type_spec(action_id)
+        if hasattr(spec, "prepare"):
+            resolved = spec.prepare(ctx, params, resolved)
+        entry = _action_entry(ctx, spec, extra_context=context)
+        if not entry["enabled"]:
+            # 服务端**再判一次**：前端的禁用只是展示，不能当成约束（预检不通过就不起进程）。
+>           raise BadRequest(
+                "这个动作现在还不能执行",
+                hint="；".join(entry["blockers"]) or "缺前置条件。",
+            )
+E           webui.core.errors.BadRequest: 这个动作现在还不能执行
+
+scripts/webui/plugins/commands.py:454: BadRequest
+___ test_filling_gaps_is_its_own_action_not_a_flag_the_user_must_understand ____
+[gw4] darwin -- Python 3.12.13 /Users/everett.li/Project/Turtle_investment_framework/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/32/9wwdf6zx1pj2c9ngb_7sztgh0000gn/T/pytest-of-everett.li/pytest-1854/popen-gw4/test_filling_gaps_is_its_own_a0')
+
+    def test_filling_gaps_is_its_own_action_not_a_flag_the_user_must_understand(tmp_path):
+        """AC-4.3：「只补缺口」是独立动作，标题里不出现 `--only-gaps` 这种开关。"""
+        config, registry = make_app(tmp_path)
+        make_store(config, tmp_path)
+        actions = {item["id"]: item
+                   for item in call_route(registry, "GET", "/api/v1/actions")["data"]["actions"]}
+        fill = actions["data.fill_gaps"]
+        assert fill["title"] == "只补缺口"
+        assert "--only-gaps" not in json.dumps(fill, ensure_ascii=False)
+>       assert fill["enabled"] is True
+E       assert False is True
+
+tests/test_console_data_page.py:371: AssertionError
+___________ test_pull_action_carries_the_estimate_that_the_ui_shows ____________
+[gw4] darwin -- Python 3.12.13 /Users/everett.li/Project/Turtle_investment_framework/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/32/9wwdf6zx1pj2c9ngb_7sztgh0000gn/T/pytest-of-everett.li/pytest-1854/popen-gw4/test_pull_action_carries_the_e0')
+
+    def test_pull_action_carries_the_estimate_that_the_ui_shows(tmp_path):
+        """AC-4 / AC-4.2：**真实接口**的动作条目必须带预估值（预计调用量）。
+
+        门② 的阻断项：`pull_estimate()` 在生产链路里**没有调用者**，前端 `action.estimate`
+        分支是不可达死代码——用户在一次花配额的联网拉取前看不到调用量。这条用例走
+        `GET /api/v1/actions`（不是直接调 provider 函数），否则同样的接线缺陷会再次漏过。
+        """
+        config, registry = make_app(tmp_path)
+        make_store(config, tmp_path)
+        actions = {item["id"]: item
+                   for item in call_route(registry, "GET", "/api/v1/actions")["data"]["actions"]}
+
+        pull = actions["data.pull_all"]
+>       assert pull["estimate"], f"拉取动作必须给预估：{pull.get('estimate')}"
+E       AssertionError: 拉取动作必须给预估：{}
+E       assert {}
+
+tests/test_console_data_page.py:471: AssertionError
+================================ tests coverage ================================
+______________ coverage: platform darwin, python 3.12.13-final-0 _______________
+
+Name                                                 Stmts   Miss  Cover   Missing
+----------------------------------------------------------------------------------
+scripts/acceptance_gate.py                             194     23    88%   58, 62, 143, 177, 327-345, 349
+scripts/agent_action.py                                 99     61    38%   83-84, 120-127, 131-171, 175-178, 182-246, 250
+scripts/analysis_status.py                             299     52    83%   24-25, 29-30, 34-35, 39-40, 45-49, 100-103, 110, 116-117, 120, 142, 176, 188, 191-192, 206-207, 216-217, 319, 350, 366, 434, 439, 445, 449, 501-504, 532, 541-544, 551, 557-559, 563, 568
+scripts/buy_sell_engine.py                             318     14    96%   31-32, 74, 77, 125, 128, 130, 145, 198, 218, 237, 250, 274, 435
+scripts/buy_sell_inputs.py                              96      4    96%   38-39, 43, 90
+scripts/buy_sell_plan.py                                28      3    89%   41-42, 48
+scripts/datalayer/__init__.py                           12      1    92%   42
+scripts/datalayer/__main__.py                            2      2     0%   3-5
+scripts/datalayer/access.py                            236     22    91%   46, 83, 130, 162, 186, 196-198, 222, 231, 246, 268-271, 289, 314, 365, 389-394
+scripts/datalayer/cli.py                               253    153    40%   42, 116-123, 127-129, 136-189, 201-228, 234-237, 246, 248, 258-298, 302-311, 315-321, 325-350, 354-357, 377-378, 384-391
+scripts/datalayer/config.py                             24      3    88%   28, 34, 40
+scripts/datalayer/dataframe_codec.py                    32      4    88%   31, 59, 62-65
+scripts/datalayer/endpoints.py                         107     16    85%   77, 119-137, 176
+scripts/datalayer/gaps.py                               49      2    96%   49, 81
+scripts/datalayer/legacy.py                            140     40    71%   33, 35, 38, 70-75, 110-111, 115, 118-121, 125-126, 130-133, 150-152, 176-177, 180-183, 189-193, 199, 230-237
+scripts/datalayer/pull.py                              228     38    83%   42, 137-142, 197, 200-203, 227, 235, 251, 262-273, 346-352, 359-360, 364-367, 375
+scripts/datalayer/rebuild.py                            80     22    72%   30-49, 85, 116
+scripts/datalayer/registry.py                           71      3    96%   158, 164-165
+scripts/datalayer/security.py                           20      5    75%   34-38
+scripts/datalayer/store.py                             367     36    90%   139, 236, 311-312, 315-316, 327-329, 362, 418, 445-446, 478, 483, 559, 586-588, 609, 611, 616, 629-630, 718, 756-757, 768-773, 821, 838, 841
+scripts/datalayer/universe.py                          115      5    96%   68, 160, 168-169, 171
+scripts/discover_report.py                             444     30    93%   22-23, 85, 184, 220, 314, 334, 351, 355, 388, 410, 424, 490, 625, 665, 673, 682, 684, 766-776, 887-889, 907-910, 945
+scripts/download_report.py                             418     25    94%   39-40, 170, 184, 266, 286, 372-373, 375, 394, 459-460, 542-545, 564, 673, 742-746, 810, 839
+scripts/generate_available_fields.py                    37     37     0%   12-69
+scripts/gui_walkthrough.py                             688    688     0%   27-1530
+scripts/market_sessions.py                              13      1    92%   16
+scripts/md_to_mobile_html.py                            32     32     0%   6-130
+scripts/pdf_preprocessor.py                            509     80    84%   46-47, 289, 304, 319, 344-345, 374, 392, 397, 403, 407-411, 425, 428-444, 463, 610, 693, 711, 774, 780, 823-825, 832, 876, 878, 911, 918-931, 947, 1106-1108, 1131-1132, 1152, 1160-1165, 1193-1199, 1207-1209, 1213
+scripts/periods.py                                     152      5    97%   91, 108, 150, 189, 298
+scripts/portfolio_engine.py                            314    165    47%   87, 92, 98, 114-116, 141-169, 200, 276, 353, 355, 357, 364, 367-368, 376, 385, 391-393, 395, 398-399, 430-431, 435-436, 454-455, 459-463, 472-475, 492, 508-514, 519-635, 639
+scripts/pr_body_guard.py                                50     14    72%   85-98, 102
+scripts/regression_gate.py                             118     44    63%   38, 42, 52, 78-86, 126, 128, 145-160, 200-232, 236
+scripts/report_to_html.py                              211    211     0%   14-466
+scripts/req_registry.py                                 81     15    81%   44, 103, 106, 111, 119-128, 139
+scripts/results/change_report.py                       150      7    95%   66, 95, 148, 161, 164, 312, 324
+scripts/results/context.py                             397     45    89%   112, 289-306, 475-476, 505, 510, 515, 655, 699-701, 714-716, 722-723, 744, 838, 843-865, 873
+scripts/results/evidence.py                            251     37    85%   59, 67, 69, 105, 140, 296, 312, 321, 344, 360, 374, 381-386, 393, 402, 411-416, 420-435, 439
+scripts/results/manifest.py                            116     28    76%   51-52, 84, 111, 115-116, 138, 142-143, 147, 149, 191-194, 198-214, 218
+scripts/results/prepare.py                             235     30    87%   18-19, 23-24, 28-29, 33-34, 74-75, 160, 228-229, 231, 234, 370-371, 509-546, 550
+scripts/results/reconcile_results.py                   101      4    96%   103, 124, 200, 275
+scripts/results/resolve_qualitative.py                 230     42    82%   24-25, 62-63, 67, 72-73, 87, 99, 102-103, 109, 129, 132-133, 138, 142, 144, 150, 153-155, 159-160, 173, 188, 195, 202, 206, 210, 273, 360, 363-366, 368-375, 402-403, 413
+scripts/results/schema.py                              271     36    87%   170, 195-196, 213, 216, 218, 252, 282-283, 287, 291, 295-296, 302-303, 306, 308, 315, 317, 319, 321, 326-327, 329, 331, 335, 343, 345, 364, 374, 384, 389, 432, 481, 488-489
+scripts/results/synthesis.py                           189     26    86%   109, 158, 160, 162, 181, 199, 212, 325, 333-356, 361
+scripts/results/validate_result.py                      38      1    97%   52
+scripts/runs.py                                        622     75    88%   33-34, 38-39, 43-44, 118, 136, 138, 147-152, 170-171, 182, 210-211, 364, 367, 370, 402, 408, 440, 456, 557-558, 632, 635, 672, 682, 685, 688, 690, 697, 700-701, 718, 766-767, 782, 800, 803, 831, 835, 839, 843-852, 857-858, 860, 886, 913, 940, 944, 1003-1009, 1057, 1206-1208, 1225-1227, 1232
+scripts/screener_config.py                              66      4    94%   122, 124, 126, 128
+scripts/screener_core.py                               816    130    84%   36-39, 108-109, 119-120, 131, 145-146, 184, 197, 217-218, 223, 225, 305, 308, 347, 429, 436, 443, 454, 480-481, 491-492, 509-510, 519, 561, 565, 569, 577-578, 581, 585, 589-590, 596, 626, 669-670, 679, 686-687, 691-692, 714-715, 728-729, 787, 789, 791, 819-820, 828-829, 843-844, 994-995, 999, 1003-1004, 1106-1108, 1114-1116, 1160, 1167, 1224, 1231, 1237, 1302-1389, 1393
+scripts/split_data_pack.py                              84     43    49%   53-59, 72, 81, 85, 96-155, 159
+scripts/test_scope.py                                  124     18    85%   106-114, 221-229, 232-234, 238, 270
+scripts/tushare_collector.py                           142     33    77%   28-29, 109, 131, 247-249, 252-257, 281-282, 286-303, 315
+scripts/tushare_modules/assembly.py                    300     26    91%   30, 37, 84-87, 153, 171-172, 214, 238, 344-345, 353-355, 373-375, 440, 524-525, 582-585
+scripts/tushare_modules/derived_metrics.py             791     42    95%   37, 42, 199-201, 259, 321, 333, 422, 431-433, 439, 450, 514, 517, 520, 616-617, 651, 657, 678, 689, 695, 702, 712, 714, 716, 727, 824, 827, 847, 933, 977, 1043, 1063, 1190, 1192-1194, 1207-1208
+scripts/tushare_modules/financials.py                  909    188    79%   18, 100-104, 111-112, 141-145, 147, 163-164, 252-253, 256-277, 291, 293, 295, 347-348, 410-411, 420-421, 473-474, 488-489, 521, 572-573, 648-649, 658-659, 710-711, 720-721, 755, 801-802, 870-871, 880-881, 908, 920, 944-945, 954-955, 980, 992, 1000, 1035-1036, 1062-1077, 1085-1087, 1109-1118, 1168, 1178-1213, 1304-1317, 1383-1429, 1467-1468, 1554-1555, 1606-1618, 1622-1631, 1635-1641, 1648-1649
+scripts/tushare_modules/infrastructure.py              188      6    97%   80, 177, 198, 229, 263, 288
+scripts/tushare_modules/other_data.py                  303     20    93%   23, 26-27, 152-154, 233-236, 254-256, 309, 346-347, 367-368, 400-401
+scripts/tushare_modules/yfinance_integration.py        185     40    78%   39, 53-54, 59, 64, 68, 72, 80-88, 93, 105-123, 139-140, 152-153, 158, 181, 195-196, 219, 231, 266, 289
+scripts/valuation_engine.py                            855    565    34%   72, 74, 89, 92, 95, 101, 106-108, 110-112, 135, 139, 167-175, 204, 206, 211-214, 219, 226-230, 259, 289, 302-307, 324, 344-434, 461-544, 571, 578, 591, 594, 602-605, 607, 620, 650-653, 656-658, 684-695, 723, 749, 760, 774, 805-848, 866-931, 947-1002, 1027, 1046, 1050, 1071-1073, 1076-1078, 1082-1090, 1094-1421, 1430-1474, 1482-1506, 1510
+scripts/value_analysis_engine.py                      1205    422    65%   62-69, 73-79, 89-105, 113, 136, 145, 152, 164, 177, 206, 316-317, 323-324, 329, 331, 333, 335, 337, 339, 341, 343, 345, 347, 349-353, 355, 358-359, 367, 369, 410-416, 427, 432-433, 435, 437-438, 481, 484, 522, 524, 526, 528, 530, 532, 535, 561-563, 565-567, 595-601, 627, 637-646, 670, 677, 682, 684, 686, 702, 707, 728, 745, 747, 778-809, 826-828, 831-832, 837-839, 844-845, 847-849, 852-853, 856-857, 860-861, 864-865, 867-869, 872-873, 879-880, 887-889, 891-893, 895-897, 928-1043, 1050, 1066-1067, 1090-1091, 1125, 1135, 1140-1143, 1145, 1147, 1150, 1154, 1156, 1158, 1160, 1163-1164, 1169, 1171, 1173, 1175, 1193, 1223-1234, 1242-1275, 1314-1329, 1385-1400, 1409, 1419, 1423, 1440, 1460-1476, 1496, 1592-1628, 1636, 1638, 1640, 1656-1659, 1661-1668, 1687-1692, 1707-1710, 1749-1754, 1815-1816, 1879
+scripts/value_publication.py                           414     49    88%   44-45, 49-50, 54-55, 200, 216, 240, 259, 283, 287-290, 309-310, 315, 330, 333, 352, 395, 398-399, 495, 498-499, 502, 510, 532, 587, 589, 595, 603, 633, 645, 647, 704, 757, 786, 891, 917, 924-929, 934
+scripts/version.py                                     111     14    87%   106-107, 140-141, 241-243, 248-253, 258
+scripts/watchlist_action.py                            111     54    51%   11-12, 51, 55, 61-80, 85-86, 90-91, 102-114, 118-124, 128-137, 141
+scripts/watchlist_walkthrough.py                       110    110     0%   3-128
+scripts/webui/__main__.py                              149     72    52%   94, 96, 98, 114-116, 118, 122-124, 128, 131-133, 136-194, 225-226, 232-247
+scripts/webui/archive/adapters/tushare.py               18     18     0%   3-27
+scripts/webui/archive/batch.py                         123     34    72%   26, 41, 56, 59, 66-77, 103-105, 129-133, 137-138, 154-162
+scripts/webui/archive/gaps.py                           12      2    83%   18, 29
+scripts/webui/archive/quota.py                          25      1    96%   25
+scripts/webui/archive/store.py                          97     13    87%   24, 26, 46, 64, 67-68, 95-96, 103-104, 124-127, 131
+scripts/webui/archive/token.py                          21      3    86%   22-23, 28
+scripts/webui/config.py                                 97     16    84%   58, 84, 102, 105, 107, 109-112, 138-139, 157-158, 160, 162, 164
+scripts/webui/core/envelope.py                          24      2    92%   65, 71
+scripts/webui/core/jobs.py                             645    101    84%   120-123, 125-128, 130-137, 140, 145, 165, 180-181, 205, 240, 253-263, 270-271, 393, 399-400, 440, 442, 450, 455, 469-473, 494, 516, 534-550, 659, 694-696, 713-718, 726, 728, 850-856, 859-860, 877-879, 976-977, 1007-1010, 1058-1060, 1135-1138
+scripts/webui/core/models.py                           122      6    95%   49-51, 123, 179, 255
+scripts/webui/core/registry.py                         135      4    97%   153, 188, 226, 237
+scripts/webui/core/router.py                            42      2    95%   49, 57
+scripts/webui/core/routes.py                           120      9    92%   32-37, 165-166, 185
+scripts/webui/core/security.py                          86      3    97%   27-28, 82
+scripts/webui/core/server.py                           162     13    92%   70-76, 89-90, 94, 144, 156, 158, 171, 268, 294-295
+scripts/webui/datastore/cache.py                       107     17    84%   51-52, 115-116, 118, 121-122, 142-144, 155, 164-165, 174-175, 179-180
+scripts/webui/datastore/datasets.py                     89      7    92%   78, 88, 96-99, 132, 137, 139
+scripts/webui/datastore/parsers/__init__.py             21      3    86%   16, 23, 31
+scripts/webui/datastore/parsers/markdown_tables.py      94     18    81%   58, 74, 77, 112, 119-131, 138
+scripts/webui/plugins/__init__.py                       55      7    87%   47, 52, 68-69, 72, 82, 91
+scripts/webui/plugins/actions.py                       152     25    84%   35, 40, 52-53, 69, 81-82, 85, 133, 153, 162, 168-169, 172-173, 175, 192, 204, 212-213, 216-218, 370-372
+scripts/webui/plugins/charts.py                        120      4    97%   60, 132, 140, 233
+scripts/webui/plugins/collect.py                        92     15    84%   25-26, 94-100, 134-137, 167-168
+scripts/webui/plugins/commands.py                      279     15    95%   111, 184, 193, 196, 198, 216, 239, 258, 313, 384, 388, 413-414, 438, 472
+scripts/webui/plugins/companies.py                     249     21    92%   67-69, 140, 166, 255, 287-288, 354, 374-380, 389-390, 451-452, 488
+scripts/webui/plugins/data_page.py                     126     21    83%   46-47, 53, 58-59, 68-69, 81, 84-85, 103-104, 182, 190-191, 221-222, 224, 247, 260-261
+scripts/webui/plugins/home.py                          125     16    87%   40-41, 46, 51-52, 61-62, 76-79, 133, 137, 143, 165-166
+scripts/webui/plugins/run_history.py                   100      8    92%   26, 29, 38, 45-46, 59, 70-71
+scripts/webui/plugins/watchlist.py                      69      2    97%   58, 61
+scripts/webui/render/markdown_safe.py                  125     23    82%   39, 47-48, 56, 62, 121-127, 129-132, 149-151, 154-156, 162, 170
+scripts/webui/render/panels.py                         111      3    97%   108, 137, 235
+----------------------------------------------------------------------------------
+TOTAL                                                19249   4455    77%
+
+17 files skipped due to complete coverage.
+Required test coverage of 74% reached. Total coverage: 76.86%
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_integration.py:30: TUSHARE_TOKEN not set — skipping live API tests
+SKIPPED [1] tests/test_integration.py:76: TUSHARE_TOKEN not set — skipping live API tests
+SKIPPED [1] tests/test_integration.py:110: TUSHARE_TOKEN not set — skipping live API tests
+SKIPPED [2] tests/test_results_pipeline.py:2156: 本地没有真实中报 PDF（output/ 已 gitignore）
+FAILED tests/test_console_data_page.py::test_pull_action_publishes_an_estimate_before_any_request
+FAILED tests/test_console_data_page.py::test_running_pull_goes_through_the_whitelisted_data_layer_command
+FAILED tests/test_console_data_page.py::test_filling_gaps_is_its_own_action_not_a_flag_the_user_must_understand
+FAILED tests/test_console_data_page.py::test_pull_action_carries_the_estimate_that_the_ui_shows
+4 failed, 1894 passed, 5 skipped in 69.53s (0:01:09)
+make: *** [cov] Error 1
