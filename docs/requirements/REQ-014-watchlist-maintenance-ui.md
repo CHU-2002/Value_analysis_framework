@@ -97,7 +97,6 @@ supersedes: TBD
 | T5 开关形态代码 | 已修复 | 独立预检发现代码 A--.SH 可进入结果文案；入口拒绝双连字符及路径形态；简称与导入跳过标签统一净化，测试复用 REQ-012 的 FORBIDDEN 规则，补失败路径断言 | `tests/test_watchlist_ui.py` |
 | T6 浏览器任务历史隔离 | 已落实 | 默认任务历史写产物根的隐藏目录；最终走查改为真实产物原样快照，仓、缓存与任务历史全部写沙箱，真实源只读 | 研发实跑记录及独立报告 |
 | T7 测试的真实凭据依赖 | 已修复 | 独立干净 worktree 中四个数据动作测试因无 .env 失败；共享 fixture 隔离数据层 dotenv，四个联网编排测试显式注入假凭据，不改产品判定 | `tests/conftest.py`、`tests/test_console_data_page.py`及独立报告 |
-
 | T8 验收证据归档目录 | 已落实 | 本地收口门禁把 verification 下所有新增文件当报告，读取 PNG 时解码失败；独立验收者将截图与 JSON/log 原样归档到 run-records，verification 只留验收报告，不修改门禁判定 | 独立报告与原始证据链接 |
 
 ## 实跑记录
