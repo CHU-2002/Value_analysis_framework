@@ -72,7 +72,7 @@ def _pull_blockers(ctx, selection: dict) -> dict:
 
         entries = Universe(store).entries(enabled_only=True)
         if not entries:
-            blockers.append("自选股清单是空的：先在数据页把要跟踪的公司加进清单。")
+            blockers.append("自选股清单还是空的：清单决定要拉哪些公司，先把它建起来。")
     except Exception as exc:  # noqa: BLE001
         blockers.append(f"读自选股清单失败：{type(exc).__name__}")
     else:

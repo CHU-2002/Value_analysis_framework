@@ -28,7 +28,7 @@ import pytest
 from webui.config import Config
 from webui.core.context import RequestContext
 from webui.core.errors import BadRequest, InvalidParam, TooManyJobs, UnknownCommand
-from webui.core.jobs import AWAITING, FINISHED, JobRunner
+from webui.core.jobs import AWAITING, FAILED, FINISHED, JobRunner
 from webui.core.models import (
     CommandSpec,
     CommandStep,
@@ -163,15 +163,29 @@ def call_route(registry, method: str, path: str, body=None, **query):
 _PENDING = ("running", "queued", "awaiting_agent")
 
 
-def wait_history_file(registry, job_id: str, timeout: float = 5.0) -> None:
-    """等某个任务的历史文件落盘（避免「内存已 finished、磁盘还没写」的时序依赖）。"""
+def wait_history_finished(registry, job_id: str, timeout: float = 5.0) -> dict:
+    """等这个任务的**历史文件里出现终态**（不是「文件存在」就算数）。
+
+    门② 第八轮把上一版等待点证伪了：历史文件在 `submit()` 阶段就已落盘（`status=running`），
+    所以 `path.exists()` **立即返回**，根本没等到最后一次写入——CI 上偶发的
+    `assert 0 >= 1` 依然能发生。正确判据是「读得出来、且已经是终态」。
+
+    与之配套的产品侧修法是 `JobRunner._write_history()` 改成**原子写**
+    （临时文件 + `os.replace`），否则读者会遇到「存在但为空/半截」的文件，
+    而 `_load_history()` 会静默跳过它（那条路径现在也会重读一次并留痕迹）。
+    """
     path = Path(registry.jobs.history_dir) / f"{job_id}.json"
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if path.exists():
-            return
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8") or "{}")
+            except (OSError, json.JSONDecodeError):
+                payload = {}
+            if payload.get("status") not in (None, "running", "queued", "awaiting_agent"):
+                return payload
         time.sleep(0.02)
-    raise AssertionError(f"任务 {job_id} 的历史文件没有落盘：{path}")
+    raise AssertionError(f"任务 {job_id} 的历史文件里始终没有终态：{path}")
 
 
 def wait_job(registry, job_id: str, timeout: float = 15.0, until=None) -> dict:
@@ -1007,10 +1021,10 @@ def test_job_history_round_trips_through_a_restart(tmp_path):
     final = wait_job(registry, job["id"])
     assert final["status"] == FINISHED
     assert final["outputs"]["writes"][0]["exists"] is True
-    # **等落盘**：`wait_job` 看到内存里 `finished` 就返回，而历史文件的最后一次写入
-    # 可能还差一拍（CI 上就是这么红的：`assert 0 >= 1`）。这里等文件出现再重启 runner，
-    # 判据本身不放宽（仍然断言历史读得回来），只是不再依赖调度时序。
-    wait_history_file(registry, job["id"])
+    # **等到历史里出现终态**再重启 runner（见 `wait_history_finished` 的说明：
+    # 「文件存在」是不够的，它在 `submit()` 阶段就存在了）。判据本身不放宽
+    # （仍然断言重启后历史读得回来），只是不再依赖写入时序。
+    wait_history_finished(registry, job["id"])
 
     # 模拟「面板重启」：用同一个历史目录新建一个 runner，再读列表。
     restarted = JobRunner(
@@ -1054,3 +1068,33 @@ def test_continue_reports_the_missing_artifacts_in_its_response(tmp_path):
     assert resumed["status"] in (FINISHED, "running"), (
         f"产物就绪后应当放行：{resumed['status']}"
     )
+
+
+def test_interrupted_history_gets_a_rebuilt_failure_summary(tmp_path):
+    """AC-5 / AC-2.3：服务重启把在跑的任务标成「已中断」后，摘要要**重建**且措辞正确。
+
+    门② 第八轮登记的 F5：重启读回的历史里只有 `error`，`failure_summary` 是空的，
+    卡片上的「发生了什么 + 怎么办」靠前端兜底；而直接调 `_summarise()` 的兜底文案在
+    `exit_code is None` 时会说「命令没能启动」——对**启动过**的中断任务是误导。
+    所以：先给 `_FAILURE_RULES` 补「已中断」规则，再在 `_load_history` 里重建摘要。
+    """
+    config, registry = make_app(tmp_path)
+    history = Path(registry.jobs.history_dir)
+    history.mkdir(parents=True, exist_ok=True)
+    (history / "job-interrupted.json").write_text(
+        json.dumps({"id": "job-interrupted", "command": "step_echo", "title": "演示",
+                    "argv": [], "status": "running", "steps": [], "log": [],
+                    "started_at": "2026-10-09T00:00:00+00:00",
+                    "error": "服务重启时该任务仍在运行（已中断）"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    restarted = JobRunner(config, spec_lookup=registry.command_spec,
+                          job_lookup=registry.job_type_spec, history_dir=history, env={})
+    job = restarted.get("job-interrupted")
+    assert job["status"] == FAILED
+    summary = job["failure_summary"]
+    assert summary, "重启读回时摘要必须被重建（F5）"
+    assert "被中断" in summary["what"], summary
+    assert "命令没能启动" not in summary["what"], "中断过的任务不该说「没能启动」"
+    assert summary["how"], "「怎么办」也要有"

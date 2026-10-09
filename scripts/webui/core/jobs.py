@@ -33,6 +33,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -75,6 +76,12 @@ _ENUM_SLOT_RE = re.compile("\x00(\\d+)\x00")
 
 #: 已知的错误 → 「发生了什么 + 怎么办」。命中不了就给通用兜底（不硬猜原因）。
 _FAILURE_RULES: tuple = (
+    # **必须排在最前**：服务重启会把手里的任务标成「已中断」，它确实启动过，
+    # 落到兜底的「命令没能启动」是误导（门② 第八轮 F5）。这条规则让**重建**出来的
+    # 摘要与当初失败时生成的一致。
+    (re.compile(r"已中断|interrupted", re.I),
+     "服务重启时这个任务还在跑，已经被中断",
+     "重新发起一次；已经跑完的步骤不会白费——产物仍在产物目录里。"),
     (re.compile(r"NO_TOKEN|未配置\s*Tushare\s*token|TUSHARE_TOKEN", re.I),
      "没有可用的数据源凭据",
      "在项目 .env 或环境变量里配置 TUSHARE_TOKEN 后重试。"),
@@ -660,22 +667,50 @@ class JobRunner:
         return payload
 
     def _write_history(self, job: Job) -> None:
-        """任务历史落盘（AC-1.4）：面板重启后仍能查看。写不了也不能让任务本身失败。"""
+        """任务历史落盘（AC-1.4）：面板重启后仍能查看。写不了也不能让任务本身失败。
+
+        **原子写**：先写同目录的临时文件再 `os.replace()` 覆盖目标。直接 `write_text()`
+        是「truncate → 写」两步，读到「文件存在但内容为空/半截」的窗口是真实存在的，
+        而 `_load_history()` 遇到解析失败会**静默跳过**——两者相撞就会偶发丢掉一条历史
+        （CI 上表现为 `test_job_history_round_trips_through_a_restart` 的 `assert 0 >= 1`；
+        门② 第八轮用「慢写」确定性复现过：等待点返回时文件存在但为空）。
+        """
         try:
             self.history_dir.mkdir(parents=True, exist_ok=True)
-            (self.history_dir / f"{job.id}.json").write_text(
-                json.dumps(self._public(job), ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            path = self.history_dir / f"{job.id}.json"
+            payload = json.dumps(self._public(job), ensure_ascii=False, indent=2)
+            tmp = path.with_suffix(f".{os.getpid()}.tmp")
+            tmp.write_text(payload, encoding="utf-8")
+            os.replace(tmp, path)      # 同目录内 rename，读者要么看到旧的、要么看到完整的新
         except OSError:  # pragma: no cover - 只影响「重启后仍可查看」，不影响任务执行
             pass
+
+    def _read_history_payload(self, path):
+        """读一条历史；**半截文件重读一次**再放弃（原子写之后仍留这道保险）。
+
+        磁盘写入即使原子，也可能遇到上一次进程被 `kill -9` 停在写盘中间（临时文件没 rename
+        成功不算，但如果目标文件本身就是旧的半截状态，重读一次能给磁盘一点时间）。
+        两次都读不出来就跳过——**但不再默不作声**：留一条 stderr 线索，否则「历史少了一条」
+        这种问题在现场根本查不出来（门② 第八轮的 F1 就是靠读代码才定位到的）。
+        """
+        for attempt in (1, 2):
+            try:
+                raw = path.read_text(encoding="utf-8")
+                if raw.strip():
+                    return json.loads(raw)
+            except (OSError, json.JSONDecodeError):
+                pass
+            if attempt == 1:
+                time.sleep(0.05)
+        print(f"[webui] 跳过读不出来的任务历史：{path}", file=sys.stderr)
+        return None
 
     def _load_history(self) -> None:
         if not self.history_dir.is_dir():
             return
         for path in sorted(self.history_dir.glob("*.json")):
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
+            payload = self._read_history_payload(path)
+            if payload is None:
                 continue
             if not isinstance(payload, dict) or not payload.get("id"):
                 continue
@@ -731,6 +766,10 @@ class JobRunner:
                 steps=steps,
                 outputs=dict(payload.get("outputs") or {}),
                 danger=bool(payload.get("danger")),
+                # 重启读回时 `failure_summary` 可能是空的（例如被 `kill -9` 打断的 running
+                # 任务，历史里只落了 `error`）。构造完 Job 之后按**同一条生成逻辑重建**
+                # （见下面的 `_summarise` 调用），这样卡片上「发生了什么 + 怎么办」两份都在
+                # ——门② 第八轮登记的 F5。
                 failure_summary=dict(payload.get("failure_summary") or {}),
                 # 交接信息（含已解析路径）也要恢复：否则重启后「这家公司上次失败过」
                 # 这类**跨重启**的判据（工作台待办）会凭空丢掉。
@@ -740,6 +779,10 @@ class JobRunner:
                     maxlen=max(10, int(self.config.job_log_tail)),
                 ),
             )
+            # F5 的重建点：历史里只有 `error` 时补出摘要（用的是同一条 `_summarise`，
+            # 所以「已中断」这类措辞有 `_FAILURE_RULES` 兜着，不会退化成误导文案）。
+            if job.status == FAILED and not job.failure_summary:
+                job.failure_summary = self._summarise(job)
             self._jobs[job.id] = job
 
     # ---------------------------------------------------------------- 入队与调度

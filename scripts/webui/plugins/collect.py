@@ -191,7 +191,11 @@ def contribute(registry):
     registry.panel(PanelSpec(
         id="collect.archive", kind="table", title="采集存档完备度",
         provider=_archive_summary, size="full",
-        description="仅读取本地原始存档台账；采集由显式 CLI 命令触发。",
+        # 面板级声明**必须与列级 `sort` 配对**：列上写了 `sort` 而面板没声明，
+        # 渲染层就不会下发 `data-table-controls`，那些排序键等于死代码
+        # （门② 第八轮：`collect.archive` 正是这个形状——反向的同类缺陷）。
+        options={"table": {"search": True, "sort": True, "page": 50}},
+        description="仅读取本地原始存档台账；这一页不会发起任何联网请求。",
     ))
     registry.panel(PanelSpec(
         id="collect.batches", kind="table", title="采集批次进度",

@@ -294,7 +294,10 @@ def contribute(registry):
     registry.panel(PanelSpec(
         id="data.store", kind="table", title="存储概览",
         provider=_store_panel, size="full",
-        options={"table": {"search": True, "sort": True, "page": 50}},
+        # 这是一张**两列的键值表**（指标 / 数值），排序没有意义：原先声明了 `sort: True`
+        # 却没给任何列 `sort` 键，渲染出来 0 个可排序表头——正是第三轮那条缺陷的形状，
+        # 门② 第八轮抓到的 F2。**去掉面板级声明**（而不是给键值表编造排序键）。
+        options={"table": {"page": 50}},
         description="仓规模、各结果计数与最近批次；原始仓可整体拷走。",
     ))
     registry.panel(PanelSpec(
