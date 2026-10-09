@@ -19,6 +19,60 @@
 
 ### Added
 
+- **REQ-012 控制台 2.0（公司上下文 + 任务式交互 + 视图质量）**：四片（`.1`~`.4`）一次性交付，
+  状态推进为 `implemented`（待独立验收）。**导航与上下文**：`NavItem` 新增可选字段
+  `children` / `requires` / `default`，侧栏按用户任务分 5 组 9 页（工作台 / 数据 / 公司 / 任务 / 分析），
+  `/api/v1/nav` 增回 `default_page`、`/api/v1/pages/{id}` 增回 `requires`；`home` 用
+  `NavItem(default=True)` 作默认落地页（**核心不认识 `home` 这个 id**，谁声明谁生效）；
+  `charts` / `report` / `runs` 声明 `requires=("selection.company",)`，缺上下文时前端 shell
+  **不渲染面板、不发面板请求**，改显示「先选一家公司」空状态——`REQ-009` 登记的空选择冷启动降级
+  （`E2`）就此关闭；公司级动作因此有了全局的「当前公司」，URL 与端点统一用 ticker
+  （`600887.SH`，目录名保留为兼容别名），全站显示名统一为 `600887 伊利股份`
+  （`plugins/companies.py::display_name` 是唯一来源）。**动作层**：动作声明在**既有的第 6 类注册点**上
+  （`registry.job_type(JobTypeSpec(...), runner=…)`，`runner` 可省、默认 `chain`），
+  **没有新增第 7 类注册点**——`job_type(kind, runner)` 的旧签名与 `job_types()` 的「类型 id 元组」
+  语义逐字保留；新模型 `JobTypeSpec` / `CommandStep` / `HumanStep`，步骤可声明
+  `capture`（从该步 stdout 正则取值，如 `runs resolve` → `{run_dir}`）、`writes`、
+  人机交接（`HumanStep` 给可复制命令与已解析路径，任务置 `awaiting_agent` **不占并发槽**，
+  用户确认后服务端校验产物**存在且比该步开始时新**——真实墙钟与进入交接前的 mtime 快照取更严者）。
+  消费者：`GET /api/v1/actions`（可用性快照 `enabled` / `blockers` / `effects` / `confirm` / `steps`）、
+  `POST /api/v1/actions/{id}/run`，以及 `POST /api/v1/jobs/{id}/retry`、`/continue`、`/abandon`；
+  四个内置动作（`plugins/actions.py`）：`company.update_analysis`（含一个交接步）、
+  `data.pull_all` / `data.fill_gaps`（联网、花配额、需确认）、`data.rebuild`（完全离线、不花钱、无需确认），
+  参数由**服务端**从当前上下文解析成绝对路径与规范标识。**调度**：`core/jobs.py` 从「一个 job = 一条命令」
+  扩到「一个 job = 一串步骤」，新增状态 `queued`（并发满了排队，上限为新配置项 `max_queued_jobs`，
+  默认 **20**，`0` 等于「不排队、超限即拒」）与 `awaiting_agent`；失败给
+  `failure_summary`（「发生了什么 + 怎么办」）且**原始日志不删**；新增 `progress`（总步数/已完成/当前步）
+  与 `outputs`（声明产物 → 实际路径 + 是否已生成）；旧 `submit(command_id, params)` 的行为与载荷
+  形状对旧字段保持不变（新字段是**追加**）。**视图质量**：图表按口径分组（`annual` / `half` / `quarter`，
+  默认年度），序列带 `basis` / `cumulative`，数据集回 `bases` / `basis_labels` / `basis_kind` /
+  `labels_by_basis` / `series_by_basis`，`filter_basis` 按口径裁剪并**重算索引**，图表面板
+  `options.chart.toolbar = {basis, unit, export}`，数据集 `parser_version` 1→**2**（缓存键含版本，
+  老缓存自动失效）；前端拆成 `static/kinds/chart_core.js`（比例尺/刻度/图例流动布局/DPR 适配/
+  按实测宽度抽稀标签/缺失值断开+空心点/悬停/导出 PNG 与 TSV）与 `static/kinds/chart.js`
+  （只做分发 + 工具栏），新增 `static/kinds/table.js`（通用表格：搜索/排序/分页，读服务端产出的
+  `data-table-controls` / `data-page-size` / `data-sort-key` / `data-sort-type`）与
+  `static/kinds/actions.js`（动作按钮 + 预检禁用 + 确认层 + 交接面板）；降级卡标题改成
+  「这块内容暂时看不到」，错误码与面板 id 收进折叠的 `<details>技术细节`（前端 `problemCard` 同规则）。
+  **数据页**：新增 `plugins/data_page.py` 四个面板（`data.universe` 清单+完备度、`data.gaps` 缺口下钻、
+  `data.store` 存储概览、`data.actions` 联网 vs 离线并排），数据全部读 `datalayer` 的读接口
+  （`DataStore` / `Universe`），**没有为 GUI 新增文件系统允许根**（jail 未放宽），
+  拉取预估直接调数据层自己的 `plan()` / `estimate()`。**测试与实跑**：新开 4 个测试文件
+  （`test_console_context.py` / `test_console_actions.py` / `test_console_views.py` /
+  `test_console_data_page.py`，`REQ-009` 的 4 个 webui 文件保持 64/64 零余量不动）；
+  `scripts/gui_walkthrough.py` 扩成 `AC-12` 的全路径（工作台落地 → 选公司 → 冷开空状态 → 数据页 →
+  任务页动作清单 → 图表口径切换 → 报告 → 迭代记录 → 真实点击执行动作 → 构造失败看重试 → 切公司），
+  新增 `--action`（默认 `data.rebuild`，不联网不花钱），真实运行 **`failures` 为空**、
+  18 张截图 + `observations.md/json`（`output/.webui_walkthrough/20261009T054001Z/`）。
+  走查抓到并已修的缺陷（接口级全绿、真实浏览器里坏）：动作提交时上下文没有服务端解析
+  （表现为「点了没反应」）、`datalayer/cli.py` 被裸路径调用（相对导入 `ImportError`）、
+  点侧栏切页时全局公司上下文丢失（公司级动作全部变禁用）、单口径的图不显示口径标注；
+  另有 `scripts/webui/__init__.py` 新增 `sys.path` 垫片（`python -m scripts.webui` 下
+  `scripts/` 不在 `sys.path`，导致所有新面板 500 而测试全绿）。
+  `REQ-012.3` 改到了 `REQ-009.2` 的已验收产出（`plugins/charts.py`、`render/panels.py`、
+  `kinds/chart.js`、核心指纹清单里的 `static/app.js`），按 `REQ-012` 的「改到已验收产物的处置」
+  在同一批改动上重跑了 `REQ-009` 的相关用例与走查路径，全部通过
+
 - REQ-011 统一原始数据仓与一次动作全量拉取：新增 `scripts/datalayer/`——`store.py`（SQLite 单文件原始仓
   + append-only `manifest.jsonl`，按「标的 × 数据集 × 期次 × 参数」唯一、写入原子、可整体拷走）、
   `access.py`（唯一取数收口点 `DataAccess`，`online` / `refresh` / `offline` 三种模式，重试、限流与 VIP

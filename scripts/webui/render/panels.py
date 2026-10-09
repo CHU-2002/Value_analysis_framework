@@ -15,7 +15,7 @@ from html import escape
 # 服务端渲染（可在无浏览器环境断言）
 SERVER_KINDS = ("table", "timeline", "stat", "markdown", "fallback")
 # 客户端渲染（服务端只回数据/占位）
-CLIENT_KINDS = ("chart", "form", "jobs")
+CLIENT_KINDS = ("chart", "form", "jobs", "actions")
 KNOWN_KINDS = SERVER_KINDS + CLIENT_KINDS
 
 _STATE_CLASS = {"ok": "state-ok", "warn": "state-warn", "error": "state-error"}
@@ -43,11 +43,19 @@ def _cell_html(column: dict, row: dict) -> str:
 def render_table(data: dict) -> str:
     columns = list((data or {}).get("columns") or [])
     rows = list((data or {}).get("rows") or [])
+    # 空表要给**引导**而不是空白（`REQ-012.1` 的 `AC-1.3`）：provider 可以给出
+    # `guide`/`empty_hint`，这里渲染成一块可读的空状态。
+    if not rows:
+        guide = str((data or {}).get("guide") or (data or {}).get("empty_hint") or "").strip()
+        if guide:
+            return (
+                '<div class="panel-table panel-table-empty">'
+                f'<p class="panel-empty-state-inline">{_escape(guide)}</p></div>'
+            )
     if not columns:
         return _empty("没有列定义")
     head = "".join(
-        f'<th class="align-{_escape(col.get("align", "left"))}">{_escape(col.get("title", col.get("key", "")))}</th>'
-        for col in columns
+        _table_head_html(col, index) for index, col in enumerate(columns)
     )
     body = []
     for row in rows:
@@ -56,11 +64,33 @@ def render_table(data: dict) -> str:
             for col in columns
         )
         body.append(f"<tr>{cells}</tr>")
+    # 通用表格能力的**服务端契约**（`AC-3.4`）：声明式控件标记 + 客户端按这些属性接管
+    # 搜索/排序/分页。放在服务端产出，CI 因此能断言「声明了 search 的表就有搜索控件」。
+    controls = [name for name in ("search", "sort", "page")
+                if _table_option(data, name)]
+    attrs = ""
+    if controls:
+        attrs = f' data-table-controls="{",".join(controls)}"'
+        attrs += f' data-page-size="{int(_table_option(data, "page") or 50)}"'
     return (
-        '<div class="panel-table"><table><thead><tr>'
+        f'<div class="panel-table"{attrs}><table><thead><tr>'
         f"{head}</tr></thead><tbody>{''.join(body)}</tbody></table>"
         f'<p class="panel-note">{len(rows)} 行</p></div>'
     )
+
+
+def _table_option(data: dict, name: str):
+    table = ((data or {}).get("table") or {})
+    return table.get(name)
+
+
+def _table_head_html(col: dict, index: int) -> str:
+    title = _escape(col.get("title", col.get("key", "")))
+    attrs = ""
+    if col.get("sort"):
+        attrs = (f' data-sort-key="{_escape(col.get("key", ""))}"'
+                 f' data-sort-type="{_escape(col.get("sort"))}"')
+    return f'<th class="align-{_escape(col.get("align", "left"))}"{attrs}>{title}</th>'
 
 
 def render_timeline(data: dict) -> str:
@@ -109,9 +139,17 @@ def render_stat(data: dict) -> str:
 
 
 def render_markdown(data: dict) -> str:
-    """`data["html"]` 必须已经由 `render.markdown_safe` 转义+渲染过（AC-2.3）。"""
+    """`data["html"]` 必须已经由 `render.markdown_safe` 转义+渲染过（AC-2.3）。
+
+    `data["company"]` 有值时先渲染一行「公司：`600887 伊利股份`」——`REQ-012.1` 的 `AC-1`
+    要求「页面标题或面包屑上能看出当前公司」，而报告正文里**未必**写着公司名。
+    """
     html = (data or {}).get("html") or ""
-    return f'<div class="panel-markdown">{html}</div>'
+    company = (data or {}).get("company") or {}
+    head = ""
+    if company.get("display_name"):
+        head = f'<p class="panel-company">公司：{_escape(company["display_name"])}</p>'
+    return f'<div class="panel-markdown">{head}{html}</div>'
 
 
 def render_fallback(spec, reason: str = "") -> str:
@@ -126,19 +164,25 @@ def render_fallback(spec, reason: str = "") -> str:
 
 
 def render_panel_error(spec, code: str, message: str, hint: str = "") -> str:
-    """面板渲染失败时的降级卡片（独立验收 D3）。
+    """面板渲染失败时的降级卡片（独立验收 D3；文案契约见 `REQ-012.3` 的 `AC-10`）。
 
-    一个面板挂掉（provider 抛错、缺必填参数、数据集解析失败）不能让**整页**失败——
-    同页其他面板照常显示，失败的这块用可读卡片说明原因。
+    三件事必须同时成立：
+
+    1. 一个面板挂掉不能让**整页**失败——同页其他面板照常显示；
+    2. 主视觉是**人话**（发生了什么 + 怎么办），标题里不出现 `BAD_REQUEST` 这类错误码；
+    3. 错误码与面板 id 收进折叠的「技术细节」——审计价值不丢，只是不再占据主视觉。
     """
-    hint_html = f'<p class="panel-note">{_escape(hint)}</p>' if hint else ""
+    hint_html = f'<p class="panel-problem-hint">下一步：{_escape(hint)}</p>' if hint else ""
     return (
-        '<div class="panel-error">'
-        f'<p class="panel-error-title">面板渲染失败：{_escape(spec.title or spec.id)}</p>'
-        f'<p class="panel-error-code">{_escape(code)}</p>'
-        f'<p class="panel-error-detail">{_escape(message)}</p>'
+        '<div class="panel-problem panel-error">'
+        '<p class="panel-problem-title panel-error-title">这块内容暂时看不到</p>'
+        f'<p class="panel-problem-detail panel-error-detail">{_escape(message)}</p>'
         f"{hint_html}"
-        f'<p class="panel-note">面板 id：{_escape(spec.id)}</p></div>'
+        '<details class="panel-technical">'
+        "<summary>技术细节</summary>"
+        f'<p class="panel-error-code">错误码：{_escape(code)}</p>'
+        f'<p class="panel-note">面板 id：{_escape(spec.id)}</p>'
+        "</details></div>"
     )
 
 
@@ -156,9 +200,16 @@ def render_panel(spec, data, *, meta=None) -> dict:
     **客户端 kind 在服务端没有数据时必须不带 `data` 键**：前端的取数契约是
     「`data === undefined` 就去请求 `endpoint`」——写成 `data: null` 会让取数分支
     永远不可达（独立验收 D1，真实 `app.js` 驱动真实服务复现过）。
+
+    **声明式控件要真的接上**（`REQ-012.3` 的 `AC-8`）：面板在 `options.table` 里声明的
+    搜索/排序/分页，以及 provider 自己给的 `table` 键，都会并进渲染数据，否则
+    `render_table` 里那段产出 `data-table-controls` 的分支就是**不可达的死代码**
+    （实测踩到：契约写得漂亮、浏览器里一个标记都没有）。
     """
     payload = spec.to_json()
     if spec.kind in SERVER_KINDS:
+        merged = dict(data or {})
+        merged.setdefault("table", dict(spec.options.get("table") or {}))
         renderer = {
             "table": render_table,
             "timeline": render_timeline,
@@ -166,7 +217,7 @@ def render_panel(spec, data, *, meta=None) -> dict:
             "markdown": render_markdown,
             "fallback": lambda _data: render_fallback(spec),
         }[spec.kind]
-        payload["html"] = renderer(data or {})
+        payload["html"] = renderer(merged)
         payload["render"] = "server"
         if spec.kind == "fallback":
             payload["fallback"] = True

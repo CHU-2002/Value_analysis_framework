@@ -48,6 +48,8 @@ class Config:
     # 原始存档是「花钱换来的」资产，默认放仓库之外（AC-4.3）。
     archive_root: Path = Path.home() / "turtle_archive"
     max_concurrent_jobs: int = 3
+    # REQ-012.2 / AC-5：并发满了以后**排队**（任务中心要能列出队列），队列也有上限。
+    max_queued_jobs: int = 20
     job_log_tail: int = 200
     plugins: tuple = ()
     open_browser: bool = True
@@ -60,6 +62,7 @@ class Config:
             "cache_dir": str(self.cache_dir),
             "archive_root": str(self.archive_root),
             "max_concurrent_jobs": self.max_concurrent_jobs,
+            "max_queued_jobs": self.max_queued_jobs,
             "job_log_tail": self.job_log_tail,
             "plugins": list(self.plugins),
             "open_browser": self.open_browser,
@@ -97,7 +100,7 @@ def load_config(path: Path | str | None = None, env: dict | None = None) -> Conf
     for key in ("output_root", "cache_dir", "archive_root"):
         if key in raw:
             values[key] = Path(str(raw[key])).expanduser()
-    for key in ("max_concurrent_jobs", "job_log_tail"):
+    for key in ("max_concurrent_jobs", "max_queued_jobs", "job_log_tail"):
         if key in raw:
             values[key] = raw[key]
     if "open_browser" in raw:
@@ -149,11 +152,14 @@ def load_config(path: Path | str | None = None, env: dict | None = None) -> Conf
         raise ConfigError(f"port 必须在 0..65535 之间（0 = 随机端口）：{port}")
     try:
         max_jobs = int(values.get("max_concurrent_jobs", 3))
+        max_queued = int(values.get("max_queued_jobs", 20))
         log_tail = int(values.get("job_log_tail", 200))
     except (TypeError, ValueError) as exc:
-        raise ConfigError("max_concurrent_jobs / job_log_tail 必须是整数") from exc
+        raise ConfigError("max_concurrent_jobs / max_queued_jobs / job_log_tail 必须是整数") from exc
     if max_jobs < 1:
         raise ConfigError(f"max_concurrent_jobs 至少为 1：{max_jobs}")
+    if max_queued < 0:
+        raise ConfigError(f"max_queued_jobs 不能为负：{max_queued}")
     if log_tail < 10:
         raise ConfigError(f"job_log_tail 至少为 10（否则日志没法看）：{log_tail}")
 
@@ -164,6 +170,7 @@ def load_config(path: Path | str | None = None, env: dict | None = None) -> Conf
         cache_dir=Path(values.get("cache_dir", Config.cache_dir)),
         archive_root=Path(values.get("archive_root", Config.archive_root)),
         max_concurrent_jobs=max_jobs,
+        max_queued_jobs=max_queued,
         job_log_tail=log_tail,
         plugins=tuple(values.get("plugins", ())),
         open_browser=bool(values.get("open_browser", True)),

@@ -1,11 +1,11 @@
 ---
 id: REQ-012
 title: 控制台 2.0（公司上下文 + 任务式交互 + 视图质量）
-status: accepted
+status: implemented
 priority: P1
 owner: CHU-2002
 created: 2026-09-28
-updated: 2026-09-28
+updated: 2026-10-09
 issue: "#74"
 design: docs/CONSOLE_V2_PLAN.md
 milestone: TBD
@@ -103,7 +103,7 @@ supersedes: TBD
 
 ### REQ-012.1 公司上下文与信息架构
 
-- 状态：`accepted`
+- 状态：`implemented`
 - 目标：把公司做成上下文，重排导航，做工作台首页；关掉 `REQ-009` 登记的 `E2`。
 - 验收标准：
   - **AC-1.1**：全局公司选择器（搜索/切换/记住上次/写进 URL），公司级页面自动带上下文；
@@ -112,11 +112,11 @@ supersedes: TBD
     且**全部通过注册表扩展点实现**（对应 `AC-11`）。
   - **AC-1.3**：默认落地页是工作台，内容与空状态符合 `AC-2`。
   - **AC-1.4**：全站统一公司显示名（对应 `AC-9`）。
-- 追溯：`tests/test_console_context.py`；PR #TBD
+- 追溯：`tests/test_console_context.py`；PR #TBD；用例数与逐文件登记见 `docs/TEST_SCOPE.md`；实现见「## 备注」的「实现记录」
 
 ### REQ-012.2 任务式动作层
 
-- 状态：`accepted`
+- 状态：`implemented`
 - 目标：把「按键」升级为「任务」——意图化动作 + 预检 + 确认 + 任务中心。
 - 验收标准：
   - **AC-2.1**：动作以意图命名，参数由上下文预填，界面不出现路径/内部参数名/CLI 开关（对应 `AC-3`）。
@@ -128,11 +128,11 @@ supersedes: TBD
     给出可复制的 agent 命令与已解析好的路径，任务进入**等待状态**（不占并发、不轮询子进程）；
     用户回来说「已跑完」后，服务端**校验该步声明的产物**（存在且晚于该步开始时间）才继续后续步骤，
     校验不通过则停在该步并说明缺什么。<!-- 2026-09-28 修订：原条款为「由一次动作编排完成，逐步可见进度。」，见「## 变更记录」 -->
-- 追溯：`tests/test_console_actions.py`；PR #TBD
+- 追溯：`tests/test_console_actions.py`；PR #TBD；用例数与逐文件登记见 `docs/TEST_SCOPE.md`；实现见「## 备注」的「实现记录」
 
 ### REQ-012.3 视图质量与口径修正
 
-- 状态：`accepted`
+- 状态：`implemented`
 - 目标：修掉会误导人的图表，补齐新鲜度、表格能力与错误文案。
 - 验收标准：
   - **AC-3.1**：趋势图不混口径，可切换口径并标明单位与累计/单期（对应 `AC-7`）。
@@ -140,18 +140,23 @@ supersedes: TBD
   - **AC-3.3**：数据新鲜度可见，「刷新视图」与「重新拉取」语义分离（对应 `AC-6`）。
   - **AC-3.4**：列表支持搜索/排序/分页，能力做在通用渲染层（对应 `AC-8`）。
   - **AC-3.5**：错误与降级文案符合 `AC-10`。
-- 追溯：`tests/test_console_views.py`；PR #TBD
+- 追溯：`tests/test_console_views.py`；PR #TBD；用例数与逐文件登记见 `docs/TEST_SCOPE.md`；实现见「## 备注」的「实现记录」。
+  **本片改到了 `REQ-009.2` 的已验收产出**（`plugins/charts.py`、`render/panels.py`、
+  `static/kinds/chart.js` 与核心指纹清单里的 `static/app.js`），收口时按
+  [`docs/DEVELOPMENT.md`](../DEVELOPMENT.md) §10（独立验收：改到已验收产出的片，
+  收口时要重跑既有判据）重跑了 `REQ-009`
+  的相关用例与浏览器走查（见「## 实跑记录」的「`REQ-009` 回归」）
 
 ### REQ-012.4 数据页（依赖 REQ-011）
 
-- 状态：`accepted`
+- 状态：`implemented`
 - 目标：把 `REQ-011` 的能力接成界面上的一件事——看清单、看缺口、一键拉全、离线重建。
 - 验收标准：
   - **AC-4.1**：数据页展示自选股清单、完备度与缺口（可按标的/期次/数据集下钻），数据来自原始仓而非 Markdown（对应 `REQ-011` 的 `AC-1`/`AC-3`/`AC-7`）。
   - **AC-4.2**：一次动作发起全量拉取，先给预估与确认，再显示进度；可中断与续跑（对应 `REQ-011` 的 `AC-2`/`AC-6`）。
   - **AC-4.3**：「只补缺口」是一个独立动作（不是让用户理解 `--only-gaps`）。
   - **AC-4.4**：「从仓重建派生数据（离线，不花钱）」与「拉取（联网，花钱）」在界面上是两个可分辨的动作（对应 `AC-6`）。
-- 追溯：`tests/test_console_data_page.py`；PR #TBD
+- 追溯：`tests/test_console_data_page.py`；PR #TBD；用例数与逐文件登记见 `docs/TEST_SCOPE.md`；实现见「## 备注」的「实现记录」
 - **前置**：`REQ-011.1` 与 `REQ-011.2` 已交付；本片是 GUI 侧接线，不重复实现数据层。
 
 ## 范围
@@ -209,16 +214,108 @@ supersedes: TBD
 
 ## 实跑记录
 
-收口验收时按 `AC-12` 补充环境、命令、截图与观察。
+### 2026-10-09 · `AC-12` 全路径浏览器走查（CDP 驱动真实浏览器）
+
+**执行者**：`REQ-012` 的实现者用 `scripts/gui_walkthrough.py` 跑的无头 Edge 自动化走查。
+**它不是独立评审者**，也不替代门② 的独立验收报告；它的作用是把 `AC-12` 要求的界面现象固化成
+可重跑的判据（授权与边界见 [`AGENTS.md`](../../AGENTS.md) 的「## 常设授权」第 3 条，
+登记于 `REQ-006` 任务 **T11**）。
+
+**环境**：
+
+| 项 | 值 |
+|----|----|
+| 机器 / 解释器 | macOS，`.venv/bin/python`（Python 3.12.13） |
+| 浏览器 | Microsoft Edge（无头，CDP，窗口 1440×1000） |
+| 控制台 | `http://127.0.0.1:8791`（只监听环回；框架版本 0.1.0） |
+| 走查对象 | `600887.SH`（切换公司用到的第二家见证据目录的 `10-switched-company.png`） |
+| 走的动作 | `--action data.rebuild`（**完全离线、不联网、不花钱**） |
+
+**命令**：
+
+```bash
+make gui                                     # 终端 1：控制台（默认 127.0.0.1:8765；本次走查监听 8791）
+.venv/bin/python scripts/gui_walkthrough.py --base http://127.0.0.1:8791
+# `--company` 未指定，用脚本默认值 600887.SH；`--action` 未指定，用默认值 data.rebuild
+# 退出码 0；证据目录 output/.webui_walkthrough/20261009T060554Z/
+```
+
+> 命令以证据目录里的 `observations.md` / `observations.json` 记录为准：该次运行的
+> `company=600887.SH`、`action=data.rebuild`、`command=runs_resolve`（`REQ-009` 回归那一步点的按键）、
+> `params={'company_dir': 'output/600887_伊利'}`、`headed=false`、`base=http://127.0.0.1:8791`——
+> 与上面两条默认值一致。
+
+**走查覆盖的路径**（`AC-12` 的字面要求逐条对应）：
+
+| `AC-12` 的动作 | 本次走查的步骤 | 观察结果 |
+|----------------|----------------|----------|
+| 新用户第一次打开 | ① 冷开控制台 | 落地页是**工作台**（`#home`，3 个面板 0 降级）；工作台列出公司与状态，并有 4 个可直接执行的动作 |
+| 选公司 | ② 全局公司选择器切到 `600887.SH` | URL 带上 ticker；顶栏显示 `600887 伊利股份`；刷新后保持 |
+| 冷开公司级页面（关掉 `E2`） | ③ 清掉「上次选择」后 `Page.navigate` + `reload` 打开 `#report` | 显示「先选一家公司」空状态，**0 张降级卡**，空状态说清了下一步 |
+| 数据页 | ⑤ `#data` | 4 个面板 0 降级、3 张表；联网动作标「需要联网」、离线重建标「离线执行」 |
+| 任务页/动作清单 | ④ `#commands` | 4 个动作按钮、2 个禁用（缺公司上下文）并给出人话理由；动作标题无内部参数名/开关 |
+| 图表口径切换 | ⑥ `#charts?company=600887.SH` | 3 张图 0 降级；口径默认 `annual`、可切 `half`/`quarter`；工具栏标出单位与口径 |
+| 报告 | ⑦ `#report?company=600887.SH` | 2 个面板 0 降级、4 张表 477 个单元格、表体列数与表头一致（`B1` 未回归） |
+| 迭代记录 | ⑧ `#runs?company=600887.SH` | 时间线 6 条，当前生效 run 有标记 |
+| 真实点击执行一个动作 | ⑧ `data.rebuild`（真实点击、真实子进程） | 任务跑完，退出码 0，产出链接可用 |
+| 观察失败与重试 | ⑨ 构造一次必然失败的按键任务 | 失败给了「发生了什么 + 怎么办」（`failure_summary.what/how`），原始日志保留，重试按钮可用 |
+| 切换公司 | ⑩ 切到第二家公司 | URL、标题与数据随之切换，旧公司不残留 |
+| 主视觉无技术化错误页 | 全程逐页断言（`degraded` / `technical`） | `observations.json` 的 `failures` 为**空数组**，退出码 0 |
+| `REQ-009` 的既有路径（回归） | ⑪ 公司页 → 真实点击公司名进图表 → 悬停 → 按键页跑真实命令 → 采集存档 | 全部通过（详见下节） |
+
+**产物**：18 张截图 + `observations.md` / `observations.json`
+（`output/.webui_walkthrough/20261009T060554Z/`；`output/` 是 gitignore 的，路径仅供本机复核）。
+`observations.json` 的 `failures` 为空、`notes` 逐条记录了每屏的观察与判定。
+
+**`REQ-009` 回归（`REQ-012.3` 改到已验收产物的处置留痕）**：`REQ-012.3` 改了
+`scripts/webui/plugins/charts.py`、`scripts/webui/render/panels.py`、
+`scripts/webui/static/kinds/chart.js`（`REQ-009.2` 的产出）与核心指纹清单里的
+`scripts/webui/static/app.js`。按 [`docs/DEVELOPMENT.md`](../DEVELOPMENT.md) §10 的收口要求
+与 [`docs/CONSOLE_V2_PLAN.md`](../CONSOLE_V2_PLAN.md) §12，`REQ-009` 的既有用例与走查路径
+**在同一批改动上重跑并通过**：`tests/test_webui_framework.py` / `test_webui_server.py` /
+`test_webui_views.py` / `test_webui_archive.py` 全绿（核心指纹与新测试用例除外，见「## 备注」的
+「实现记录」），`scripts/gui_walkthrough.py` 里 `REQ-009` 的旧步骤（公司页 → 点进图表 → 悬停 →
+按键跑真实命令 → 采集存档）全部通过。
+
+**这次走查抓到、并已修掉的实现缺陷（共 6 条，每条都有前后对照，不只是「脚本全绿」）**：
+① 动作提交时上下文没有服务端解析（`{ticker}` 解析不出来 → 422，界面表现为「点了没反应」）；
+② `datalayer/cli.py` 被裸路径调用（包内相对导入 `ImportError`）；
+③ 点侧栏切页时全局公司上下文丢失（公司级动作全部变成禁用）；
+④ 只有一个口径的图不显示口径标注（`AC-7` 要求标明单位与口径）；
+⑤ `python -m scripts.webui` 起动时 `scripts/` 不在 `sys.path`（所有新面板 500，而测试全绿）；
+⑥ 服务重启后 `/api/v1/jobs` 500（产物在内存里是 `{模板: 路径}`、落盘后是 `[{declared, path, exists}]`，
+公开副本只认第一种形态）。
+**①②③⑤⑥ 属于走查独有**——接口级用例全绿，而真实浏览器里必然失败（`E1` 的同类教训）。
+现象、根因与修法见「## 备注」的「实现记录」；②③⑤⑥ 已固化成回归判据
+（`tests/test_console_context.py` 的包导入/模块调用两条、`tests/test_console_actions.py`
+的上下文解析与重启回转两条）。
+
+**第五、六条（走查第二轮抓到，已修）**：`output/` 里更早一次走查留下的证据显示，冷开 `#report` 时
+**面板级**判据完全成立（0 张降级卡、空状态可读），但顶栏横幅仍显示服务端下发的告警原文
+`面板 report.view 渲染失败：BAD_REQUEST；…`——前端 shell 缺上下文时不挂载面板，而
+`/api/v1/pages/{id}` 仍照常渲染、把失败写进信封 `warnings`，横幅就照原文显示出来。
+这**不影响** `AC-1` 的字面判据（「不出现任何 `BAD_REQUEST` **降级卡**」），但**「零技术化错误页」的广义
+读法不成立**（`AC-10`：错误码不该占主视觉）。修法在**服务端**：页面声明的上下文没满足时
+`_page` 直接把这次请求当**正常空状态**（`panels=[]` + `empty_state{message,hint,supports}`，
+`warnings` 为空），前端按 `supports` 画空状态——诊断留痕一点没少（该报的 warnings 照报），
+只是「缺上下文」不再伪装成故障。修完 `pages["report-cold"].banner` 为空字符串，
+走查脚本也补了两条断言（空状态横幅必须为空、任何页面的横幅里不得出现错误码），
+防止这条回归。接口级判据见 `tests/test_console_context.py` 的
+`test_cold_open_of_a_company_page_is_a_normal_empty_state`（断 `panels==[]`、`warnings==[]`、
+且响应里不出现 `BAD_REQUEST`）。
+
+**还没做、而收口所必需的**：门② 的独立验收报告——`REQ-012` 要推进 `verified` 仍须由
+**没有参与实现**的评审者出具（实现者与本节的自测都不合格）。
 
 ## 追溯
 
 | 项 | 内容 |
 |----|------|
-| 设计文档 | [`docs/CONSOLE_V2_PLAN.md`](../CONSOLE_V2_PLAN.md)（IA 图、扩展点增量、动作/预检模型、图表口径模型） |
+| 设计文档 | [`docs/CONSOLE_V2_PLAN.md`](../CONSOLE_V2_PLAN.md)（IA 图、扩展点增量、动作/预检模型、图表口径模型）；文首「§0 实现状态」登记了落地情况与六条设计偏差 |
 | 实现 PR | TBD |
-| 测试 | `tests/test_console_context.py`、`tests/test_console_actions.py`、`tests/test_console_views.py`、`tests/test_console_data_page.py`（规划中，尚未创建） |
-| 文档更新 | `README.md`（面板一节）、`docs/GUI_CONSOLE_OVERVIEW.md`、`docs/GUI_CONSOLE_PLAN.md`、`docs/ARCHITECTURE.md`（补 GUI 层，见 `REQ-011` 的文档债）、`CHANGELOG.md` |
+| 测试 | `tests/test_console_context.py`、`tests/test_console_actions.py`、`tests/test_console_views.py`、`tests/test_console_data_page.py`——四支均为本需求新开（`REQ-009` 的 4 个 webui 文件已 64/64 零余量，按 `AC-7` 不得再往里加用例）。逐文件用例数由 `python scripts/test_scope.py --report` 给出（本需求四支合计 ≤ 73 例，仓库合计 ≤ 1872/2000、47/52——**用例数仍在变动，以 `docs/TEST_SCOPE.md` 的实测为准**） |
+| 实跑 | `scripts/gui_walkthrough.py --base http://127.0.0.1:8791`（`--action` 用默认值 `data.rebuild`）；证据 `output/.webui_walkthrough/20261009T060554Z/`（18 张截图 + `observations.md/json`，`failures` 为空） |
+| 文档更新 | `README.md`（本地控制台一节）、`docs/GUI_CONSOLE_OVERVIEW.md`（面板/页面一节）、`docs/GUI_CONSOLE_PLAN.md`（指向本文档的指针）、`docs/CONSOLE_V2_PLAN.md`（§0 实现状态与 §17 开放问题的实际结论）、`docs/ARCHITECTURE.md`（新增 GUI 层小节）、`CHANGELOG.md` |
 
 ## 变更记录
 
@@ -278,3 +375,69 @@ supersedes: TBD
 - **设计文档同时登记的其他待定项**：工作台「数据过期」的判定边界、
   `kind=actions` 的服务端兜底、多步编排的参数捕获表达能力、人机交接的产物校验强度——见
   [`docs/CONSOLE_V2_PLAN.md`](../CONSOLE_V2_PLAN.md) §17.3~§17.7。
+
+### 实现记录（2026-10-09）
+
+**一句话**：四片（`.1`~`.4`）一次性交付，代码与测试都在同一条改动里；下面登记「动了哪些扩展面、
+为什么必须动、以及只有真实浏览器才抓得到的那几个缺陷」。
+
+**动过的核心文件与扩展面（按 `docs/CONSOLE_V2_PLAN.md` §4.5 留痕）**：
+
+| 文件 | 改了什么 | 性质（判断依据） |
+|------|----------|------------------|
+| `scripts/webui/core/models.py` | `NavItem` 加 `children` / `requires` / `default`；新增 `JobTypeSpec` / `CommandStep` / `HumanStep` | **扩展面增量**：只**加可选字段**，不填即旧行为；面板/页面协议、信封、错误码一字未动（`REQ-009.3` 的 `AC-3.1`~`AC-3.7` 结论不受影响） |
+| `scripts/webui/core/registry.py` | `job_type(kind_or_spec, runner=None)` 双形态；`job_type_spec(id)` / `job_type_specs()` / `default_page_id()` 查询 | **扩展面增量**：`job_type("batch", lambda…)` 与 `job_types() == ("batch",)` 的旧语义**逐字保留**（`tests/test_webui_framework.py` 的既有断言继续绿）；**没有新增第 7 类注册点**（`AC-3.2` 的「六类」措辞不动） |
+| `scripts/webui/core/routes.py` | `/api/v1/nav` 增回 `default_page`；`/api/v1/pages/{id}` 增回 `requires`；面板 `meta` 提到载荷顶层 | **扩展面增量 + 一处缺陷修复**：`meta` 那一条是缺陷——`panel.meta` 一直下发但前端读顶层、provider 写 `data.meta`，两处永远对不上，「数据生成时间/缓存徽标」从未显示过（`REQ-009.3` 承诺过、`AC-6` 要求补上） |
+| `scripts/webui/core/jobs.py` | 一个 job = **一串步骤**；新增状态 `queued` / `awaiting_agent`；`failure_summary` / `progress` / `outputs` | **扩展面增量**：`submit(command_id, params)` 的行为与载荷形状对旧字段保持不变（新字段是**追加**）；「编排放后端」是 `AC-5`「离开页面任务继续」的必然要求，前端串联做不到 |
+| `scripts/webui/static/app.js` | 上下文选择器 + nav 树 + `requires` 空状态 + 统一错误卡 | **扩展面增量 + 缺陷修复**：选择器与空状态是增量；「切页丢上下文」是缺陷（见下表第 ③ 条） |
+| `scripts/webui/static/index.html` | 顶栏加「当前公司」选择器容器 | **扩展面增量** |
+| `scripts/webui/static/kinds/jobs.js` | 任务中心：进度条、队列/历史分块、`failure_summary`（发生了什么 + 怎么办 + 停在哪一步）、折叠日志、产出链接、重试/取消按钮 | **业务增量**：`kind=jobs` 的渲染器，`REQ-009.1` 的既有能力（退出码 + 日志尾部）在其中原样保留 |
+| `scripts/webui/static/style.css` | 选择器、空状态、确认层、进度条、动作卡、失败卡等样式（纯新增 94 行，未改既有规则） | **业务增量**（样式，不是核心） |
+| `scripts/webui/render/panels.py` | 通用表格控件标记（`data-table-controls` / `data-page-size` / `data-sort-key` / `data-sort-type`）；空表给引导；降级卡改成「这块内容暂时看不到」+ 折叠的「技术细节」 | **扩展面增量 + 缺陷修复**：控件标记与 `actions` 进 `CLIENT_KINDS` 是增量；降级卡标题是缺陷（`AC-10`：不得把 `BAD_REQUEST` 当标题），修在共用渲染器而不是各面板各写一遍 |
+| `scripts/webui/plugins/commands.py` | 新增两个按键（`datalayer_pull` / `datalayer_rebuild`）；动作清单/提交的消费者；`kind=actions` 面板 | **业务增量**（插件层，不是核心） |
+| `scripts/webui/plugins/companies.py` | 端点路径参数统一为**公司标识**（ticker 规范 + 目录名兼容别名）；`display_name` 唯一来源；`report` 页声明 `requires` | **业务增量 + `REQ-009.2` 的端点语义变更**（变更记录见 `REQ-009` 的 2026-09-28 行，此处不重复） |
+| `scripts/webui/plugins/charts.py` | 按 `basis` 分组、`filter_basis` 重算索引、`parser_version` 1→2、`options.chart.toolbar` | **改到 `REQ-009.2` 已验收产出**，按本文件「## 备注」的「改到已验收产物的处置」收口时重跑了 `REQ-009` 的用例与走查（见「## 实跑记录」） |
+| `scripts/webui/plugins/run_history.py` | `runs` 从「浏览」组移到「公司」组并声明 `requires=("selection.company",)` | **业务增量**：与 `AC-1` 收窄后的「概览/图表/报告/迭代记录」一致 |
+| `scripts/webui/plugins/collect.py` | `NavItem` 加 `group` / `order`，去掉「默认落地页」的地位 | **业务增量**：`collect` **保留**为兼容视图，`REQ-009.4` 的既有验收判据不回退 |
+| `scripts/webui/plugins/{actions,home,data_page}.py`、`static/kinds/{actions,chart_core,table}.js` | 新增文件 | **业务增量**（新增文件，未改核心——`AC-11` 的判据） |
+
+**指纹同步的事实**：`core/models.py` / `core/errors.py` / `config.py` **本来就不在**
+「不许碰」的指纹清单里（`tests/test_webui_framework.py` 的 `FINGERPRINTED_FILES` 注释写明了理由：
+它们本来就该随框架演进）。清单里的 6 个文件中，本次实际改动的是 `core/registry.py`、
+`core/routes.py`、`static/index.html`、`static/app.js`，`core/router.py` 与 `core/server.py`
+**未改动**。`tests/fixtures/webui_core_fingerprint.json` 已按改动后的内容重算（本次变动的三项：
+`core/registry.py`、`core/routes.py`、`static/app.js`；`core/router.py` 与 `core/server.py` 未改动）。
+`docs/TEST_SCOPE.md` 也已用 `python scripts/test_scope.py --write` 重新生成
+（四支新文件登记为 `REQ-012` 系列）。`make verify` 全绿：lint + 1870 passed / 3 skipped +
+覆盖率 77.88%（门槛 74%）+ 追溯 + scope + 回归门禁。
+
+**走查抓到、并已修的缺陷（每条都是「接口级全绿、真实浏览器里坏」的同类）**：
+
+| # | 现象（真实浏览器里） | 根因 | 修法 |
+|---|----------------------|------|------|
+| ① | 点「开始执行」**没反应**（任务根本没起来；接口返回 422） | 动作提交时前端只传「哪家公司」，`{ticker}` / `{company_dir}` 这些占位符**没有服务端解析**，起进程前就报「需要一个还没解析出来的值」 | `POST /api/v1/actions/{id}/run` 在服务端把上下文解析成**绝对路径与规范标识**（`plugins/actions.py::action_context`）后再提交；前端仍然只传 `company`（`AC-3`：用户不手敲内部参数） |
+| ② | 动作在界面上必然失败，而**同一条命令在 CLI 手跑却正常** | `ENTRIES` 里 `datalayer_pull` / `datalayer_rebuild` 写的是**源码路径** `datalayer/cli.py`（脚本自检需要它），但裸文件路径执行会 `ImportError: attempted relative import with no known parent package`（`cli.py` 内部是相对导入） | 按键表里带 `/` 的条目改用 `python -m scripts.datalayer` 调用（`scripts/datalayer/__main__.py` 转调的就是 `cli.main`，两条路等价） |
+| ③ | 点侧栏切页后**公司上下文丢失**，公司级动作全部变成「禁用：还没选公司」 | `applySelection()` 在 URL 没带 `company` 时把内存里的选择清掉了；控件标签也不同步 | 改成「URL 显式给了才覆盖，没给就保留当前上下文」（它是**全局**上下文）；控件值随选择同步，避免「标签显示未选择而上下文还在」 |
+| ④ | 只有一个口径的图**不显示口径标注**（`AC-7` 要求标明单位与口径） | 工具栏在「口径数 ≤ 1」时整块不渲染 | 口径标注与单位标注**分开**：口径切换器只在多于一个口径时出现，口径/单位文字始终显示 |
+| ⑤ | 页面能打开，但**所有新面板 500**（服务端日志 `ModuleNotFoundError: No module named 'periods'` / `'webui'`） | `python -m scripts.webui` 的包名是 `scripts.webui`，`scripts/` 那一层没人插 `sys.path`；而 `datalayer` 的模块按仓库既有约定用**绝对名**互相导入 | `scripts/webui/__init__.py` 加 `sys.path` 垫片（与 `datalayer/__init__.py`、`tests/conftest.py` 同一约定）；回归判据 `tests/test_console_context.py::test_importing_the_package_shim_makes_absolute_scripts_imports_work` |
+| ⑥ | 服务面板重启后**任务列表打不开**（`/api/v1/jobs` 500，`AttributeError: 'list' object has no attribute 'items'`） | 产物在内存里是 `{声明模板: 路径}`、落盘的公开副本是 `[{declared, path, exists}]`；`_outputs_public` 只认第一种形态，而重启时 `_load_history` 会把公开副本读回来 | `_writes_public()` 同时接受两种形态；回归判据 `tests/test_console_actions.py::test_job_history_round_trips_through_a_restart` |
+
+**⑤⑥ 就是「另有两条同批修的框架缺陷」**，它们只有真实浏览器走查（⑤）与「重启后再读一次」
+（⑥）才暴露：
+
+
+
+- **⑤ `sys.path` 垫片**：这是本轮唯一「只有在真实浏览器走查里才暴露」的**启动级**缺陷，
+  也再次印证 `REQ-009` `E1` 的教训（面板级 AC 全绿 ≠ 页面可用）。
+- **图表面板的 `meta` 没被搬上载荷顶层**（见上表 `core/routes.py` 一行）：新鲜度徽标因此从未显示过。
+- **冷开公司级页面的横幅仍显示错误码**：前端 shell 缺上下文时不挂载面板（所以 0 张降级卡），
+  但 `/api/v1/pages/{id}` 仍照常渲染并把失败写进信封 `warnings`，顶栏横幅照原文显示
+  `…渲染失败：BAD_REQUEST`。修在服务端：`_context_empty_state()` 把「声明的上下文没满足」
+  判成**正常空状态**（`panels=[]` + `empty_state{message,hint,supports}` + `warnings=[]`），
+  诊断留痕一点没少（真失败的 warnings 照报），只是「缺上下文」不再伪装成故障。
+
+**四片的落地形态与设计文档的偏差**：逐条登记在
+[`docs/CONSOLE_V2_PLAN.md`](../CONSOLE_V2_PLAN.md) §0（文首新增的「实现状态」一节），
+最要紧的两条是**没有新建「公司概览」页**（并入工作台与图表页）与
+**`collect` 页面保留为兼容视图**（设计 §3.1 原写「拆成数据获取/数据缺口/存储概览」，
+实际是新开 `data` 页、`collect` 继续可用）。

@@ -165,8 +165,8 @@ def _status_panel(ctx, company=None, **_):
     return {"items": items}
 
 
-def _runs_route(ctx, dir, **_):
-    data, meta = _runs(ctx, dir)
+def _runs_route(ctx, ticker, **_):
+    data, meta = _runs(ctx, ticker)
     return envelope.ok(data, meta=meta, warnings=data.get("warnings", []))
 
 
@@ -187,9 +187,11 @@ def contribute(registry):
         params=(Param("company", type="company", source="selection.company"),),
         description="每次 run 的时间、类型、期次、取代关系与结论变化；当前生效的那次有标记。",
     ))
-    registry.nav(NavItem(id="runs", title="迭代记录", group="浏览", order=40,
-                         panels=("runs.status", "runs.timeline")))
-    registry.route("GET", "/api/v1/companies/{dir}/runs", _runs_route, name="company runs")
+    registry.nav(NavItem(id="runs", title="迭代记录", group="公司", order=40,
+                         panels=("runs.status", "runs.timeline"),
+                         requires=("selection.company",),
+                         description="这家公司每次 run 的时间、期次、取代关系与结论变化。"))
+    registry.route("GET", "/api/v1/companies/{ticker}/runs", _runs_route, name="company runs")
 
 
 __all__ = ["contribute", "parse_runs", "runs_dataset"]

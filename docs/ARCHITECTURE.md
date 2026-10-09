@@ -44,6 +44,55 @@
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## GUI 层（`scripts/webui/`，REQ-009 + REQ-012）
+
+控制台是**这一整套能力的本地入口**，不是新的一套计算。它的分层与上面那摞一样严格：
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ 前端 shell：static/app.js + kinds/*.js                               │
+│  选上下文 → 渲染 nav 树 → 分发面板 → 记录 selection（URL/local）      │
+│  kinds：chart（+chart_core）/ table / actions / form / jobs / fallback │
+├─────────────────────────────────────────────────────────────────────┤
+│ 内核 core/：只做传输、路由、信封、安全、调度——不认识业务             │
+│  server（127.0.0.1）· router（路径模板）· envelope（统一信封）        │
+│  routes（nav / pages / panels）· security（路径 jail + 脱敏）         │
+│  jobs（并发/排队/多步/失败摘要）· registry（六类注册点）              │
+│  models（NavItem / PanelSpec / CommandSpec / JobTypeSpec / 步骤）     │
+├─────────────────────────────────────────────────────────────────────┤
+│ 插件 plugins/：一切具体功能都在这层，加功能不改内核                  │
+│ 页面：companies（含 report）/ charts / run_history /                 │
+│  collect / home / data_page                                          │
+│  动作：actions（编排既有按键，不含业务实现）                          │
+│  按键：commands（白名单 + argparse 扫描出的参数表）                  │
+├─────────────────────────────────────────────────────────────────────┤
+│ 渲染与数据：render/（面板 HTML：markdown_safe / panels）             │
+│  datastore/（派生缓存：指纹 + parser_version，可失效）                │
+│  archive/（采集批次与存档的只读视图）                                 │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+三条边界（`REQ-009`/`REQ-012` 反复用到，改动前先确认没踩）：
+
+1. **动作 = 编排既有按键，不重写业务**。`JobTypeSpec.steps` 引用的全是
+   `plugins/commands.py::ENTRIES` 里已注册的按键；参数 → 命令行的转换只有
+   `core/jobs.py::build_argv` 一处。所以「界面上的一个动作」与「手敲一串命令」跑的是**同一批实现**，
+   不存在两套会漂移的逻辑。
+2. **内核不解释业务**。`NavItem.requires` 只是字符串（`"selection.company"`），由前端 shell 比对
+   `selection` 决定要不要显示空状态；`JobTypeSpec.requires` 由服务端预检翻译成禁用理由。
+   新增一个「需要上下文」的页面或动作，只写插件字段，不改 `core/*`（`REQ-009.3` 的 `AC-9` 判据）。
+3. **GUI 不越过数据层**。读原始仓走 `datalayer` 的读接口（`DataStore` / `Universe`），
+   GUI 不接收用户给的路径、也不自己拼仓里的路径——因此 `core/security.py` 的允许根
+   **没有**因为数据页而放宽；`scripts/datalayer/`（买回来的、不过期）与
+   `scripts/webui/datastore/`（算出来的、可失效）仍然不得互相接线。
+
+扩展面与留痕：`core/registry.py` / `router.py` / `routes.py` / `server.py` / `static/index.html` /
+`static/app.js` 的哈希被 `tests/fixtures/webui_core_fingerprint.json` 钉住；而
+`core/models.py`、`core/errors.py`、`config.py` **不在**清单里——它们本来就该随框架演进
+（新字段、新错误码、新配置项）。动清单里的文件要同步指纹，并说明这是「扩展面增量」
+还是「缺陷修复」。设计与新增扩展点的清单见 [`GUI_CONSOLE_PLAN.md`](GUI_CONSOLE_PLAN.md)（`REQ-009`）
+与 [`CONSOLE_V2_PLAN.md`](CONSOLE_V2_PLAN.md)（`REQ-012`，文首 §0 有实现状态与设计偏差）。
+
 ## 数据流
 
 ### 1. 采集与解析（确定性）

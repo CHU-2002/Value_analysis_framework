@@ -66,9 +66,24 @@ def _panel_data(spec, ctx):
     return spec.provider(ctx, **resolve_params(spec, ctx))
 
 
+def _panel_meta(data) -> dict:
+    """面板数据里的 `meta` 提到**载荷顶层**（`REQ-012.3` 的 `AC-6`）。
+
+    新鲜度徽标（数据生成时间 / 命中缓存 / 指纹）是**框架级**的信息，前端只该从一处读
+    （`panel.meta`）。provider 把它放在自己的 `data` 里（图表面板就是这么写的）是面板的
+    内部实现——内核负责统一搬上来，否则「`panel.meta` 一直有下发」这句话是假的：
+    实测前端读的是顶层、provider 写的是 `data.meta`，两处永远对不上，徽标永远不显示。
+    """
+    if isinstance(data, dict):
+        meta = data.get("meta")
+        if isinstance(meta, dict):
+            return dict(meta)
+    return {}
+
+
 def _render_one(spec, ctx) -> dict:
     data = _panel_data(spec, ctx)
-    return panel_render.render_panel(spec, data)
+    return panel_render.render_panel(spec, data, meta=_panel_meta(data))
 
 
 def install_core_routes(registry, config) -> None:
@@ -99,8 +114,18 @@ def _healthz(ctx, **_):
 
 
 def _nav(ctx, **_):
+    """导航树 + 默认落地页。
+
+    `REQ-012.1`：`items` 是**树**（每项可带 `children`），每项带 `requires` / `default`。
+    另外回 `default_page`（谁声明 `default=True` 谁生效），前端据此决定冷开落在哪一页——
+    核心仍然不认识任何具体页面 id。
+    """
     items = [item.to_json() for item in ctx.registry.nav_items()]
-    return envelope.ok({"items": items})
+    try:
+        default_page = ctx.registry.default_page_id()
+    except WebUIError:  # pragma: no cover - 空注册表
+        default_page = ""
+    return envelope.ok({"items": items, "default_page": default_page})
 
 
 def _degraded_panel(spec, code: str, message: str, hint: str, *, unexpected: bool = False) -> dict:
@@ -114,9 +139,49 @@ def _degraded_panel(spec, code: str, message: str, hint: str, *, unexpected: boo
     return payload
 
 
+def _context_empty_state(item, ctx):
+    """页面声明的上下文没满足时，回**正常空状态**而不是「渲染失败」（`REQ-012.1` 的 `AC-1.1`）。
+
+    背景（真实走查抓到）：缺公司时前端 shell 已经不挂面板了，但服务端仍然逐个渲染、
+    然后把失败写进信封 `warnings`，前端横幅照原文显示「面板 report.view 渲染失败：
+    BAD_REQUEST」——**降级卡没了、错误码还在主视觉**，`AC-10` 的广义读法不成立。
+
+    所以这里在**服务端**就把「缺上下文」判定掉：不渲染面板、不产生 warnings，改回一份
+    空状态描述（`message` / `hint` / `supports`），前端按 `supports` 决定给哪些入口按钮。
+    核心只比对 `requires` 里的字符串与查询串，不解释任何业务。
+    """
+    for key in item.requires:
+        name = key.split(".", 1)[-1]
+        if not ctx.query.get(name):
+            if key == "selection.company":
+                return {
+                    "reason": key,
+                    "message": "先选一家公司",
+                    "hint": "这一页展示的是某一家公司的内容。用右上角的「当前公司」选一家，"
+                            "或从工作台的公司列表点进去。",
+                    "supports": ["company_picker", "home_link"],
+                }
+            return {
+                "reason": key,
+                "message": "这一页还需要一个上下文",
+                "hint": f"缺的是 {name}：在页面上先选好它再打开这一页。",
+                "supports": [],
+            }
+    return None
+
+
 def _page(ctx, page_id: str, **_):
-    """页面聚合**逐面板隔离**：某一块挂了只降级那一块，不带崩整页（独立验收 D3）。"""
+    """页面聚合**逐面板隔离**：某一块挂了只降级那一块，不带崩整页（独立验收 D3）。
+
+    例外是「页面声明的上下文没满足」：那是**正常空状态**，不是故障——见 `_context_empty_state`。
+    """
     item = ctx.registry.page(page_id)
+    empty_state = _context_empty_state(item, ctx)
+    if empty_state is not None:
+        payload = ctx.registry.page_payload(page_id)
+        payload["panels"] = []
+        payload["empty_state"] = empty_state
+        return envelope.ok(payload)
     rendered = []
     warnings = []
     for panel_id in item.panels:

@@ -96,3 +96,97 @@ th { color: var(--muted); font-weight: 600; }
 .status-running { color: #b8860b; }
 .status-finished { color: #2f7a3f; }
 .status-failed, .status-cancelled { color: #a12b2b; }
+
+/* ---------------------------------------------------------------- REQ-012 增量 */
+
+/* 当前公司选择器（全局上下文，任何页面都在） */
+.company-picker { display: inline-flex; align-items: center; gap: 6px; margin-left: 16px; }
+.company-label { color: var(--muted); font-size: 12px; }
+.company-picker select {
+  min-width: 200px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px;
+  background: #fff;
+}
+.company-current { font-weight: 600; }
+.breadcrumb { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+
+/* 缺上下文的正常空状态（不是降级卡） */
+.panel-empty-state {
+  border: 1px dashed var(--line); border-radius: 10px; padding: 20px; background: #fbfbfd;
+}
+.empty-title { margin: 0 0 6px; font-size: 16px; font-weight: 600; }
+.empty-detail { margin: 0 0 10px; color: var(--muted); }
+.empty-actions { display: flex; gap: 12px; align-items: center; margin: 0; }
+
+/* 面向用户的错误卡片（AC-10）：人话在主视觉，错误码折叠 */
+.panel-problem { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: #fbfbfd; }
+.panel-problem-title { margin: 0 0 4px; font-weight: 600; }
+.panel-problem-detail { margin: 0; }
+.panel-problem-hint { margin: 6px 0 0; color: var(--muted); }
+.panel-technical { margin-top: 6px; font-size: 12px; color: var(--muted); }
+.panel-technical code { font-family: ui-monospace, monospace; }
+
+/* 数据新鲜度（AC-3.3）：`panel.meta` 一直有下发，这里第一次把它显示出来 */
+.panel-freshness { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+
+/* 通用表格能力（AC-3.4）：搜索 / 排序 / 分页 */
+.table-controls { display: flex; gap: 10px; align-items: center; margin-bottom: 6px; }
+.table-search { flex: 1 1 220px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; }
+.table-pager { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.table-pager button { padding: 3px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer; }
+.table-pager button:disabled { opacity: .5; cursor: default; }
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable::after { content: " ⇅"; color: var(--muted); font-size: 10px; }
+th[data-sort-active="asc"]::after { content: " ↑"; color: var(--accent); }
+th[data-sort-active="desc"]::after { content: " ↓"; color: var(--accent); }
+
+/* 动作（AC-3 / AC-4） */
+.action-group-title { margin: 12px 0 4px; color: var(--muted); font-size: 12px; }
+.action-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.action-card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: #fff; }
+.action-card[data-enabled="0"] { background: #fafafa; }
+.action-title { margin: 0 0 4px; font-weight: 600; }
+.action-effects { margin: 6px 0; }
+.action-button { padding: 5px 12px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
+.action-button.danger { background: #d64545; }
+.action-button:disabled { background: #b9bcc6; cursor: not-allowed; }
+.action-blockers { margin: 6px 0 0; padding-left: 18px; color: #a12b2b; font-size: 12px; }
+.action-status { margin: 6px 0; font-weight: 600; }
+
+/* 危险动作确认层（AC-4）：取消 = 不提交、无副作用 */
+.confirm-layer {
+  position: fixed; inset: 0; background: rgba(20, 22, 30, .45);
+  display: flex; align-items: center; justify-content: center; z-index: 50;
+}
+.confirm-box { background: #fff; border-radius: 10px; padding: 16px 18px; max-width: 460px; }
+.confirm-title { margin: 0 0 6px; font-weight: 600; }
+.confirm-body { margin: 0 0 12px; color: var(--muted); }
+.confirm-actions { display: flex; gap: 8px; margin: 0; }
+.confirm-actions button { padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer; }
+.confirm-actions button[data-confirm-accept] { background: #d64545; color: #fff; border-color: #d64545; }
+
+/* 人机交接（AC-2.4）：可复制的命令 + 已解析路径 + 「我跑完了」 */
+.handoff { border: 1px solid #d0a000; background: #fffdf5; border-radius: 8px; padding: 10px 12px; margin-top: 8px; }
+.handoff-title { margin: 0 0 4px; font-weight: 600; }
+.handoff-command { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+.handoff-command code { background: #1f2430; color: #e6e6e6; padding: 4px 8px; border-radius: 6px; }
+.handoff-paths { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 8px 0; font-size: 12px; }
+.handoff-paths dt { color: var(--muted); }
+.handoff-paths dd { margin: 0; }
+.handoff-missing { color: #a12b2b; }
+.handoff-actions { display: flex; gap: 8px; margin: 8px 0 0; }
+.handoff-actions button { padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer; }
+.handoff-actions button[data-handoff-continue] { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* 任务中心（AC-5）：进度、折叠日志、失败原因、产出、重试 */
+.job-progress { height: 6px; background: #e8e8ee; border-radius: 4px; overflow: hidden; margin: 6px 0; }
+.job-progress span { display: block; height: 100%; background: var(--accent); }
+.job-failure { border-left: 3px solid #d64545; padding-left: 8px; margin: 6px 0; }
+.job-failure-what { margin: 0; font-weight: 600; }
+.job-failure-how { margin: 2px 0 0; color: var(--muted); }
+.job-log-details { margin-top: 6px; }
+.job-log-details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.job-outputs { list-style: none; padding-left: 0; margin: 6px 0; font-size: 12px; }
+.job-outputs code { font-family: ui-monospace, monospace; }
+.job-error { color: #a12b2b; }
+.status-queued { color: #6b7280; }
+.status-awaiting_agent { color: #b8860b; font-weight: 600; }

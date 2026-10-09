@@ -90,8 +90,8 @@ def make_config(tmp_path: Path, **overrides) -> Config:
     return Config(**base)
 
 
-def web_app(tmp_path: Path, *, max_jobs=4, history_dir=None, env=None):
-    config = make_config(tmp_path, max_concurrent_jobs=max_jobs)
+def web_app(tmp_path: Path, *, max_jobs=4, history_dir=None, env=None, **config_overrides):
+    config = make_config(tmp_path, max_concurrent_jobs=max_jobs, **config_overrides)
     registry = build_registry()
     install_core_routes(registry, config)
     registry.config = config
@@ -359,8 +359,13 @@ def test_invalid_submissions_are_rejected_before_any_subprocess(tmp_path):
 
 
 def test_concurrency_limit_returns_too_many_jobs(tmp_path):
-    """AC-1.3：并发任务上限——超限 429，任务结束后名额释放。"""
-    config, registry = web_app(tmp_path, max_jobs=1)
+    """AC-1.3：并发任务上限——超限拒绝且**任务结束后名额释放**。
+
+    `REQ-012.2`（`AC-5`）把「超限」从**立即 429** 改成**排队**（任务中心要能列出队列），
+    所以这里用 `max_queued_jobs=0` 复现原来的拒绝语义：队列容量为零时，超限仍然是
+    `TOO_MANY_JOBS`/429。排队的正向行为由 `tests/test_console_actions.py` 覆盖。
+    """
+    config, registry = web_app(tmp_path, max_jobs=1, max_queued_jobs=0)
     with WebUIServer(config, registry) as server:
         first = _http(server, "POST", "/api/v1/jobs", {"command": "test_sleep"})[1]["data"]
         assert first["status"] == "running"

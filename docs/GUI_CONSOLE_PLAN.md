@@ -3,6 +3,16 @@
 > 本文写**怎么做**。要什么、做到什么程度以 [`docs/requirements/REQ-009-local-gui-console.md`](requirements/REQ-009-local-gui-console.md)
 > 为准；两者不互相复制。开发流程见 [`docs/DEVELOPMENT.md`](DEVELOPMENT.md)，测试策略见 [`docs/TESTING.md`](TESTING.md)。
 > 只想了解「做完能干什么、怎么干活」请看导读 [`docs/GUI_CONSOLE_OVERVIEW.md`](GUI_CONSOLE_OVERVIEW.md)（非权威）。
+>
+> **本文是 `REQ-009` 的设计，仍是那一层的权威**；但它描述的**界面形态**已经由 `REQ-012`
+> 按 [`docs/CONSOLE_V2_PLAN.md`](CONSOLE_V2_PLAN.md) 演进过一轮（2026-10-09 实现完毕）：
+> 侧栏分组与默认落地页变了（工作台）、公司成了全局上下文、按键之上多了一层**动作**、
+> 另开数据页与任务中心。**本文的扩展点清单（§4）、面板协议（§6）、API 契约（§7）、
+> 数据层（§8）与手动采集边界（§9.1）一条都没有作废**——`REQ-012` 只**加**了扩展点字段
+> （`NavItem.children/requires/default`、`JobTypeSpec`）与消费者，没有改这些契约的语义。
+> 两处口径以新文档为准：① §4「六类注册点」里第六类（任务类型）的**富化形态**见
+> `CONSOLE_V2_PLAN.md` §4.4；② §14 的交付顺序表是 `REQ-009` 的历史记录，`REQ-012` 的顺序见
+> 该文档 §14。**本文其余内容不改写**（它是 `REQ-009` 已验收产出的设计依据）。
 
 **阅读顺序**：§2 原则 → §3 架构 → §4 扩展点 → §5 插件模型 → §6 面板协议 → §7 API 契约 →
 §8 数据层与缓存 → §9 远程边界 → §9.1 手动采集与长期存档 → §11 目录布局 →

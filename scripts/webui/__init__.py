@@ -10,6 +10,20 @@
 零新增第三方依赖：只用 Python 标准库与仓库既有依赖。
 """
 
+from __future__ import annotations
+
+import sys as _sys
+from pathlib import Path as _Path
+
+# `scripts/` 必须在 `sys.path` 上：`scripts/datalayer/` 里的模块按**仓库既有约定**用
+# 绝对名互相导入（`from periods import …`、`from webui.core.security import redact …`——
+# `datalayer/__init__.py` 自己也往 `sys.path` 插了这一条，测试由 `tests/conftest.py` 插）。
+# 走 `python -m scripts.webui` 时包名是 `scripts.webui`，那一层没人插，于是面板在**真实运行**
+# 里抛 `ModuleNotFoundError`，而测试全绿——只有浏览器走查能抓到（实测踩到）。
+_SCRIPTS_DIR = str(_Path(__file__).resolve().parents[1])
+if _SCRIPTS_DIR not in _sys.path:
+    _sys.path.insert(0, _SCRIPTS_DIR)
+
 __version__ = "0.1.0"
 # API 版本进路径（/api/v1/...）：将来破坏性变更走 /api/v2 并存，不偷偷改语义。
 API_VERSION = "v1"

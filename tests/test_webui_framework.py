@@ -234,7 +234,7 @@ def test_check_mode_assembles_without_binding_a_port(capsys):
     assert payload["plugins"] == [
         {"origin": f"builtin:{name}", "error": False}
         for name in ("collect", "commands", "companies", "charts", "run_history",
-                     "agent_report")
+                     "agent_report", "actions", "home", "data_page")
     ]
 
 
@@ -1005,12 +1005,16 @@ def test_check_mode_lists_registered_panels(tmp_path, capsys):
         "agent.actions",
         "charts.annual_price", "charts.metrics", "charts.revenue_profit",
         "collect.archive", "collect.batches", "collect.gaps", "collect.rebuild",
-        "commands.catalog",
-        "commands.jobs", "companies.artifacts", "companies.list", "demo.future",
-        "demo.table", "report.view", "runs.status", "runs.timeline",
+        "commands.actions", "commands.catalog",
+        "commands.jobs", "companies.artifacts", "companies.list",
+        # REQ-012 新增：工作台 / 数据页 / 数据动作 / 产业动作面板
+        "data.actions", "data.gaps", "data.store", "data.universe",
+        "demo.future", "demo.table", "home.actions", "home.todo", "home.universe",
+        "report.view", "runs.status", "runs.timeline",
     ]
     assert payload["nav"] == [
-        "collect", "companies", "charts", "report", "runs", "commands", "agent", "demo",
+        "home", "collect", "data", "companies", "charts", "report", "runs", "commands",
+        "agent", "demo",
     ]
 
 
