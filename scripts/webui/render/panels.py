@@ -227,6 +227,9 @@ def render_panel(spec, data, *, meta=None) -> dict:
             "fallback": lambda _data: render_fallback(spec),
         }[spec.kind]
         payload["html"] = renderer(merged)
+        # 面板可显式保留可查询的表格行；HTML 渲染与客户端行为照旧。
+        if spec.kind == "table" and spec.options.get("include_rows"):
+            payload["rows"] = list(merged.get("rows") or [])
         payload["render"] = "server"
         if spec.kind == "fallback":
             payload["fallback"] = True

@@ -190,3 +190,8 @@ th[data-sort-active="desc"]::after { content: " ↓"; color: var(--accent); }
 .job-error { color: #a12b2b; }
 .status-queued { color: #6b7280; }
 .status-awaiting_agent { color: #b8860b; font-weight: 600; }
+
+.action-inputs { display: grid; gap: 8px; }
+.action-inputs label { display: grid; gap: 4px; }
+.action-inputs input, .action-inputs select { width: 100%; box-sizing: border-box; padding: 8px; }
+.watchlist-summary { font-weight: 600; }

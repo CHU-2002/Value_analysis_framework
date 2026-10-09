@@ -1,7 +1,7 @@
 // kind=actions：意图化动作按钮 + 服务端预检（禁用 + 理由）+ 危险动作确认层 + 进度。
 // 前端**不做任何判断**：能不能跑、缺什么、会发生什么、要不要确认，全部由服务端算
 // （`GET /api/v1/actions`），这样预检可以被 CI 断言（AC-4 / AC-3 的可判定形式）。
-import { api, selection } from "/app.js";
+import { api, selection, refreshCompanyViews } from "/app.js";
 import { mountHandoff } from "/kinds/handoff.js";
 
 function actionCard(action, refresh) {
@@ -49,13 +49,41 @@ function actionCard(action, refresh) {
     card.append(detail);
   }
 
+  const form = document.createElement("form");
+  form.className = "action-inputs";
+  const controls = {};
+  for (const field of action.inputs || []) {
+    const label = document.createElement("label");
+    label.textContent = field.label;
+    const input = document.createElement(field.choices ? "select" : "input");
+    input.name = field.name;
+    input.dataset.actionInput = field.name;
+    input.required = !!field.required;
+    if (field.choices) {
+      for (const choice of field.choices) {
+        const option = document.createElement("option");
+        option.value = choice.value;
+        option.textContent = choice.label;
+        input.append(option);
+      }
+    } else {
+      input.type = "text";
+      input.placeholder = field.placeholder || "";
+      input.maxLength = field.name === "name" ? 80 : 120;
+    }
+    controls[field.name] = input;
+    label.append(input);
+    form.append(label);
+  }
+  card.append(form);
+
   const button = document.createElement("button");
-  button.type = "button";
+  button.type = "submit";
   button.className = `action-button${action.danger ? " danger" : ""}`;
   button.textContent = action.enabled ? (action.danger ? "执行（需确认）" : "执行") : "暂不可用";
   button.disabled = !action.enabled;
   button.dataset.actionRun = action.id;
-  card.append(button);
+  form.append(button);
 
   if (!action.enabled && (action.blockers || []).length) {
     const blocked = document.createElement("ul");
@@ -72,7 +100,10 @@ function actionCard(action, refresh) {
   result.className = "action-result";
   card.append(result);
 
-  button.onclick = async () => {
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    const params = Object.fromEntries(Object.entries(controls).map(([name, input]) => [name, input.value]));
     // 取消 = 不提交、无副作用。确认层把预估也带上（决定就是在这一刻做的）。
     const confirm = { ...(action.confirm || {}), estimate: action.estimate || {} };
     if (action.danger && !(await confirmDialog(confirm))) return;
@@ -84,9 +115,13 @@ function actionCard(action, refresh) {
       const job = (await api("/api/v1/actions/" + encodeURIComponent(action.id) + "/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ params: {}, context }),
+        body: JSON.stringify({ params, context }),
       })).data;
-      await follow(job, result, refresh);
+      const completed = await follow(job, result, refresh);
+      if (action.id.startsWith("universe.") && completed.status === "finished") {
+        await refreshCompanyViews(card);
+        await refresh({ id: action.id, job: completed });
+      }
     } catch (error) {
       result.append(problem(error));
     } finally {
@@ -182,6 +217,25 @@ function statusLine(job) {
 function jobDetails(job) {
   const box = document.createElement("div");
   box.className = "job-details";
+  if ((job.action || "").startsWith("universe.")) {
+    for (const line of job.log || []) {
+      const start = line.indexOf('{"watchlist_result":');
+      if (start < 0) continue;
+      try {
+        const report = JSON.parse(line.slice(start)).watchlist_result;
+        const text = document.createElement("p");
+        text.className = "watchlist-summary";
+        text.textContent = report.message;
+        box.append(text);
+        for (const item of report.items || []) {
+          const skipped = document.createElement("p");
+          skipped.textContent = `${item.company}：${item.reason}`;
+          box.append(skipped);
+        }
+      } catch (_) { /* 日志不是结构化结果时仍可在技术详情查看。 */ }
+    }
+    return box;
+  }
   const outputs = job.outputs || {};
   const writes = outputs.writes || [];
   if (writes.length) {
@@ -277,7 +331,7 @@ export async function render(container, panel, data) {
       groups.set(group, grid);
     }
     // 预检结果是**服务端**算的（AC-4）：刷新一次就是重新问一次服务端，前端不复算。
-    groups.get(group).append(actionCard(action, () => reloadPanel(container, panel)));
+    groups.get(group).append(actionCard(action, (completed) => reloadPanel(container, panel, completed)));
   }
   if (!actions.length) {
     const empty = document.createElement("p");
@@ -287,8 +341,17 @@ export async function render(container, panel, data) {
   }
 }
 
-async function reloadPanel(container, panel) {
+async function reloadPanel(container, panel, completed) {
   const payload = (await api(panel.endpoint || "/api/v1/actions")).data;
   container.innerHTML = "";
   await render(container, panel, payload);
+  if (completed) {
+    const card = [...container.querySelectorAll("[data-action-id]")].find(node => node.dataset.actionId === completed.id);
+    if (card) {
+      const result = card.querySelector(".action-result");
+      const status = document.createElement("p");
+      status.textContent = statusLine(completed.job);
+      result.append(status, jobDetails(completed.job));
+    }
+  }
 }

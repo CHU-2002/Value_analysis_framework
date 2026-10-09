@@ -93,6 +93,15 @@
 还是「缺陷修复」。设计与新增扩展点的清单见 [`GUI_CONSOLE_PLAN.md`](GUI_CONSOLE_PLAN.md)（`REQ-009`）
 与 [`CONSOLE_V2_PLAN.md`](CONSOLE_V2_PLAN.md)（`REQ-012`，文首 §0 有实现状态与设计偏差）。
 
+### REQ-014 清单维护接线
+
+`plugins/watchlist.py` 声明三个离线动作（沿用 `JobTypeSpec` 的任务编排），为动作卡提供公司输入字段，
+提交时在服务端验证字段并绑定配置中的仓与产物根。`scripts/watchlist_action.py` 通过
+`datalayer.Universe` 写清单，导入只读取当前已接入的产物，返回逐项跳过原因；移除不触碰产物。
+`companies_dataset` 将清单里的新公司与既有产物索引合并，尚未取数的公司页面保持正常空状态。
+清单动作结束后刷新选择器与当前页的其它面板，并保留动作结果。此为前端 shell 的增量能力，
+同步更新 `webui_core_fingerprint.json` 中 `static/app.js` 的指纹；核心调度、路由与安全边界不变。
+
 ## 数据流
 
 ### 1. 采集与解析（确定性）

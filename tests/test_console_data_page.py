@@ -171,9 +171,8 @@ def test_universe_panel_reads_the_declared_list_and_computes_completeness(tmp_pa
     assert panel["meta"]["count"] == 1
     row = panel["rows"][0]
     assert row["ticker"] == TICKER
-    # 产物目录还不存在时没有「规范显示名」可用，就用清单里登记的名字
-    # （统一显示名的判据在 test_data_page_and_company_pages_use_the_same_display_name）。
-    assert row["company"] == "伊利股份"
+    # REQ-014：没有产物的新公司也进入统一公司索引，代码与简称在各页面一致。
+    assert row["company"] == "600887 伊利股份"
     assert row["enabled"] == "启用"
     # 3 条记录里 2 条 ok、1 条无权限 → 完备度 2/3，缺口 1。
     assert row["completeness"] == "2/3"
