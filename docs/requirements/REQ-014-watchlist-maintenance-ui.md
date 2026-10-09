@@ -1,14 +1,14 @@
 ---
 id: REQ-014
 title: 控制台里的自选股清单维护（添加 / 从既有产物导入 / 移除）
-status: implemented
+status: verified
 priority: P1
 owner: CHU-2002
 created: 2026-10-09
 updated: 2026-10-09
 issue: "#102"
 design: N/A
-milestone: TBD
+milestone: N/A（本期单条需求交付）
 pr: "#112"
 depends-on: REQ-012, REQ-011
 supersedes: TBD
@@ -107,14 +107,21 @@ supersedes: TBD
 - 命令与观察：见 [`2026-10-09-REQ-014-development.md`](../run-records/2026-10-09-REQ-014-development.md)。
   旧界面入口走查退出码 1，4 条 failures；新界面完整走查退出码 0，`failures: []`。
   实际首次导入 1 家、跳过 15 项，重复导入 0 家、跳过 16 项；三个代码别名不产生重复，移除仅改沙箱清单。
-- 独立验收与最终门禁记录在收口 PR 补充。
+- 正式 main 基线 `cbbd0de7a21250fd7ffcc631802626107292c51a` 的独立验收：
+  [`2026-10-09-REQ-014.md`](../verification/2026-10-09-REQ-014.md)。全量门禁 1900 passed / 3 skipped，
+  覆盖率 76.94%；真实浏览器 26 条观察、退出码 0、`failures: []`；真实目录两轮导入计数与清单一致。
+  260 个公司产物文件与 400 个真实源文件的 SHA-256 均未变化。
 
 ## 追溯
 
 - 测试文件：`tests/test_watchlist_ui.py`（AC-1…AC-5；AC-6 共用实跑入口）
+- 独立验收报告：[`2026-10-09-REQ-014.md`](../verification/2026-10-09-REQ-014.md)（正式 main 基线，六项 AC 全通过）
 - 设计文档：N/A（沿用 `docs/CONSOLE_V2_PLAN.md` 的动作层与数据层接口）
 
 ## 变更记录
+
+- 2026-10-09：实现 PR #112 已合 main；未参与实现的独立 agent 在正式 main 上全量测试与实跑通过，
+  六项 AC 逐条通过，独立报告归档；状态 `implemented` → `verified`，收口 PR 合入后关闭 #102。
 
 - 2026-10-09：owner 指令「端到端完成 REQ-14，自己闭环交付，直到关闭 issue」受理本需求：
   `proposed` → `accepted` → `in-progress`；保留六条 AC 原文，整体验收。实现 PR 合入后为 `implemented`，独立验收后再收口。

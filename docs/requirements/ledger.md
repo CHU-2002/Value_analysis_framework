@@ -21,7 +21,7 @@
 | [REQ-011](REQ-011-unified-data-acquisition.md) | 一次性全量数据获取与统一原始数据仓 | `verified` | P1 | #73 | #83 | `tests/test_data_store.py` `tests/test_data_pull.py` `tests/test_offline_rebuild.py` |
 | [REQ-012](REQ-012-console-v2.md) | 控制台 2.0（公司上下文 + 任务式交互 + 视图质量） | `verified` | P1 | #74 | #92, #95, #96, #97, #98, #99, #100, #101, #104, #106, #109 | `tests/test_console_context.py` `tests/test_console_actions.py` `tests/test_console_views.py` `tests/test_console_data_page.py` |
 | [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `accepted` | P1 | #75 | #77 | `tests/test_agent_action.py` |
-| [REQ-014](REQ-014-watchlist-maintenance-ui.md) | 控制台里的自选股清单维护（添加 / 从既有产物导入 / 移除） | `implemented` | P1 | #102 | #112 | `tests/test_watchlist_ui.py` |
+| [REQ-014](REQ-014-watchlist-maintenance-ui.md) | 控制台里的自选股清单维护（添加 / 从既有产物导入 / 移除） | `verified` | P1 | #102 | #112 | `tests/test_watchlist_ui.py` |
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
 
