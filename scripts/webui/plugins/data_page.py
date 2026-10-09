@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from ..core.errors import WebUIError
 from ..core.models import NavItem, PanelSpec, Param
-from .companies import display_name
+from .companies import display_name, display_name_from_label
 
 _GAP_COLUMNS = [
     {"key": "ticker", "title": "标的", "search": True, "sort": "text"},
@@ -104,8 +104,11 @@ def _universe_panel(ctx, **_):
         gaps = total - complete
         rows.append({
             "ticker": ticker,
+            # 清单里的显示名是用户登记什么就是什么；产物里有这家公司时以产物为准
+            # （`AC-9` 只认一个来源），两者都没有才按目录名约定拼。
             "company": canonical.get(ticker.upper())
-            or entry.get("display_name") or display_name(ticker, ""),
+            or display_name_from_label(entry.get("display_name"))
+            or display_name(ticker, ""),
             "market": entry.get("market", ""),
             "tier": entry.get("tier", ""),
             "enabled": "启用" if entry.get("enabled") else "停用",

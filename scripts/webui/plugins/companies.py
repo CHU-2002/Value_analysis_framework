@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import mimetypes
+import re
 from pathlib import Path
 
 from ..core import envelope
@@ -113,9 +114,14 @@ def parse_companies(sources: list, params: dict) -> dict:
 def display_name(ticker: str, company: str, label: str = "") -> str:
     """统一显示名（`AC-9`）：`600887 伊利股份`。
 
-    同一家公司在公司页 / 图表页 / 采集页三处必须**同一个**字符串，所以只在这里拼；
-    拼不出来（缺 ticker 或名字）时退回目录名，但**不**退回 `600887.SH`——
-    带交易所后缀的代码是技术标识，不该当用户看到的公司名。
+    同一家公司在公司页 / 图表页 / 工作台 / 数据页必须**同一个**字符串，所以只在这里拼。
+    拼不出来（缺 ticker 或名字）时的顺序是：
+
+    1. 目录名形如 `<代码>_<简称>` → `代码 简称`。**这条是实测补的**：`output/` 下有一批
+       早期产物没有 `record.json`（`000858_五粮液`、`600036_招商银行`…），只看 `subject`
+       会让工作台把目录名当显示名——`AC-9` 说的「目录名只作为技术标识出现」就不成立了；
+    2. 都没有 → 退回目录名（总比空着强）。
+    刻意**不**把 `600887.SH` 当公司名：带交易所后缀的代码是技术标识。
     """
     code = str(ticker or "").split(".")[0].strip()
     name = str(company or "").strip()
@@ -125,7 +131,25 @@ def display_name(ticker: str, company: str, label: str = "") -> str:
         return name
     if code:
         return code
-    return str(label or "")
+    return display_name_from_label(label)
+
+
+#: 目录名约定里的「代码」：A 股/港股/美股的数字代码（`000858` / `600887` / `00700`）。
+#: 刻意要求**全数字**：`portfolio_2026`、`handoff_x` 这类目录名带下划线但不是公司，
+#: 放宽成「字母数字」就会把它们改写成 `portfolio 2026`（实测踩到）。
+_CODE_RE = re.compile(r"^[0-9]{3,6}$")
+
+
+def display_name_from_label(label: str) -> str:
+    """目录名（`000858_五粮液` / `600887_伊利`）→ 显示名（`000858 五粮液`）。
+
+    只处理「`<数字代码>_<简称>`」这一种约定；不合约定就原样返回（**不猜**，也不吞掉内容）。
+    """
+    text = str(label or "").strip()
+    code, separator, rest = text.partition("_")
+    if separator and rest and _CODE_RE.match(code):
+        return f"{code} {rest}"
+    return text
 
 
 def parse_artifacts(sources: list, params: dict) -> dict:
@@ -432,13 +456,17 @@ def _report(ctx, ticker=None, **_):
 
 def contribute(registry):
     register_parsers()
+    # `parser_version` 从 1 升到 2（`REQ-012.1`）：解析结果多了 `label` / `display_name`
+    # 两个字段，显示名的兜底规则也变了（没有 `record.json` 的老产物按 `<代码>_<简称>`
+    # 约定拼）。数据层的缓存键含 parser_version，所以**不升版本的话老缓存会继续被命中**，
+    # 界面上还是目录名——这正是实测踩到的那次（清了派生缓存才对，那就不是修复）。
     registry.dataset(DatasetSpec(
         name="companies.index", sources=COMPANY_MARKERS, parser="companies.index",
-        parser_version=1, schema_version="1.0",
+        parser_version=2, schema_version="1.0",
     ))
     registry.dataset(DatasetSpec(
         name="companies.artifacts", sources=("*", "runs/*/*"), parser="companies.artifacts",
-        parser_version=1, schema_version="1.0",
+        parser_version=2, schema_version="1.0",
     ))
     registry.panel(PanelSpec(
         id="companies.list", kind="table", title="公司", provider=_list_panel, size="full",

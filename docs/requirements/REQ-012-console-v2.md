@@ -237,7 +237,7 @@ supersedes: TBD
 make gui                                     # 终端 1：控制台（默认 127.0.0.1:8765；本次走查监听 8791）
 .venv/bin/python scripts/gui_walkthrough.py --base http://127.0.0.1:8791
 # `--company` 未指定，用脚本默认值 600887.SH；`--action` 未指定，用默认值 data.rebuild
-# 退出码 0；证据目录 output/.webui_walkthrough/20261009T060554Z/
+# 退出码 0；证据目录 output/.webui_walkthrough/20261009T063132Z/
 ```
 
 > 命令以证据目录里的 `observations.md` / `observations.json` 记录为准：该次运行的
@@ -264,7 +264,7 @@ make gui                                     # 终端 1：控制台（默认 127
 | `REQ-009` 的既有路径（回归） | ⑪ 公司页 → 真实点击公司名进图表 → 悬停 → 按键页跑真实命令 → 采集存档 | 全部通过（详见下节） |
 
 **产物**：18 张截图 + `observations.md` / `observations.json`
-（`output/.webui_walkthrough/20261009T060554Z/`；`output/` 是 gitignore 的，路径仅供本机复核）。
+（`output/.webui_walkthrough/20261009T063132Z/`；`output/` 是 gitignore 的，路径仅供本机复核）。
 `observations.json` 的 `failures` 为空、`notes` 逐条记录了每屏的观察与判定。
 
 **`REQ-009` 回归（`REQ-012.3` 改到已验收产物的处置留痕）**：`REQ-012.3` 改了
@@ -277,7 +277,18 @@ make gui                                     # 终端 1：控制台（默认 127
 「实现记录」），`scripts/gui_walkthrough.py` 里 `REQ-009` 的旧步骤（公司页 → 点进图表 → 悬停 →
 按键跑真实命令 → 采集存档）全部通过。
 
-**这次走查抓到、并已修掉的实现缺陷（共 6 条，每条都有前后对照，不只是「脚本全绿」）**：
+**第七、八条（走查证据逐屏核对时抓到，已修）**：
+
+- **老产物的显示名退回目录名**：`output/` 里有一批早期产物没有 `record.json`
+  （`000858_五粮液`、`600036_招商银行`…），`display_name` 只看 `subject`，于是工作台把
+  **目录名**当显示名——`AC-9` 说的「目录名只作为技术标识出现」不成立。修法：按
+  `<数字代码>_<简称>` 约定拼（`display_name_from_label`，不合约定就原样返回、不猜），
+  工作台/公司列表/数据页三处都走这一条。
+- **改了解析规则却没升 `parser_version`**：派生缓存与**源文件指纹**绑定，源文件没变就继续命中
+  老缓存——显示名修好了、界面上还是旧值（实测：必须先 `--clear-cache` 才对，那就不是修复）。
+  修法：`companies.index` / `companies.artifacts` 的 `parser_version` 1→2（与图表那三支同一手法）。
+
+**这次走查抓到、并已修掉的实现缺陷（共 8 条，每条都有前后对照，不只是「脚本全绿」）**：
 ① 动作提交时上下文没有服务端解析（`{ticker}` 解析不出来 → 422，界面表现为「点了没反应」）；
 ② `datalayer/cli.py` 被裸路径调用（包内相对导入 `ImportError`）；
 ③ 点侧栏切页时全局公司上下文丢失（公司级动作全部变成禁用）；
@@ -314,7 +325,7 @@ make gui                                     # 终端 1：控制台（默认 127
 | 设计文档 | [`docs/CONSOLE_V2_PLAN.md`](../CONSOLE_V2_PLAN.md)（IA 图、扩展点增量、动作/预检模型、图表口径模型）；文首「§0 实现状态」登记了落地情况与六条设计偏差 |
 | 实现 PR | #92 |
 | 测试 | `tests/test_console_context.py`、`tests/test_console_actions.py`、`tests/test_console_views.py`、`tests/test_console_data_page.py`——四支均为本需求新开（`REQ-009` 的 4 个 webui 文件已 64/64 零余量，按 `AC-7` 不得再往里加用例）。逐文件用例数由 `python scripts/test_scope.py --report` 给出（本需求四支合计 ≤ 73 例，仓库合计 ≤ 1872/2000、47/52——**用例数仍在变动，以 `docs/TEST_SCOPE.md` 的实测为准**） |
-| 实跑 | `scripts/gui_walkthrough.py --base http://127.0.0.1:8791`（`--action` 用默认值 `data.rebuild`）；证据 `output/.webui_walkthrough/20261009T060554Z/`（18 张截图 + `observations.md/json`，`failures` 为空） |
+| 实跑 | `scripts/gui_walkthrough.py --base http://127.0.0.1:8791`（`--action` 用默认值 `data.rebuild`）；证据 `output/.webui_walkthrough/20261009T063132Z/`（18 张截图 + `observations.md/json`，`failures` 为空） |
 | 文档更新 | `README.md`（本地控制台一节）、`docs/GUI_CONSOLE_OVERVIEW.md`（面板/页面一节）、`docs/GUI_CONSOLE_PLAN.md`（指向本文档的指针）、`docs/CONSOLE_V2_PLAN.md`（§0 实现状态与 §17 开放问题的实际结论）、`docs/ARCHITECTURE.md`（新增 GUI 层小节）、`CHANGELOG.md` |
 
 ## 变更记录
@@ -421,6 +432,8 @@ make gui                                     # 终端 1：控制台（默认 127
 | ④ | 只有一个口径的图**不显示口径标注**（`AC-7` 要求标明单位与口径） | 工具栏在「口径数 ≤ 1」时整块不渲染 | 口径标注与单位标注**分开**：口径切换器只在多于一个口径时出现，口径/单位文字始终显示 |
 | ⑤ | 页面能打开，但**所有新面板 500**（服务端日志 `ModuleNotFoundError: No module named 'periods'` / `'webui'`） | `python -m scripts.webui` 的包名是 `scripts.webui`，`scripts/` 那一层没人插 `sys.path`；而 `datalayer` 的模块按仓库既有约定用**绝对名**互相导入 | `scripts/webui/__init__.py` 加 `sys.path` 垫片（与 `datalayer/__init__.py`、`tests/conftest.py` 同一约定）；回归判据 `tests/test_console_context.py::test_importing_the_package_shim_makes_absolute_scripts_imports_work` |
 | ⑥ | 服务面板重启后**任务列表打不开**（`/api/v1/jobs` 500，`AttributeError: 'list' object has no attribute 'items'`） | 产物在内存里是 `{声明模板: 路径}`、落盘的公开副本是 `[{declared, path, exists}]`；`_outputs_public` 只认第一种形态，而重启时 `_load_history` 会把公开副本读回来 | `_writes_public()` 同时接受两种形态；回归判据 `tests/test_console_actions.py::test_job_history_round_trips_through_a_restart` |
+| ⑦ | 工作台把**目录名**当公司显示名（`000858_五粮液`、`600036_招商银行`…） | 这批早期产物没有 `record.json`，`display_name` 只看 `subject`，于是退回目录名——`AC-9` 要求目录名只作为技术标识出现 | 按 `<数字代码>_<简称>` 约定拼（`display_name_from_label`，不合约定原样返回、不猜）；工作台/公司列表/数据页三处共用；回归判据 `tests/test_console_context.py::test_workbench_shows_a_display_name_even_without_a_record_file` |
+| ⑧ | 显示名修好了，**界面上还是旧值** | 派生缓存与**源文件指纹**绑定：源文件没变就继续命中老缓存，改解析规则不会自动失效 | `companies.index` / `companies.artifacts` 的 `parser_version` 1→2（与图表三支同一手法）；这条是「数据层缓存契约」的正确用法，不是额外机制 |
 
 **⑤⑥ 就是「另有两条同批修的框架缺陷」**，它们只有真实浏览器走查（⑤）与「重启后再读一次」
 （⑥）才暴露：
