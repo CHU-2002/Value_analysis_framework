@@ -523,16 +523,31 @@ class Walkthrough:
               const blocks = [...document.querySelectorAll('#panels .job-outputs')];
               const links = [...document.querySelectorAll('#panels .job-outputs a[data-job-output-link]')];
               const hrefs = links.map((a) => a.getAttribute('href')).filter(Boolean);
-              return { blocks: blocks.length, links: links.length,
+              // 逐块统计：「这一块里所有**已生成**的条目是不是都有链接」。
+              const covered = blocks.filter((block) => {
+                const items = [...block.querySelectorAll('li')];
+                const exists = items.filter((li) => !li.textContent.includes('（还没生成）'));
+                const linked = items.filter((li) => li.querySelector('a[data-job-output-link]'));
+                return exists.length > 0 && linked.length === exists.length;
+              }).length;
+              return { blocks: blocks.length, links: links.length, covered: covered,
                        ok: hrefs.filter((h) => h.startsWith('#report?company=')).length,
                        sample: hrefs.slice(0, 2) };
             })()"""
         )
-        self.note(f"  产出块={counts['blocks']} 链接={counts['links']} 形如报告页={counts['ok']}")
+        self.note(
+            f"  产出块={counts['blocks']} 链接={counts['links']} 形如报告页={counts['ok']} "
+            f"每块都有链接={counts['covered']}/{counts['blocks']}"
+        )
+        # 判据是**逐块**的：每个 `.job-outputs` 里至少有与「已生成」条目数相等的链接。
+        # 曾经写成 `links >= 1`——门② 第五轮把 `jobs.js` 受控还原成第四轮的死代码后，
+        # 那一版仍然 ✅（25 个产出块、只剩 1 个链接），也就是**抓不住它本该抓的缺陷**。
+        # `AGENTS.md` 的标准是「能抓住已知缺陷才算证据」，所以这里必须逐块判。
         self.check(
-            counts["blocks"] == 0 or counts["links"] >= 1,
-            f"每个产出块都能点开（{counts['links']}/{counts['blocks']}）",
-            f"有 {counts['blocks']} 个产出块但一个链接都没有（产出链接是死代码）",
+            counts["blocks"] == 0 or counts["covered"] == counts["blocks"],
+            f"每个产出块都有链接（{counts['covered']}/{counts['blocks']}）",
+            f"有 {counts['blocks']} 个产出块，只有 {counts['covered']} 块是全的"
+            f"（链接总数 {counts['links']}）——产出链接退化成死代码了",
         )
         self.check(
             counts["blocks"] == 0 or counts["ok"] == counts["links"],
