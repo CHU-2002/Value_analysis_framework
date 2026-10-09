@@ -597,12 +597,19 @@ class Walkthrough:
               const node = panel ? panel.querySelector('[data-handoff-feedback]') : null;
               const missingNode = panel ? panel.querySelector('[data-handoff-missing]') : null;
               const text = node ? node.textContent : '';
+              // **可见性按计算样式判**：只看 `hidden` 属性会被 `display:none` /
+              // `visibility:hidden` 骗过（门② delta 复核实测过这三种情形）。
+              let shown = false;
+              if (node && !node.hidden) {
+                const style = getComputedStyle(node);
+                shown = style.display !== 'none' && style.visibility !== 'hidden'
+                  && parseFloat(style.opacity || '1') > 0;
+              }
               return {
                 status: panel ? 1 : 0,
                 feedback: text,
                 missingText: missingNode ? missingNode.textContent : '',
-                // 反馈节点必须是**可见且非空**的（原先这个字段算出来了却没人用——死值）
-                visible: !!(node && !node.hidden && text.trim()),
+                visible: !!(shown && text.trim()),
                 missingShown: !!(missingNode && missingNode.textContent.includes('还没就绪')),
               };
             })()""" % job["id"]
@@ -735,7 +742,8 @@ class Walkthrough:
                 .map((row) => (row.children[column] || {}).textContent || '').map((t) => t.trim());
               const before = read();
               target.click();
-              return { column: column, key: target.dataset.sortKey, before: before.slice(0, 5),
+              // `before` 只作日志用途，但**不截断**：截断过的日志会让人以为判据也只看前几行。
+              return { column: column, key: target.dataset.sortKey, before: before,
                        active: target.dataset.sortActive || '' };
             })()"""
         )

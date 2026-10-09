@@ -53,6 +53,9 @@ FORBIDDEN = (
     #   `--<短横线开关>`：面向用户的文案里不该出现任何命令行开关；
     #   `make <目标>`：不该教用户去敲 make 目标。
     r"--[a-z][a-z0-9-]*", r"\bmake\s+[a-z][a-z0-9-]*",
+    # 接口路径也不该进用户文案（门② delta 复核抓到：`companies.py` 的 hint 里写着
+    # `/api/v1/companies`，它会经 `actions.py` 拼进**阻断理由**摆到界面上）。
+    r"/api/",
 )
 # 说明：`latest` 刻意**不在**禁则里——它既是内部参数名（`--latest`），也是产物字段与
 # 普通英文词的正当字样（`latest.json`、`latest_run`、`defaults to latest fiscal year`）。
@@ -353,6 +356,11 @@ def test_action_wording_never_leaks_internal_parameters_or_cli_flags(tmp_path):
         payloads.append(call_route(registry, "GET", f"/api/v1/pages/{page_id}"))
     # 带上下文取：`data.pull_all` / `data.fill_gaps` 的预估需要「这次要拉哪家」。
     payloads.append(call_route(registry, "GET", "/api/v1/actions", company="600887.SH"))
+    # **再取一次「公司解析不出来」的载荷**：那条路径的 `blockers` 由
+    # `f"{exc.message}：{exc.hint}"` 拼出来（`actions.py`），是接口路径最可能溜进用户文案的地方
+    # ——门② 的 delta 复核就是这么抓到 `companies.py` 的 hint 里写着 `/api/v1/companies` 的，
+    # 而**只看「公司存在」那一份载荷的判据抓不到**（它压根不渲染那条 blocker）。
+    payloads.append(call_route(registry, "GET", "/api/v1/actions", company="999999.XX"))
 
     offenders = []
 
