@@ -121,6 +121,62 @@ def action_context(ctx, selection: dict) -> dict:
     return context
 
 
+# --------------------------------------------------------------- 预估（`AC-4`）
+
+
+def _estimate_pull(ctx, selection: dict) -> dict:
+    """「拉取全部数据」的调用量预估：直接问数据层要（`plan` + `estimate`），不另算一套。"""
+    from .data_page import pull_estimate
+
+    report = pull_estimate(ctx)
+    if not report:
+        return {}
+    requests = int(report.get("requests") or 0)
+    payload = {"requests": requests}
+    if report.get("by_dataset"):
+        payload["detail"] = "，".join(
+            f"{name} {count}" for name, count in sorted(report["by_dataset"].items())
+        )
+    if report.get("by_tier"):
+        payload["detail"] = (payload.get("detail", "") + "；按档位 " + "、".join(
+            f"{tier} {count}" for tier, count in sorted(report["by_tier"].items())
+        )).strip("；")
+    return payload
+
+
+def _estimate_fill_gaps(ctx, selection: dict) -> dict:
+    """「只补缺口」的预估：只数缺口目标（这才是它省配额的理由，`AC-4.3`）。"""
+    from .data_page import pull_estimate
+
+    report = pull_estimate(ctx, only_gaps=True)
+    if not report:
+        return {}
+    return {"requests": int(report.get("requests") or 0),
+            "detail": f"只对缺口目标发起请求（计划里共 {int(report.get('total') or 0)} 个目标）"}
+
+
+def _estimate_rebuild(ctx, selection: dict) -> dict:
+    """「从仓重建」的预估：要读多少条记录（离线，不花钱——文案里已经说了）。"""
+    store = _archive_store(ctx)
+    if store is None:
+        return {}
+    ticker = ""
+    company = str(selection.get("company") or "").strip()
+    if company:
+        try:
+            ticker = str(resolve_company(ctx, company)["ticker"] or "")
+        except WebUIError:
+            ticker = ""
+    try:
+        records = store.records(ticker=ticker or None, include_rows=False)
+    except Exception:  # noqa: BLE001
+        return {}
+    if not records:
+        return {}
+    return {"records": len(records),
+            "detail": f"要读 {len(records)} 条仓内记录（离线，不联网）"}
+
+
 def _company_blockers(ctx, selection: dict) -> dict:
     """公司级动作的前置：选了公司、这家公司在产物里有目录、有数据包。"""
     blockers = []
@@ -263,6 +319,7 @@ def contribute(registry):
             "confirm_label": "开始拉取",
         },
         preflight=_pull_blockers,
+        estimate=_estimate_pull,
     ))
     registry.job_type(JobTypeSpec(
         id="data.fill_gaps",
@@ -279,6 +336,7 @@ def contribute(registry):
             "confirm_label": "开始补缺口",
         },
         preflight=_pull_blockers,
+        estimate=_estimate_fill_gaps,
     ))
     registry.job_type(JobTypeSpec(
         id="data.rebuild",
@@ -290,6 +348,8 @@ def contribute(registry):
         effects={"network": False, "quota": False, "writes": ("数据包",)},
         requires=("selection.company",),
         preflight=_rebuild_blockers,
+        # 离线重建的「成本」是仓里有多少条记录要读——也照实说（`AC-4` 的预计项）。
+        estimate=lambda ctx, selection: _estimate_rebuild(ctx, selection),
     ))
     registry.job_type(JobTypeSpec(
         id="company.update_analysis",

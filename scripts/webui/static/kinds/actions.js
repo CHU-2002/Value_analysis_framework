@@ -31,14 +31,22 @@ function actionCard(action, refresh) {
   if (action.effects && (action.effects.writes || []).length) {
     bits.push(`会写入：${action.effects.writes.join("、")}`);
   }
-  if (action.estimate && action.estimate.requests) {
-    bits.push(`预计 ${action.estimate.requests} 次请求`);
-  }
-  if (action.estimate && action.estimate.seconds) {
-    bits.push(`预计约 ${action.estimate.seconds} 秒`);
-  }
+  // 预估（`AC-4`：执行前说明「预计耗时/调用量」）。数字由**服务端**算，这里只展示；
+  // 服务端算不出来时不给这个键，界面就不显示预估（不编数字）。
+  const estimate = action.estimate || {};
+  if (estimate.requests) bits.push(`预计 ${estimate.requests} 次请求`);
+  if (estimate.records) bits.push(`预计读取 ${estimate.records} 条记录`);
+  if (estimate.seconds) bits.push(`预计约 ${estimate.seconds} 秒`);
   effects.textContent = bits.join(" · ");
+  card.dataset.actionEstimate = estimateText(estimate);
   card.append(effects);
+  if (estimate.detail) {
+    const detail = document.createElement("p");
+    detail.className = "action-estimate-detail panel-note";
+    detail.dataset.actionEstimateDetail = "1";
+    detail.textContent = `预估依据：${estimate.detail}`;
+    card.append(detail);
+  }
 
   const button = document.createElement("button");
   button.type = "button";
@@ -64,7 +72,9 @@ function actionCard(action, refresh) {
   card.append(result);
 
   button.onclick = async () => {
-    if (action.danger && !(await confirmDialog(action.confirm))) return;   // 取消 = 不提交、无副作用
+    // 取消 = 不提交、无副作用。确认层把预估也带上（决定就是在这一刻做的）。
+    const confirm = { ...(action.confirm || {}), estimate: action.estimate || {} };
+    if (action.danger && !(await confirmDialog(confirm))) return;
     button.disabled = true;
     result.innerHTML = "";
     try {
@@ -85,6 +95,16 @@ function actionCard(action, refresh) {
   return card;
 }
 
+// 预估的可断言文本（走查与 DOM 断言都读它；空预估给空串）。
+function estimateText(estimate) {
+  if (!estimate) return "";
+  const bits = [];
+  if (estimate.requests) bits.push(`预计 ${estimate.requests} 次请求`);
+  if (estimate.records) bits.push(`预计读取 ${estimate.records} 条记录`);
+  if (estimate.seconds) bits.push(`预计约 ${estimate.seconds} 秒`);
+  return bits.join(" · ");
+}
+
 function confirmDialog(confirm) {
   const config = confirm || {};
   return new Promise((resolve) => {
@@ -100,6 +120,14 @@ function confirmDialog(confirm) {
     body.className = "confirm-body";
     body.textContent = config.body || "";
     box.append(title, body);
+    const estimate = estimateText(config.estimate || {});
+    if (estimate) {
+      const numbers = document.createElement("p");
+      numbers.className = "confirm-estimate";
+      numbers.dataset.confirmEstimate = "1";
+      numbers.textContent = `${estimate}。`;
+      box.append(numbers);
+    }
     const row = document.createElement("p");
     row.className = "confirm-actions";
     const ok = document.createElement("button");
@@ -201,7 +229,10 @@ function handoffPanel(job, refresh) {
   if ((handoff.missing || []).length) {
     const missing = document.createElement("p");
     missing.className = "handoff-missing";
-    missing.textContent = `还没检测到：${handoff.missing.join("、")}`;
+    // 「找不到」与「找到了但没更新」是两回事：服务端只回缺了哪几项，
+    // 措辞要说清两种可能，别让用户以为文件不在（独立验收抓到的措辞问题）。
+    missing.textContent = "这些产物还没就绪（可能不存在，或没有比这一步开始时更新）："
+      + handoff.missing.join("、");
     box.append(missing);
   }
   const row = document.createElement("p");

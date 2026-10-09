@@ -284,6 +284,10 @@ class JobTypeSpec:
     danger: bool = False
     confirm: dict = field(default_factory=dict)   # {"title","body","confirm_label"}
     preflight: object = None      # 可选：callable(ctx, selection) -> {"blockers": [...]}
+    # 可选：callable(ctx, selection) -> {"requests": n, "seconds": n, ...}。
+    # `AC-4` 要求执行前说明「预计耗时/调用量」——预估必须是**服务端**算出来的
+    # （前端算的测不到），所以它是声明的一部分，由 `GET /api/v1/actions` 下发。
+    estimate: object = None
     endpoint: str = ""            # 面板 kind=actions 的取数地址（可选）
 
     def to_json(self) -> dict:

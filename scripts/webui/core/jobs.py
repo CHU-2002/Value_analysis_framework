@@ -1029,7 +1029,10 @@ class JobRunner:
             if signal == "continue":
                 missing = self._missing_outputs(expects, stamps, started_ts)
                 if missing:
-                    job.error = "还没检测到这一步的产物：" + "、".join(missing)
+                    # 措辞要区分「不在」与「没更新」：两种都会被列进 missing，
+                    # 统一说「还没就绪」比「还没检测到」准确（后者会让人以为文件不存在）。
+                    job.error = ("这一步的产物还没就绪（不存在，或没有比这一步开始时更新）："
+                                 + "、".join(missing))
                     with self._wake:
                         job.status = AWAITING
                         job.handoff = {**job.handoff, "missing": missing}

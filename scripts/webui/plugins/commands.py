@@ -364,8 +364,27 @@ def _action_entry(ctx, spec, *, extra_context=None) -> dict:
         "enabled": not blockers,
         "blockers": blockers,
         "handler": f"/api/v1/actions/{spec.id}/run",
+        # 预估（`AC-4` 的「预计耗时/调用量」）：同样是**服务端**算。
+        # 算不出来（仓不可用、清单为空…）就不给这个键——前端据此不显示预估，
+        # 而不是显示一个编出来的数字（预估宁可没有，也不能骗人）。
+        "estimate": _estimate_for(spec, ctx, selection, blockers),
     })
     return payload
+
+
+def _estimate_for(spec, ctx, selection, blockers) -> dict:
+    """动作的预估值；**失败不影响动作本身**（预估是锦上添花，不是前置条件）。"""
+    if spec.estimate is None or blockers:
+        return {}
+    try:
+        payload = spec.estimate(ctx, selection) or {}
+    except WebUIError:
+        return {}
+    except Exception:  # noqa: BLE001（预估失败只丢预估，不该让动作清单整块失败）
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
 
 
 def _context_value(ctx, key: str, selection: dict | None = None):

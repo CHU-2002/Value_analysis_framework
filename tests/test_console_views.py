@@ -16,8 +16,10 @@
    通用表格行为钉在 `kinds/table.js` 上；像素级现象由浏览器走查覆盖；
 4. **接线也要断**：服务端契约（`data-table-controls`、`panel.meta`）一律断言**真实接口的
    载荷**，不只断言「渲染函数拿着正确输入能产出正确输出」——「声明了但没接上」正是
-   本片踩过的坑。实测到的实现缺陷用 `pytest.xfail` 带原因暴露（见测试内注释与
-   `REQ-012.3` 的实现报告），不为了让文件变绿而删断言、放宽断言或 `skip`。
+   本片踩过的坑。实测到的实现缺陷**先修、再固化成硬断言**（本片交付时抓到三条：`meta` 没提到
+   载荷顶层、表格控件标记不可达、`filter_basis` 裁剪后索引越界——三条都已修，所以这个文件里
+   **没有** `xfail`）；将来若出现当次修不掉的缺陷，用 `pytest.xfail` 带原因暴露，
+   不为了让文件变绿而删断言、放宽断言或 `skip`。
 """
 
 import json
@@ -554,7 +556,12 @@ def test_table_panels_declare_and_emit_the_search_sort_page_contract(tmp_path):
     # 真实面板的 HTML 里也要有这两个标记（否则渲染层那段就是不可达的死代码）。
     assert 'data-table-controls="search,sort,page"' in html
     assert 'data-page-size="50"' in html
-    assert "data-table-controls" in panel_payload(registry, "data.gaps")["html"]
+    # 空表走的是**引导空状态**（那时不需要搜索/分页控件）：有空行时才要求控件标记。
+    gaps_html = panel_payload(registry, "data.gaps")["html"]
+    if "panel-table-empty" in gaps_html:
+        assert "panel-empty-state-inline" in gaps_html, "空表必须给引导，不能是一张空表"
+    else:
+        assert "data-table-controls" in gaps_html
 
 
 def test_table_behaviour_lives_in_the_shared_renderer():

@@ -282,8 +282,8 @@ function updateBreadcrumb(page) {
   if (!node) return;
   const parts = [page.group || "", page.title || ""].filter(Boolean);
   if ((page.requires || []).includes("selection.company")) {
-    const name = document.getElementById("company-current");
-    if (name && name.textContent) parts.push(name.textContent);
+    const name = currentCompanyText();
+    if (name && name !== "（未选择）") parts.push(name);
   }
   node.textContent = parts.join(" / ");
 }
@@ -356,18 +356,25 @@ async function fillCompanySelector() {
   updateCurrentCompanyLabel();
 }
 
-function updateCurrentCompanyLabel() {
-  const label = document.getElementById("company-current");
+// 顶栏只保留**一个**「当前公司」显示位（选择器本身）：独立验收发现原先
+// `<select>` 与 `<span id="company-current">` 同时可见，未选公司时读作
+// 「（未选择）（未选择）」——同一句话显示两遍。需要文本的地方（面包屑、断言）
+// 统一读这个函数。
+function currentCompanyText() {
   const select = document.getElementById("company-select");
-  if (!label) return;
+  if (!select || select.selectedIndex < 0) return "";
+  return (select.options[select.selectedIndex].textContent || "").trim();
+}
+
+function updateCurrentCompanyLabel() {
+  const select = document.getElementById("company-select");
+  if (!select) return;
   // 控件要跟**当前选择**保持一致：切页时 URL 上可能没有 company，但上下文仍在内存里
   // （见 `applySelection`）。那时若只改标签、不同步控件，用户会看到「（未选择）」而实际
   // 上下文还在，公司级动作被误判成缺上下文——实测踩到：点侧栏回任务页后动作全部禁用。
-  if (select && select.value !== (selection.company || "")) {
+  if (select.value !== (selection.company || "")) {
     select.value = selection.company || "";
   }
-  const text = select && select.selectedIndex >= 0 ? select.options[select.selectedIndex].textContent : "";
-  label.textContent = selection.company ? (text || selection.company) : "（未选择）";
 }
 
 function wireCompanySelector() {
