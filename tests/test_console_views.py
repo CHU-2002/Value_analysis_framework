@@ -23,6 +23,7 @@
 """
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -562,6 +563,39 @@ def test_table_panels_declare_and_emit_the_search_sort_page_contract(tmp_path):
         assert "panel-empty-state-inline" in gaps_html, "空表必须给引导，不能是一张空表"
     else:
         assert "data-table-controls" in gaps_html
+
+    # 面板声明了 `sort` 就**必须**每列都有 `data-sort-key`：门② 第三轮在真实浏览器里
+    # 点表头发现批次列表「声明了 sort 却一个可排序表头都没有」——只断言面板级声明的
+    # 测试全绿，所以这里把声明与列级契约**绑在一起**判。
+    for panel_id, kwargs in (("collect.batches", {}), ("collect.gaps", {}),
+                             ("collect.rebuild", {}), ("data.gaps", {}),
+                             ("home.universe", {}), ("data.universe", {})):
+        options = registry.panel_spec(panel_id).options.get("table") or {}
+        if not options.get("sort"):
+            continue
+        html = panel_payload(registry, panel_id, **kwargs)["html"]
+        if "panel-table-empty" in html or "<table" not in html:
+            continue
+        heads = re.findall(r"<th[ >][^>]*>", html)   # 注意别把 `<thead>` 算进来
+        sortable = [head for head in heads if "data-sort-key=" in head]
+        # 判据是「**声明了 sort 的列**都有可排序表头」——不是「所有表头都可排序」：
+        # 长文本列（如缺口的原因原文）刻意不声明 sort，它不该长排序键。
+        spec = registry.panel_spec(panel_id)
+        from webui.core.context import RequestContext as Ctx
+        from webui.core.routes import resolve_params
+
+        context = Ctx(method="GET", path=f"/api/v1/panels/{panel_id}", query=dict(kwargs),
+                      config=registry.config, registry=registry)
+        columns = spec.provider(context, **resolve_params(spec, context))["columns"]
+        declared = [col for col in columns if col.get("sort")]
+        assert len(sortable) == len(declared), (
+            f"{panel_id} 有 {len(declared)} 列声明了 sort，但只有 {len(sortable)} 个表头"
+            f"带 data-sort-key（声明与列级契约脱节——门② 第三轮点表头点出来的）"
+        )
+        for column in declared:
+            assert f'data-sort-key="{column["key"]}"' in html, (
+                f"{panel_id} 的 {column['key']} 列声明了 sort，却没有 data-sort-key"
+            )
 
 
 def test_table_behaviour_lives_in_the_shared_renderer():

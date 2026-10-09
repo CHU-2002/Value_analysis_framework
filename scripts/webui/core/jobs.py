@@ -666,8 +666,17 @@ class JobRunner:
             if status in (RUNNING, QUEUED, AWAITING):
                 # 上次进程留下的 running/queued/awaiting 是**不可信**的：进程已随服务消失，
                 # 不能继续显示「运行中」，更不能显示「在等你操作」（那个交接已经不存在了）。
+                #
+                # **已有 error 也要追加「被中断」**：交接中的任务往往已经带着一句
+                # 「产物还没就绪」，只留那一句会让人以为是自己没跑完，而不是服务重启了
+                # （门② 第三轮登记的非阻断项）。
                 status = FAILED
-                payload["error"] = payload.get("error") or "服务重启时该任务仍在运行（已中断）"
+                interrupted = "服务重启时该任务仍在运行（已中断）"
+                existing = str(payload.get("error") or "").strip()
+                payload["error"] = (
+                    f"{existing}；{interrupted}" if existing and interrupted not in existing
+                    else (existing or interrupted)
+                )
             steps = [
                 StepRun(
                     index=int(item.get("index", 0)),

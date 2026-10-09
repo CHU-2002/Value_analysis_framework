@@ -189,15 +189,20 @@ def test_universe_panel_gives_a_guide_when_the_list_is_empty(tmp_path):
     DataStore(config.archive_root)      # 建一个空仓
     panel = panel_data(registry, "data.universe")
     assert panel["rows"] == []
-    assert "自选股清单是空的" in panel["guide"]
-    assert "①" in panel["guide"], "空状态要说清下一步（分步引导）"
+    assert "自选股清单还是空的" in panel["guide"]
+    assert "登记" in panel["guide"] and "拉取全部数据" in panel["guide"], (
+        "空状态要说清下一步（先登记清单、再拉取）"
+    )
+    # 引导里**不许**出现 Markdown 记号：这段经 HTML 转义后渲染，`**` 会原样显示成星号。
+    assert "**" not in panel["guide"] and "`" not in panel["guide"]
     # 空状态也是**面向用户文案**，同样受 `AC-3` 约束（独立验收第二轮抓到的阻断项：
     # 原先这句是 `make data-universe ARGS='add --ticker … --name …'`——命令、开关、
     # 路径全在里面）。这里正面钉住「不许教用户敲命令」。
     assert not re.search(r"--[a-z][a-z0-9-]*", panel["guide"]), panel["guide"]
     assert not re.search(r"\bmake\s+[a-z]", panel["guide"]), panel["guide"]
+    assert "output/" not in panel["guide"], "面向用户的引导里不出现内部目录名"
     html = panel_payload(registry, "data.universe")["html"]
-    assert "自选股清单是空的" in html
+    assert "自选股清单还是空的" in html
     assert "--ticker" not in html and "make data-universe" not in html
 
 

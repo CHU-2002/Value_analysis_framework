@@ -506,6 +506,57 @@ class Walkthrough:
         )
         self.shot("03-cold-open-empty-state.png")
 
+    def step_table_sorting(self) -> None:
+        """表格能力要**真的点**（`AC-8`）：声明了 sort 不等于能排序。
+
+        门② 第三轮就是这么抓到的——批次列表声明了 `sort=True`，但服务端没下发
+        `data-sort-key`，真实浏览器点表头返回 `NOT-sortable`，而行级测试只断言了「声明」。
+        所以这里在**真实浏览器里点一次数值列**，要求排序**实际生效**（行序变化）。
+        选数值列而不是文本列：首列往往已经有序，点一下看不出变化。
+        """
+        self.note("④b 表格排序（AC-8）：在真实浏览器里点一次数值列表头")
+        self.open_page("collect")
+        outcome = self.cdp.evaluate(
+            """(() => {
+              const panel = document.querySelector('#panels .panel[data-panel-id="collect.batches"]');
+              if (!panel) return { error: 'no-panel' };
+              const ths = [...panel.querySelectorAll('thead th[data-sort-key]')];
+              const target = ths.find((th) => th.dataset.sortType === 'number') || ths[ths.length - 1];
+              if (!target) return { error: 'NOT-sortable: 没有任何 data-sort-key 表头' };
+              const column = [...target.parentNode.children].indexOf(target);
+              const read = () => [...panel.querySelectorAll('tbody tr')]
+                .map((row) => (row.children[column] || {}).textContent || '').map((t) => t.trim());
+              const before = read();
+              target.click();
+              return { column: column, key: target.dataset.sortKey, before: before.slice(0, 5),
+                       active: target.dataset.sortActive || '' };
+            })()"""
+        )
+        self.note(f"  点击结果：{outcome}")
+        if outcome.get("error"):
+            self.check(False, "表头可排序", f"批次表不可排序：{outcome['error']}")
+            return
+        self.check(bool(outcome.get("active")), "点表头后进入排序态", f"点表头没有生效：{outcome}")
+        after = self.cdp.evaluate(
+            """(() => {
+              const panel = document.querySelector('#panels .panel[data-panel-id="collect.batches"]');
+              const ths = [...panel.querySelectorAll('thead th[data-sort-key]')];
+              const target = ths.find((th) => th.dataset.sortType === 'number') || ths[ths.length - 1];
+              const column = [...target.parentNode.children].indexOf(target);
+              return [...panel.querySelectorAll('tbody tr')]
+                .map((row) => (row.children[column] || {}).textContent || '').map((t) => t.trim()).slice(0, 5);
+            })()"""
+        )
+        self.note(f"  排序后该列前三行：{after[:3]}")
+        # 判据：要么行序变了，要么本来就是有序的（两种都算「排序真的作用在数据上」）。
+        numbers = [float(text) for text in after if text.replace(".", "", 1).isdigit()]
+        self.check(
+            numbers == sorted(numbers),
+            f"数值列按序排列：{after[:5]}",
+            f"点了排序但数值列不是有序的：{after[:5]}",
+        )
+        self.shot("04b-table-sort.png")
+
     def step_actions_page(self) -> None:
         """④ 任务页的「可以做的事」：动作以意图命名、禁用时给可读理由。"""
         self.note("④ 任务页：动作清单 + 预检（禁用时给理由）")
@@ -661,6 +712,8 @@ class Walkthrough:
                 "切到单季口径后图重画、标注跟着换、URL 带 basis=quarter",
                 f"口径切换没有生效：切换前={switched} 切换后={after}",
             )
+            # 这里不再截 `06-charts.png`：它是切到单季之后的同一屏，与 `06b` 是同一份字节
+            # （门② 登记过重复截图）。切换前的证据在 `06a`。
             # 两张截图必须是**不同**的字节：否则「切换前」这一屏没有证据。
             # 这一条是脚本对自己的判据（独立验收就是靠比对 md5 发现两张图一模一样的）。
             self.check(
@@ -669,8 +722,6 @@ class Walkthrough:
                 "切换前/后两张截图不是同一份字节（有前后对照）",
                 "切换前后的截图完全相同：这一屏没有前后对照证据",
             )
-        self.shot("06-charts.png")
-
     def step_action_run(self, action_id: str, *, timeout: float) -> None:
         """⑦ 执行一个动作：确认层 → 任务 → 产出。
 
@@ -784,6 +835,13 @@ class Walkthrough:
         self.check(bool(shown), "任务中心展示了失败原因", "任务中心没有展示失败原因")
         retry = self.cdp.evaluate("document.querySelectorAll('[data-job-retry]').length")
         self.check(retry > 0, f"有 {retry} 个任务可以重试", "没有可重试的任务按钮")
+        # 把失败卡滚到视野里再截：不滚的话这一屏与「动作结果」那屏字节完全相同
+        # （门② 登记过 `08-action-result.png` 与 `09-failure-retry.png` 同哈希）。
+        self.cdp.evaluate(
+            "(() => { const node = document.querySelector('#panels .job-failure');"
+            " if (node) node.scrollIntoView({block: 'center'}); return true; })()"
+        )
+        time.sleep(0.6)
         self.shot("09-failure-retry.png")
 
     def step_switch_company(self, ticker: str, other: str) -> None:
@@ -841,6 +899,10 @@ class Walkthrough:
             "显示名里没有目录名形态（下划线）",
             f"显示名里出现了目录名：{picked}",
         )
+        # 截图去**数据页**：三处比对已经取完。停在任何已截过的页面上都会产生重复字节
+        # （门② 第三轮登记过 `08-collect.png` 与 `11-display-name.png` 同哈希），
+        # 数据页的「自选股清单」正好是同一家公司的**第四处**显示位。
+        self.open_page("data")
         self.shot("11-display-name.png")
 
     # -- 旧步骤（REQ-009 的回归路径，继续保留） ------------------------------
@@ -1147,6 +1209,7 @@ def main(argv=None) -> int:
         walkthrough.step_company_context(ticker)
         walkthrough.step_cold_open_without_company()
         walkthrough.step_data_page()
+        walkthrough.step_table_sorting()
         walkthrough.step_actions_page()
         walkthrough.step_chart_basis()
         walkthrough.step_report()
