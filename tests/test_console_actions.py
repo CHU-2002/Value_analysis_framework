@@ -354,6 +354,27 @@ def test_action_wording_never_leaks_internal_parameters_or_cli_flags(tmp_path):
         f"渲染出来的页面里出现了命令/开关/内部参数名：{row_offenders}"
     )
 
+    # **客户端渲染的声明**也要看：`kind=actions` 的面板在服务端只有占位符 HTML，
+    # 它的文案（`effects.writes` / `estimate.detail` / `confirm.body`…）由前端渲染，
+    # 上面那条「渲染 HTML」的判据够不到——门② 第五轮往 `effects.writes` 注入 `--foo`
+    # 时扫描仍绿。这里直接扫**声明**本身。
+    declaration_offenders = []
+    for action in call_route(registry, "GET", "/api/v1/actions")["data"]["actions"]:
+        blob = json.dumps(
+            {key: value for key, value in action.items()
+             if key not in ("steps", "handler", "id")},
+            ensure_ascii=False,
+        )
+        for pattern in FORBIDDEN:
+            matched = re.search(pattern, blob)
+            if matched:
+                declaration_offenders.append((action["id"], pattern, matched.group(0)))
+    # 说明：按键的 `param.help` 只渲染在 `commands.catalog`（owner 裁决豁免的技术视图）里，
+    # 所以不在这里单独扫——面板级那条判据已经按裁决跳过了那一页。
+    assert declaration_offenders == [], (
+        f"动作/按键的声明里出现了命令/开关：{declaration_offenders}"
+    )
+
     # 动作标题是「做什么」而不是命令名。
     actions = call_route(registry, "GET", "/api/v1/actions")["data"]["actions"]
     titles = {action["id"]: action["title"] for action in actions}

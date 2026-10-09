@@ -239,7 +239,9 @@ def test_store_panel_summarises_the_archive(tmp_path):
     assert values["清单标的数"] == 1
     assert values["结果 · ok"] == 2
     assert values["结果 · no_permission"] == 1
-    assert any(item.startswith("原始仓位置") for item in values)
+    # 「原始仓」只给目录名标识，**不给绝对路径**（面向用户的表格里不摆内部路径）。
+    assert values["原始仓"] == config.archive_root.name
+    assert str(config.archive_root) not in json.dumps(values, ensure_ascii=False)
 
 
 def test_store_panel_is_readable_when_there_is_no_archive_yet(tmp_path):

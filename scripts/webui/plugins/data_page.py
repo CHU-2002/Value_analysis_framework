@@ -22,6 +22,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ..core.errors import WebUIError
 from ..core.models import NavItem, PanelSpec, Param
 from .companies import display_name, display_name_from_label
@@ -206,7 +208,9 @@ def _store_panel(ctx, **_):
                               "或从既有存档导入之后，这里会显示仓的规模与新鲜度。"},
         }
     rows = [
-        {"item": "原始仓位置", "value": stats.get("store", "")},
+        # 仓的位置对用户没有用（那是内部目录名），而且会暴露绝对路径；
+        # 给「仓的标识」（目录名）与是否就绪就够了——要判断新鲜度看下面的时间与计数。
+        {"item": "原始仓", "value": Path(str(stats.get("store", ""))).parent.name or "（未建立）"},
         {"item": "记录数", "value": stats.get("records", 0)},
         {"item": "占用字节", "value": stats.get("bytes", 0)},
         {"item": "写入格式版本", "value": stats.get("schema_version", "")},
