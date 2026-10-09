@@ -590,13 +590,19 @@ class Walkthrough:
         time.sleep(2.0)
         after = self.cdp.evaluate(
             """(() => {
+              // **按任务定位**，不读整页文本：门② 第七轮用受控还原证明过，读
+              // `document.body.textContent` 时「历史里旧任务的失败卡」也能满足这条判据，
+              // 于是交接面板整块消失时它仍然 ✅——那条断言就看不出缺陷了。
               const panel = document.querySelector('[data-handoff-for="%s"]');
-              const body = document.body.textContent || '';
+              const node = panel ? panel.querySelector('[data-handoff-feedback]') : null;
+              const missingNode = panel ? panel.querySelector('[data-handoff-missing]') : null;
+              const text = node ? node.textContent : '';
               return {
                 status: panel ? 1 : 0,
-                feedback: (document.querySelector('[data-handoff-feedback]') || {}).textContent || '',
-                visible: body.includes('仍停在这一步') || body.includes('还没就绪'),
-                missingShown: body.includes('还没就绪'),
+                feedback: text,
+                missingText: missingNode ? missingNode.textContent : '',
+                visible: !!(node && !node.hidden && text.trim()),
+                missingShown: !!(missingNode && missingNode.textContent.includes('还没就绪')),
               };
             })()""" % job["id"]
         )
@@ -606,8 +612,11 @@ class Walkthrough:
                    f"任务被放行了：{server['status']}")
         self.check(after["status"] == 1, "交接面板还在（没有凭空消失）",
                    "点了继续之后交接面板消失了")
-        self.check(after["missingShown"], "界面说清了「缺什么」",
-                   f"界面没有说缺什么：feedback={after['feedback']!r}")
+        self.check(after["missingShown"], "界面说清了「缺什么」（面板内的缺失行）",
+                   f"面板里没有说缺什么：missingText={after['missingText']!r}")
+        self.check("还没就绪" in after["feedback"],
+                   "面板内的失败反馈也说了「还没就绪」",
+                   f"反馈措辞不一致或缺失：{after['feedback']!r}")
         self.check(bool(after["feedback"].strip()), "失败反馈就显示在交接面板上",
                    f"反馈节点是空的：{after['feedback']!r}")
         self.shot("14-handoff.png")
