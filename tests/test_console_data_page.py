@@ -16,6 +16,7 @@
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -189,9 +190,15 @@ def test_universe_panel_gives_a_guide_when_the_list_is_empty(tmp_path):
     panel = panel_data(registry, "data.universe")
     assert panel["rows"] == []
     assert "自选股清单是空的" in panel["guide"]
-    assert "①" in panel["guide"] and "data-universe" in panel["guide"]
+    assert "①" in panel["guide"], "空状态要说清下一步（分步引导）"
+    # 空状态也是**面向用户文案**，同样受 `AC-3` 约束（独立验收第二轮抓到的阻断项：
+    # 原先这句是 `make data-universe ARGS='add --ticker … --name …'`——命令、开关、
+    # 路径全在里面）。这里正面钉住「不许教用户敲命令」。
+    assert not re.search(r"--[a-z][a-z0-9-]*", panel["guide"]), panel["guide"]
+    assert not re.search(r"\bmake\s+[a-z]", panel["guide"]), panel["guide"]
     html = panel_payload(registry, "data.universe")["html"]
     assert "自选股清单是空的" in html
+    assert "--ticker" not in html and "make data-universe" not in html
 
 
 def test_gaps_panel_drills_down_by_ticker_period_and_dataset(tmp_path):

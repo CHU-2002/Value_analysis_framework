@@ -48,12 +48,21 @@ from webui.plugins import commands as commands_plugin
 FORBIDDEN = (
     r"company_dir", r"output_dir", r"run_dir", r"\binput\b", r"\bforce\b",
     r"--only-gaps", r"--yes", r"/Users/", r"\.venv", r"\bpython\b",
+    # 独立验收第二轮抓到的漏网：空状态引导里写着 `make data-universe ARGS='add --ticker …'`。
+    # 补两条**零误报**的形状判据（比逐个列开关名更稳，新加开关也不必改测试）：
+    #   `--<短横线开关>`：面向用户的文案里不该出现任何命令行开关；
+    #   `make <目标>`：不该教用户去敲 make 目标。
+    r"--[a-z][a-z0-9-]*", r"\bmake\s+[a-z][a-z0-9-]*",
 )
 # 说明：`latest` 刻意**不在**禁则里——它既是内部参数名（`--latest`），也是产物字段与
 # 普通英文词的正当字样（`latest.json`、`latest_run`、`defaults to latest fiscal year`）。
 # 禁则要能一眼判定、零误报，宁可少一条也不要把正常数据判成违规
 # （`AC-3` 的原意是「界面**要求用户输入**内部参数」，不是「文档里不许出现这个词」）。
 _TEXT_KEYS = ("title", "description", "label", "hint", "message", "note", "guide", "help")
+#: **技术视图**：按键目录（`kind=form` 的 `commands.catalog`）的参数名与开关由各脚本
+#: 的 argparse 扫描得出，属 `REQ-009.1` 的 `AC-1.2` 要求明示的内容；owner 2026-10-09
+#: 裁定它不受 `AC-3` 的文案禁则约束（见 `REQ-012` 的「## 备注」）。
+TECHNICAL_VIEW_PANELS = ("commands.catalog",)
 
 
 # --------------------------------------------------------------- 测试辅助
@@ -281,16 +290,22 @@ def test_action_wording_never_leaks_internal_parameters_or_cli_flags(tmp_path):
 
     offenders = []
 
-    def walk(node, key=""):
+    def walk(node, key="", panel_id=""):
         if key.endswith("argv") or key.endswith("href") or key.endswith("endpoint"):
             return
         if isinstance(node, dict):
+            # 记住当前面板：**技术视图**（各脚本 argparse 扫出来的按键目录）不看禁则——
+            # owner 2026-10-09 的裁决把它排除在 `AC-3` 的适用范围之外（它的字段名与开关
+            # 就是 `REQ-009.1` 的 `AC-1.2` 要求明示的那张表，删掉它会回退已验收能力）。
+            current = node.get("id", panel_id) if node.get("kind") else panel_id
             for name, value in node.items():
-                walk(value, name)
+                walk(value, name, current)
         elif isinstance(node, list):
             for value in node:
-                walk(value, key)
+                walk(value, key, panel_id)
         elif isinstance(node, str) and key in _TEXT_KEYS:
+            if panel_id in TECHNICAL_VIEW_PANELS:
+                return
             for pattern in FORBIDDEN:
                 if re.search(pattern, node):
                     offenders.append((key, pattern, node[:80]))
