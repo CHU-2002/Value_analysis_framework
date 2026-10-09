@@ -1,121 +1,77 @@
-// kind=chart：数据形状 {labels:[...], series:[{name, values:[...]}]}
-// 用原生 canvas 画折线/柱状 + 鼠标悬停读数。刻意不引图表库（零新增依赖）。
-function niceScale(values) {
-  const numbers = values.filter((value) => typeof value === "number" && Number.isFinite(value));
-  if (!numbers.length) return { min: 0, max: 1 };
-  const max = Math.max(...numbers, 0);
-  const min = Math.min(...numbers, 0);
-  if (max === min) return { min: min - 1, max: max + 1 };
-  const pad = (max - min) * 0.1;
-  return { min: min - pad, max: max + pad };
-}
+// kind=chart：读 `options.chart`（type / x / series / toolbar），用 chart_core 画。
+// 这里只做「按声明分发 + 工具栏」，绘制质量全部落在 chart_core（AC-7：一处修好、所有图受益）。
+import { api, selection, setHash } from "/app.js";
+import {
+  downloadPng, renderChart, seriesToTsv,
+} from "/kinds/chart_core.js";
 
-// 数据包里的缺失值是 `null`（"—"）：图上留空，不画成 0（画成 0 会篡改趋势）。
-function isNumber(value) {
-  return typeof value === "number" && Number.isFinite(value);
-}
-
-function draw(ctx, canvas, panel, data, hoverIndex) {
-  const { width, height } = canvas;
-  ctx.clearRect(0, 0, width, height);
-  const labels = data.labels || [];
-  const series = data.series || [];
-  const type = (panel.options && panel.options.chart && panel.options.chart.type) || "line";
-  const flat = series.flatMap((item) => item.values || []);
-  if (!labels.length || !flat.length) {
-    ctx.fillStyle = "#888";
-    ctx.fillText("暂无数据", 12, 24);
-    return;
-  }
-  const { min, max } = niceScale(flat);
-  const padLeft = 64;
-  const padBottom = 28;
-  const plotWidth = width - padLeft - 12;
-  const plotHeight = height - padBottom - 16;
-  const x = (index) => padLeft + (labels.length === 1 ? plotWidth / 2 : (index * plotWidth) / (labels.length - 1));
-  const y = (value) => 16 + plotHeight - ((value - min) / (max - min)) * plotHeight;
-
-  ctx.strokeStyle = "#e3e3e3";
-  ctx.fillStyle = "#888";
-  ctx.font = "11px system-ui, sans-serif";
-  for (let step = 0; step <= 4; step += 1) {
-    const value = min + ((max - min) * step) / 4;
-    const lineY = y(value);
-    ctx.beginPath();
-    ctx.moveTo(padLeft, lineY);
-    ctx.lineTo(width - 12, lineY);
-    ctx.stroke();
-    ctx.fillText(value.toFixed(1), 6, lineY + 4);
-  }
-  const colors = ["#2f6fed", "#e8804a", "#3aa76d", "#a05ad6"];
-  series.forEach((item, seriesIndex) => {
-    const values = item.values || [];
-    ctx.strokeStyle = colors[seriesIndex % colors.length];
-    ctx.fillStyle = ctx.strokeStyle;
-    if (type === "bar") {
-      const barWidth = Math.max(2, plotWidth / labels.length / (series.length + 1));
-      values.forEach((value, index) => {
-        if (!isNumber(value)) return;
-        const barHeight = Math.abs(y(value) - y(0));
-        ctx.fillRect(
-          x(index) - barWidth * series.length / 2 + seriesIndex * barWidth,
-          Math.min(y(value), y(0)),
-          barWidth - 1,
-          barHeight,
-        );
-      });
-    } else {
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      let started = false;
-      values.forEach((value, index) => {
-        if (!isNumber(value)) {
-          started = false;      // 缺失值断开折线，而不是连一条穿过 0 的假线
-          return;
-        }
-        if (!started) ctx.moveTo(x(index), y(value));
-        else ctx.lineTo(x(index), y(value));
-        started = true;
-      });
-      ctx.stroke();
+function toolbar(container, panel, data, chart, onBasisChange) {
+  const options = (panel.options && panel.options.chart && panel.options.chart.toolbar) || {};
+  const bar = document.createElement("div");
+  bar.className = "chart-toolbar";
+  const bases = data.bases || [];
+  if (options.basis !== false && bases.length > 1) {
+    const label = document.createElement("span");
+    label.className = "panel-note";
+    label.textContent = "口径：";
+    const select = document.createElement("select");
+    select.dataset.chartBasis = "1";
+    for (const basis of bases) {
+      const option = document.createElement("option");
+      option.value = basis;
+      option.textContent = `${data.basis_labels[basis] || basis}（${data.basis_kind[basis] || ""}）`;
+      if ((data.basis || "annual") === basis) option.selected = true;
+      select.append(option);
     }
-  });
-  ctx.fillStyle = "#666";
-  labels.forEach((label, index) => {
-    if (labels.length > 12 && index % 2 === 1) return;
-    ctx.fillText(String(label), x(index) - 12, height - 8);
-  });
-  let legendX = padLeft;
-  series.forEach((item, seriesIndex) => {
-    ctx.fillStyle = colors[seriesIndex % colors.length];
-    ctx.fillRect(legendX, 2, 8, 8);
-    ctx.fillStyle = "#444";
-    ctx.fillText(item.name || `系列 ${seriesIndex + 1}`, legendX + 12, 10);
-    legendX += 110;
-  });
-  if (hoverIndex !== null && hoverIndex >= 0 && hoverIndex < labels.length) {
-    ctx.strokeStyle = "#bbb";
-    ctx.beginPath();
-    ctx.moveTo(x(hoverIndex), 16);
-    ctx.lineTo(x(hoverIndex), 16 + plotHeight);
-    ctx.stroke();
-    const lines = [
-      String(labels[hoverIndex]),
-      ...series.map((item) => {
-        const value = (item.values || [])[hoverIndex];
-        return `${item.name}: ${isNumber(value) ? value : "—"}`;
-      }),
-    ];
-    const boxWidth = 150;
-    const boxHeight = 14 * lines.length + 8;
-    const boxX = Math.min(Math.max(padLeft, x(hoverIndex) + 8), width - boxWidth - 4);
-    ctx.fillStyle = "rgba(255,255,255,0.95)";
-    ctx.fillRect(boxX, 16, boxWidth, boxHeight);
-    ctx.strokeStyle = "#ccc";
-    ctx.strokeRect(boxX, 16, boxWidth, boxHeight);
-    ctx.fillStyle = "#222";
-    lines.forEach((line, index) => ctx.fillText(line, boxX + 6, 30 + index * 14));
+    select.onchange = () => onBasisChange(select.value);
+    bar.append(label, select);
+  } else if (bases.length === 1) {
+    // 只有一种口径也要写明是哪一种（`AC-7` 要求在图上标明单位与累计/单期）。
+    const only = document.createElement("span");
+    only.className = "panel-note";
+    only.dataset.chartBasisLabel = bases[0];
+    only.textContent = `口径：${data.basis_labels[bases[0]] || bases[0]}`
+      + `（${data.basis_kind[bases[0]] || ""}）`;
+    bar.append(only);
+  } else if (data.basis) {
+    const fallback = document.createElement("span");
+    fallback.className = "panel-note";
+    fallback.dataset.chartBasisLabel = data.basis;
+    fallback.textContent = `口径：${(data.basis_labels || {})[data.basis] || data.basis}`;
+    bar.append(fallback);
   }
+  if (data.unit) {
+    const unit = document.createElement("span");
+    unit.className = "panel-note";
+    unit.dataset.chartUnit = data.unit;
+    unit.textContent = `单位：${data.unit}`;
+    bar.append(unit);
+  }
+  const legendNote = document.createElement("span");
+  legendNote.className = "panel-note";
+  legendNote.textContent = "缺失值断开折线并标空心点，不画成 0";
+  bar.append(legendNote);
+  if (options.export !== false) {
+    const png = document.createElement("button");
+    png.type = "button";
+    png.dataset.chartExport = "png";
+    png.textContent = "导出图片";
+    png.onclick = () => downloadPng(chart.canvas, panel.id);
+    const tsv = document.createElement("button");
+    tsv.type = "button";
+    tsv.dataset.chartExport = "tsv";
+    tsv.textContent = "复制数据";
+    tsv.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(seriesToTsv(data.labels || [], data.series || []));
+        tsv.textContent = "已复制";
+      } catch (_) {
+        tsv.textContent = "请手动复制";
+      }
+    };
+    bar.append(png, tsv);
+  }
+  container.append(bar);
 }
 
 export async function render(container, panel, data) {
@@ -123,27 +79,26 @@ export async function render(container, panel, data) {
     container.textContent = "暂无数据";
     return;
   }
-  const canvas = document.createElement("canvas");
-  canvas.width = 720;
-  canvas.height = 260;
-  canvas.className = "chart-canvas";
-  container.append(canvas);
-  const ctx = canvas.getContext("2d");
-  const labelCount = (data.labels || []).length;
-  let hoverIndex = null;
-  canvas.addEventListener("mousemove", (event) => {
-    const rect = canvas.getBoundingClientRect();
-    const ratio = (event.clientX - rect.left) / rect.width;
-    const padLeft = 64 / canvas.width;
-    const span = 1 - padLeft - 12 / canvas.width;
-    const position = (ratio - padLeft) / span;
-    hoverIndex = Math.round(position * Math.max(labelCount - 1, 1));
-    if (hoverIndex < 0 || hoverIndex >= labelCount) hoverIndex = null;
-    draw(ctx, canvas, panel, data, hoverIndex);
+  const chart = renderChart(container, {
+    labels: data.labels || [],
+    series: data.series || [],
+    type: (panel.options && panel.options.chart && panel.options.chart.type) || "line",
+    unit: data.unit,
+    basisLabel: (data.basis_labels || {})[data.basis] || "",
+    basisKind: (data.basis_kind || {})[data.basis] || "",
   });
-  canvas.addEventListener("mouseleave", () => {
-    hoverIndex = null;
-    draw(ctx, canvas, panel, data, null);
-  });
-  draw(ctx, canvas, panel, data, null);
+  const reload = async (basis) => {
+    if (!selection.company) return;
+    const params = new URLSearchParams({ company: selection.company, basis });
+    window.location.hash = `charts?${params.toString()}`;
+  };
+  toolbar(container, panel, data, chart, reload);
+  if (data.empty_hint) {
+    const note = document.createElement("p");
+    note.className = "panel-note";
+    note.textContent = data.empty_hint;
+    container.append(note);
+  }
 }
+
+export { seriesToTsv, downloadPng };

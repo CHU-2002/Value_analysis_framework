@@ -173,17 +173,20 @@ def contribute(registry):
     registry.panel(PanelSpec(
         id="collect.batches", kind="table", title="采集批次进度",
         provider=_batches, size="full",
+        options={"table": {"search": True, "sort": True, "page": 50}},
         description="仅读取本地批次进度与配额消耗；不会触发远程请求。",
     ))
     registry.panel(PanelSpec(
         id="collect.rebuild", kind="table", title="离线重建（不花钱，与上面的采集分开）",
         provider=_rebuild_entries, size="full",
+        options={"table": {"search": True, "sort": True}},
         description="由原始仓离线重建数据包；本面板只读产物目录，不读仓、不联网、不触发动作。",
     ))
     registry.panel(PanelSpec(
         id="collect.gaps", kind="table", title="缺口清单（逐条原因）",
         provider=_gaps_panel, size="full",
-        description="列出每个缺口接口的结果分类与错误原文摘要；补齐请用 --only-gaps 收敛目标。",
+        options={"table": {"search": True, "sort": True, "page": 50}},
+        description="列出每个缺口接口的结果分类与错误原文摘要；补齐缺口在「数据」页一键完成。",
     ))
     registry.nav(NavItem(id="collect", title="采集存档", group="数据", order=5,
                          panels=("collect.archive", "collect.batches", "collect.rebuild",

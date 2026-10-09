@@ -37,7 +37,11 @@ def build_application(config) -> tuple:
     report = load_plugins(registry, config.plugins)
     # 任务运行器是内核能力（AC-1.1~AC-1.4），挂在这里供插件通过 `ctx.registry.jobs` 使用；
     # 不在 `Registry.__init__` 里声明属性，是为了让「加按键」不必改内核（AC-9）。
-    registry.jobs = JobRunner(config, spec_lookup=registry.command_spec)
+    # `job_lookup` 是 REQ-012.2 的动作通道：给了它，`POST /api/v1/actions/{id}/run`
+    # 才能把动作编排成多步任务；按键路径（`submit(command_id)`）行为一字不变。
+    registry.jobs = JobRunner(
+        config, spec_lookup=registry.command_spec, job_lookup=registry.job_type_spec,
+    )
     return registry, report
 
 

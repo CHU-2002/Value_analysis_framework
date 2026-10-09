@@ -12,7 +12,7 @@
 | `route(method, path, handler)` | 自定义接口（返回统一信封） |
 | `dataset(DatasetSpec)` | 数据源：哪些文件、哪个解析器、怎么算指纹 |
 | `command(CommandSpec)` | 白名单命令 + 结构化参数 |
-| `job_type(kind, runner)` | 命令以外的任务类型（批次采集等） |
+| `job_type(kind, runner)` | 命令以外的任务类型（批次采集等）；富化形态见 `JobTypeSpec`（动作） |
 
 同一 id 重复注册**直接抛错并指明两个来源**，不静默覆盖——静默覆盖会让「谁把我的面板顶掉了」
 变成排查不出来的问题。
@@ -24,6 +24,7 @@ from contextlib import contextmanager
 
 from . import models
 from .errors import BadRequest, NotFound, RegistrationConflict
+from .jobs import CHAIN_RUNNER
 from .router import Route
 
 
@@ -34,6 +35,7 @@ class Registry:
         self._datasets: dict = {}
         self._commands: dict = {}
         self._job_types: dict = {}
+        self._job_specs: dict = {}
         self._routes: list = []
         self._origins: dict = {}
         self.origin = "core"
@@ -70,8 +72,16 @@ class Registry:
     # ---------------------------------------------------------------- 注册
 
     def nav(self, item: models.NavItem) -> models.NavItem:
+        """注册一个导航项（它同时是一个**页面**）。
+
+        `REQ-012.1` 加了子层级：`children` 里的每一项**也都是页面**，所以这里递归登记到
+        `_nav`（否则子项只出现在侧栏里、`/api/v1/pages/{id}` 却打不开——「导航项即页面」
+        这条既有语义会被层级破坏）。父项自身仍然按 id 冲突检测；子项的冲突在递归里报。
+        """
         self._claim("nav", item.id)
         self._nav[item.id] = item
+        for child in item.children:
+            self.nav(child)
         return item
 
     def panel(self, spec: models.PanelSpec) -> models.PanelSpec:
@@ -89,9 +99,29 @@ class Registry:
         self._commands[spec.id] = spec
         return spec
 
-    def job_type(self, kind: str, runner) -> None:
-        self._claim("job_type", kind)
-        self._job_types[kind] = runner
+    def job_type(self, kind_or_spec, runner=None) -> None:
+        """第 6 类注册点：命令以外的任务类型 / 动作。
+
+        两种形态，**同一个注册点**（`REQ-012.2`，见 `docs/CONSOLE_V2_PLAN.md` §4.4）：
+
+        - `job_type("batch", runner)` —— `REQ-009.3` 的原形态，行为**一字不改**：
+          `job_types()` 里出现 `"batch"`；
+        - `job_type(JobTypeSpec(...), runner=…)` —— 富声明。`kind` 进 `job_types()`，
+          `id` 由 `job_type_spec(id)` 查。动作就是「命令以外的任务类型」，
+          所以**不新增第 7 类注册点**（`AC-3.2` 的「六类」措辞不被动到）。
+
+        `runner` 可省：动作默认由内核的 `chain_runner` 执行——它只编排**既有按键**，
+        所以省掉不写也不会缺业务实现（业务实现在按键里，不在动作里）。
+        """
+        if isinstance(kind_or_spec, models.JobTypeSpec):
+            spec = kind_or_spec
+            self._claim("job_type", spec.id)
+            self._job_specs[spec.id] = spec
+            self._job_types.setdefault(spec.kind, runner or CHAIN_RUNNER)
+            self._origins[("job_type_spec", spec.id)] = self.origin
+            return
+        self._claim("job_type", kind_or_spec)
+        self._job_types[kind_or_spec] = runner
 
     def route(self, method: str, path: str, handler, *, name: str = "") -> Route:
         route = Route(method, path, handler, name=name or path)
@@ -146,7 +176,12 @@ class Registry:
         return item
 
     def page_payload(self, page_id: str) -> dict:
-        """页面描述——**纯数据**，前端按 kind 渲染（AC-3.3）。"""
+        """页面描述——**纯数据**，前端按 kind 渲染（AC-3.3）。
+
+        `requires`（`REQ-012.1`）一并下发：前端 shell 据此决定「直接渲染面板」还是
+        「先显示选公司的空状态」。核心只搬运这个字符串，**不解释**它——所以新增一个
+        依赖上下文的页面仍然只是插件里多写一个字段，不用改核心（`AC-11` / `AC-9`）。
+        """
         item = self.page(page_id)
         panels = []
         for panel_id in item.panels:
@@ -158,14 +193,45 @@ class Registry:
             "title": item.title,
             "group": item.group,
             "description": item.description,
+            "requires": list(item.requires),
             "panels": panels,
         }
+
+    def default_page_id(self) -> str:
+        """默认落地页：第一个声明 `default=True` 的导航项；没人声明就退回第一个页面。
+
+        `REQ-012.1` 的 `AC-1.3` 要求默认落地页是**工作台**而不是某一个业务面板。
+        实现方式刻意不是「核心写死 `home`」：核心不认识任何页面 id，谁声明谁生效
+        （`AC-11`：加页面不改核心）。
+        """
+        items = self.nav_items()
+        for item in items:  # nav_items() 已按 (order, id) 排序，先声明先赢
+            if item.default:
+                return item.id
+        for item in items:
+            return item.id
+        raise NotFound("还没有注册任何页面")
 
     def routes(self) -> tuple:
         return tuple(self._routes)
 
     def job_types(self) -> tuple:
         return tuple(sorted(self._job_types))
+
+    def job_type_spec(self, action_id: str) -> models.JobTypeSpec:
+        spec = self._job_specs.get(action_id)
+        if spec is None:
+            raise NotFound(
+                f"没有注册过动作 {action_id!r}",
+                hint="动作清单见 /api/v1/actions。",
+            )
+        return spec
+
+    def has_job_type_spec(self, action_id: str) -> bool:
+        return action_id in self._job_specs
+
+    def job_type_specs(self) -> list:
+        return sorted(self._job_specs.values(), key=lambda spec: (spec.order, spec.id))
 
     def origins(self) -> dict:
         return dict(self._origins)

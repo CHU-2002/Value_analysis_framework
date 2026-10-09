@@ -1,26 +1,154 @@
-// kind=jobs：任务列表 + 状态 + 退出码 + 日志尾部（REQ-009.1 AC-1.1 / AC-1.4）。
+// kind=jobs：任务中心（REQ-009.1 的任务生命周期 + REQ-012.2 的 AC-5）。
+//
+// 约定：**失败给人话 + 原始日志两份**（`failure_summary` 是服务端算的，日志一个字不删）；
+// 队列、进行中、历史三块都列；离开页面任务照常在服务端跑，回来还能看到。
 import { api } from "/app.js";
 
-function jobCard(job, refresh) {
+const STATUS_LABEL = {
+  queued: "排队中",
+  running: "进行中",
+  awaiting_agent: "等你操作",
+  finished: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
+};
+
+function progressBar(job) {
+  const progress = job.progress || {};
+  if (!progress.total) return null;
+  const bar = document.createElement("div");
+  bar.className = "job-progress";
+  const fill = document.createElement("span");
+  fill.style.width = `${Math.round((progress.completed / progress.total) * 100)}%`;
+  fill.dataset.jobProgress = `${progress.completed}/${progress.total}`;
+  bar.append(fill);
+  return bar;
+}
+
+function failureBox(job) {
+  const summary = job.failure_summary || {};
+  const box = document.createElement("div");
+  box.className = "job-failure";
+  const what = document.createElement("p");
+  what.className = "job-failure-what";
+  what.textContent = `发生了什么：${summary.what || job.error || "任务失败"}`;
+  const how = document.createElement("p");
+  how.className = "job-failure-how";
+  how.textContent = `怎么办：${summary.how || "展开下面日志看最后几行，修掉原因后点「重试」。"}`;
+  box.append(what, how);
+  if (summary.step) {
+    const where = document.createElement("p");
+    where.className = "panel-note";
+    where.textContent = `停在哪一步：${summary.step}`;
+    box.append(where);
+  }
+  return box;
+}
+
+function outputsBox(job) {
+  const outputs = job.outputs || {};
+  const writes = outputs.writes || [];
+  if (!writes.length) return null;
+  const list = document.createElement("ul");
+  list.className = "job-outputs";
+  for (const item of writes) {
+    const li = document.createElement("li");
+    const code = document.createElement("code");
+    code.textContent = item.path;
+    li.append(code);
+    if (!item.exists) {
+      const note = document.createElement("span");
+      note.className = "panel-note";
+      note.textContent = "（还没生成）";
+      li.append(note);
+    }
+    list.append(li);
+    // 产物可直接点开看（数据包/报告都在 output/ 下，走既有的报告页）。
+    if (item.exists && selectionCompany(job)) {
+      const open = document.createElement("a");
+      open.href = `#report?company=${encodeURIComponent(selectionCompany(job))}`;
+      open.textContent = " 打开报告";
+      li.append(open);
+    }
+  }
+  return list;
+}
+
+function selectionCompany(job) {
+  return ((job.handoff || {}).paths || {}).ticker || "";
+}
+
+function logDetails(job, options = {}) {
+  const details = document.createElement("details");
+  details.className = "job-log-details";
+  if (job.status === "failed" && options.autoOpen !== false) details.open = true;
+  const summary = document.createElement("summary");
+  summary.textContent = "原始日志（真实命令行与输出，未删改）";
+  details.append(summary);
+  const argv = document.createElement("p");
+  argv.className = "command-argv panel-note";
+  argv.textContent = (job.argv || []).join(" ");
+  details.append(argv);
+  const steps = job.steps || [];
+  if (steps.length) {
+    const list = document.createElement("ol");
+    list.className = "job-steps";
+    for (const step of steps) {
+      const item = document.createElement("li");
+      item.className = `job-step status-${step.status}`;
+      item.dataset.stepStatus = step.status;
+      item.textContent = `${step.title || step.command}（${STATUS_LABEL[step.status] || step.status}）`;
+      if ((step.log || []).length) {
+        const inner = document.createElement("details");
+        const innerSummary = document.createElement("summary");
+        innerSummary.textContent = "这一步的输出";
+        const pre = document.createElement("pre");
+        pre.className = "job-log";
+        pre.textContent = step.log.join("\n");
+        inner.append(innerSummary, pre);
+        item.append(inner);
+      }
+      list.append(item);
+    }
+    details.append(list);
+  }
+  const log = document.createElement("pre");
+  log.className = "job-log";
+  log.textContent = (job.log || []).join("\n");
+  details.append(log);
+  return details;
+}
+
+function jobCard(job, refresh, options = {}) {
   const card = document.createElement("div");
   card.className = "job-row";
+  card.dataset.jobId = job.id;
+  card.dataset.jobStatus = job.status;
   const head = document.createElement("div");
   head.className = "job-head";
   const title = document.createElement("strong");
   title.textContent = job.title || job.command || job.id;
   const status = document.createElement("span");
   status.className = `status-${job.status}`;
-  status.textContent = job.status;
+  status.textContent = STATUS_LABEL[job.status] || job.status;
+  head.append(title, status);
+  if (job.progress && job.progress.total) {
+    const steps = document.createElement("span");
+    steps.className = "panel-note";
+    steps.textContent = `${job.progress.completed}/${job.progress.total} 步`;
+    head.append(steps);
+  }
   const code = document.createElement("span");
   code.className = "panel-note";
   code.textContent = `退出码 ${job.exit_code ?? "—"}`;
   const when = document.createElement("span");
   when.className = "panel-note";
-  when.textContent = `${job.started_at || ""} → ${job.finished_at || "运行中"}`;
-  head.append(title, status, code, when);
-  if (job.status === "running") {
+  when.textContent = `${job.started_at || ""} → ${job.finished_at || "进行中"}`;
+  head.append(code, when);
+  if (job.status === "running" || job.status === "queued") {
     const cancel = document.createElement("button");
     cancel.type = "button";
+    cancel.dataset.jobCancel = job.id;
     cancel.textContent = "取消";
     cancel.onclick = async () => {
       cancel.disabled = true;
@@ -33,13 +161,35 @@ function jobCard(job, refresh) {
     };
     head.append(cancel);
   }
-  const cmd = document.createElement("p");
-  cmd.className = "command-argv panel-note";
-  cmd.textContent = (job.argv || []).join(" ");
-  const log = document.createElement("pre");
-  log.className = "job-log";
-  log.textContent = (job.log || []).join("\n");
-  card.append(head, cmd, log);
+  if (["failed", "cancelled"].includes(job.status)) {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.dataset.jobRetry = job.id;
+    retry.textContent = "重试";
+    retry.onclick = async () => {
+      retry.disabled = true;
+      try {
+        await api(`/api/v1/jobs/${encodeURIComponent(job.id)}/retry`, { method: "POST" });
+      } finally {
+        retry.disabled = false;
+        refresh();
+      }
+    };
+    head.append(retry);
+  }
+  card.append(head);
+  const bar = progressBar(job);
+  if (bar) card.append(bar);
+  if (job.status === "failed") card.append(failureBox(job));
+  const outputs = outputsBox(job);
+  if (outputs) card.append(outputs);
+  if (job.handoff && job.handoff.awaiting) {
+    const note = document.createElement("p");
+    note.className = "handoff";
+    note.textContent = `等你操作：${job.handoff.title || ""}（在「可以做的事」里继续或放弃）`;
+    card.append(note);
+  }
+  card.append(logDetails(job, options));
   return card;
 }
 
@@ -51,15 +201,36 @@ export async function render(container, panel, data) {
   async function refresh() {
     const payload = data || (await api(panel.endpoint)).data;
     const jobs = (payload && payload.jobs) || [];
+    const queue = (payload && payload.queue) || [];
     list.innerHTML = "";
+    const active = jobs.filter((job) => ["running", "awaiting_agent"].includes(job.status));
+    const queued = queue.length ? queue : jobs.filter((job) => job.status === "queued");
+    const history = jobs.filter((job) => !["running", "awaiting_agent", "queued"].includes(job.status));
+    const section = (heading, items, options = {}) => {
+      if (!items.length && !options.always) return;
+      const title = document.createElement("div");
+      title.className = "job-section";
+      title.textContent = `${heading}（${items.length}）`;
+      list.append(title);
+      if (!items.length) {
+        const empty = document.createElement("p");
+        empty.className = "panel-empty";
+        empty.textContent = options.emptyText || "没有任务。";
+        list.append(empty);
+        return;
+      }
+      for (const job of items) list.append(jobCard(job, refresh, options));
+    };
+    section("进行中", active, { always: true, emptyText: "现在没有在跑的任务。" });
+    section("队列", queued);
+    section("历史", history);
     if (!jobs.length) {
       const empty = document.createElement("p");
       empty.className = "panel-empty";
-      empty.textContent = "还没有任务。";
+      empty.textContent = "还没有任务。去「可以做的事」里发起一个动作。";
       list.append(empty);
     }
-    for (const job of jobs) list.append(jobCard(job, refresh));
-    if (!jobs.some((job) => job.status === "running") && timer) {
+    if (!jobs.some((job) => ["running", "queued"].includes(job.status)) && timer) {
       clearInterval(timer);
       timer = null;
     }

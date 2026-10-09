@@ -185,6 +185,15 @@ class DevTools:
         self.send("Page.navigate", url=url)
         time.sleep(settle)
 
+    def reload(self, *, settle: float = 3.0) -> None:
+        """整页重载（hash-only 导航不会重载文档，所以需要一个显式入口）。
+
+        「冷开」必须真的重载：只改 hash 的话，页面里的**内存态**（当前选择）还在，
+        看起来像冷开、其实带着上一家公司的上下文（实测踩到：空状态一直不出现）。
+        """
+        self.send("Page.reload")
+        time.sleep(settle)
+
     def move(self, x: float, y: float) -> None:
         self.send("Input.dispatchMouseEvent", type="mouseMoved", x=x, y=y, button="none")
 
@@ -281,11 +290,18 @@ class Walkthrough:
                 head: table.querySelectorAll('thead th').length,
                 body: [...table.querySelectorAll('tbody tr')].map((row) => row.children.length),
               })).filter((item) => item.head && item.body.some((count) => count !== item.head));
+              const technical = panels.filter((p) => {
+                // AC-12 的判据：**技术化错误页**。人话标题 + 折叠错误码不算；
+                // 标题里直接摆 BAD_REQUEST 这类错误码、或整页 500 才算。
+                const title = (p.querySelector('.panel-error-title') || {}).textContent || '';
+                return /BAD_REQUEST|INTERNAL|PARSE_FAILED|INVALID_PARAM|Unknown|Error/.test(title);
+              }).map((p) => p.dataset.panelId);
               return {
                 title: document.getElementById('page-title').textContent,
                 ids: panels.map((p) => p.dataset.panelId),
                 degraded: panels.filter((p) => p.querySelector('.panel-error,.panel-fallback'))
                                   .map((p) => p.dataset.panelId),
+                technical: technical,
                 canvases: document.querySelectorAll('#panels canvas').length,
                 tables: document.querySelectorAll('#panels table').length,
                 cells: cells.length,
@@ -293,6 +309,21 @@ class Walkthrough:
                 timeline: document.querySelectorAll('#panels .timeline-item').length,
                 banner: (document.getElementById('banner').textContent || '').trim(),
                 hash: location.hash,
+                company: (() => {
+                  const node = document.getElementById('company-select');
+                  return node && node.selectedIndex >= 0 ? node.options[node.selectedIndex].textContent : '';
+                })(),
+                emptyState: document.querySelectorAll('#panels .panel-empty-state').length,
+                freshness: document.querySelectorAll('#panels .panel-freshness').length,
+                tableControls: document.querySelectorAll('#panels [data-table-search]').length,
+                chartBasis: [...document.querySelectorAll('#panels [data-chart-basis]')]
+                                  .map((node) => node.value),
+                chartBasisLabels: [...document.querySelectorAll('#panels .chart-toolbar')]
+                                  .map((node) => node.textContent.replace(/\\s+/g, ' ').trim().slice(0, 90)),
+                actionButtons: document.querySelectorAll('#panels [data-action-run]').length,
+                blockedActions: document.querySelectorAll('#panels .action-card[data-enabled="0"]').length,
+                actionBlockers: [...document.querySelectorAll('#panels .action-blockers li')]
+                                  .map((node) => node.textContent.trim()).slice(0, 4),
               };
             })()"""
         )
@@ -308,10 +339,23 @@ class Walkthrough:
             f"降级={state['degraded']} 表={state['tables']} 图={state['canvases']} "
             f"时间线={state['timeline']} 横幅={state['banner']!r}"
         )
+        self.note(
+            f"  当前公司={state['company']!r} 空状态={state['emptyState']} "
+            f"新鲜度徽标={state['freshness']} 表格控件={state['tableControls']} "
+            f"口径={state['chartBasis']}"
+        )
         self.check(
             not state["degraded"],
             "无降级面板",
             f"{where} 有面板降级：{state['degraded']}（横幅：{state['banner']}）",
+        )
+        # AC-12：全程不得出现**技术化错误页**（错误码当标题 / 整页 500 / 横幅里摆错误码）。
+        # 横幅只该说人话；错误码属于「技术细节」，不该占主视觉（AC-10）。
+        banned = ("BAD_REQUEST", "INTERNAL", "PARSE_FAILED", "INVALID_PARAM", "UNKNOWN_COMMAND")
+        self.check(
+            not state["technical"] and not any(code in (state["banner"] or "") for code in banned),
+            "没有技术化错误页",
+            f"{where} 出现技术化错误：面板={state['technical']} 横幅={state['banner']!r}",
         )
         return state
 
@@ -320,7 +364,412 @@ class Walkthrough:
         size = self.cdp.screenshot(path)
         self.note(f"  截图 {name}（{size // 1024} KB）")
 
-    # -- 步骤 ----------------------------------------------------------------
+    # -- 步骤（REQ-012 的 AC-12 全路径） --------------------------------------
+
+    def select_company(self, ticker: str) -> None:
+        """用**全局选择器**切公司（不是从某个页面的链接点进去）。
+
+        设置之后必须**轮询确认**：`Runtime.evaluate` 不等 Promise，写一个 `async` 函数
+        立刻读状态只会拿到旧值（实测踩到：选择器明明切了，判定却是「没切」）。
+        """
+        ok = self.cdp.evaluate(
+            """(() => {
+              const node = document.getElementById('company-select');
+              if (!node) return false;
+              const option = [...node.options].find((item) => item.value === %s);
+              if (!option) return false;
+              node.value = %s;
+              node.dispatchEvent(new Event('change', { bubbles: true }));
+              return node.value === %s;
+            })()""" % (repr(ticker), repr(ticker), repr(ticker))
+        )
+        if not ok:
+            self.check(False, f"选择器切到 {ticker}",
+                       f"选择器里没有 {ticker}（当前选项：{self._select_options()}）")
+            return
+        deadline = time.time() + 8
+        while time.time() < deadline:
+            current = self.cdp.evaluate(
+                "(() => { const node = document.getElementById('company-select');"
+                " return node ? node.value : ''; })()"
+            )
+            if ticker in urllib.parse.unquote(self.cdp.evaluate("location.hash") or ""):
+                break
+            time.sleep(0.3)
+        self.check(
+            ticker in urllib.parse.unquote(self.cdp.evaluate("location.hash") or ""),
+            f"选择器切到 {ticker}",
+            f"切换后 URL 没带上 {ticker}：{self.cdp.evaluate('location.hash')}",
+        )
+
+    def _select_options(self) -> list:
+        return self.cdp.evaluate(
+            "(() => { const node = document.getElementById('company-select');"
+            " return node ? [...node.options].map((item) => item.value) : []; })()"
+        )
+
+    def probe(self, script: str):
+        return self.cdp.evaluate(script)
+
+    def step_home(self) -> None:
+        """① 新用户第一次打开：默认落地页是工作台，且看得到「能做什么」。"""
+        self.note("① 冷开控制台：默认落地页应是工作台（不是某个业务面板）")
+        state = self.open_page("home")
+        self.check(state["title"] == "工作台", f"落地页是「{state['title']}」", f"落地页是「{state['title']}」")
+        self.check(
+            "home.universe" in state["ids"],
+            "工作台列出了公司与状态",
+            f"工作台没有公司面板：{state['ids']}",
+        )
+        self.check(
+            state["actionButtons"] > 0,
+            f"工作台有 {state['actionButtons']} 个可直接执行的动作",
+            "工作台没有任何动作按钮",
+        )
+        self.shot("01-home.png")
+
+    def step_company_context(self, ticker: str) -> None:
+        """② 选一次公司：全站跟随；刷新 / 前进后退 / 复制 URL 都一致。"""
+        self.note(f"② 全局选择器切到 {ticker}：URL 带 ticker、页面标题看得出当前公司")
+        self.select_company(ticker)
+        state = self.panel_state()
+        self.check(
+            ticker in urllib.parse.unquote(state["hash"]),
+            "URL 里带上了 ticker",
+            f"URL 里没有 ticker：{state['hash']}",
+        )
+        self.check(
+            bool(state["company"]) and ticker.split(".")[0] in state["company"],
+            f"顶栏显示当前公司：{state['company']!r}",
+            f"顶栏没显示当前公司：{state['company']!r}",
+        )
+        self.shot("02-company-selected.png")
+
+        # 刷新：状态必须一致（URL 是权威）。
+        self.cdp.goto(f"{self.base}/#home?company={ticker}", settle=2.5)
+        again = self.panel_state()
+        self.check(
+            ticker in urllib.parse.unquote(again["hash"]) and bool(again["company"]),
+            "刷新后当前公司保持",
+            f"刷新后公司丢了：hash={again['hash']} 顶栏={again['company']!r}",
+        )
+
+    def step_cold_open_without_company(self) -> None:
+        """③ 直接打开公司级页面（URL 没有公司）：正常空状态，**零降级卡**（关掉 E2）。"""
+        self.note("③ 冷开 #report（URL 里没有公司）：应是可读空状态，不是 BAD_REQUEST 卡片")
+        # 「冷开」= 一个**全新文档**直接打开不带公司的公司级页面。三步缺一不可：
+        # ① 先走 about:blank 把上一个文档丢掉（只改 hash 的话内存态还在，看着像冷开、
+        #    其实带着上一家公司的上下文）；② 再 Page.navigate 到 #report（`Page.navigate`
+        #    对「只有 hash 不同」的 URL **不会**重新加载文档）；③ 最后显式 Page.reload。
+        self.cdp.goto(f"{self.base}/#home", settle=2.0)
+        cleared = self.cdp.evaluate(
+            "(() => { localStorage.removeItem('webui.selection.company');"
+            " return localStorage.getItem('webui.selection.company'); })()"
+        )
+        self.check(cleared is None, "已清掉「上次选择」（等价于新用户）",
+                   f"localStorage 里还留着上次选择：{cleared!r}")
+        self.cdp.goto("about:blank", settle=1.0)
+        self.cdp.goto(f"{self.base}/#report", settle=1.5)
+        self.cdp.reload(settle=3.0)
+        state = self.panel_state()
+        self.pages["report-cold"] = state
+        self.check(
+            state["emptyState"] >= 1,
+            "显示了「先选一家公司」的空状态",
+            f"没有空状态（面板={state['ids']}）",
+        )
+        self.check(
+            not state["degraded"] and not state["technical"],
+            "没有任何降级卡（E2 已关闭）",
+            f"冷开出现降级：面板={state['degraded']} 技术化={state['technical']}",
+        )
+        text = self.cdp.evaluate(
+            "(() => { const node = document.querySelector('#panels .panel-empty-state');"
+            " return node ? node.textContent.replace(/\\s+/g, ' ').trim() : ''; })()"
+        )
+        self.note(f"  空状态文案：{text}")
+        self.check("先选一家公司" in text, "空状态说清了下一步", f"空状态文案不可读：{text!r}")
+        # 横幅里**不许**出现错误码：缺上下文是正常空状态，不是故障（AC-10 的广义读法）。
+        self.check(
+            not state["banner"] and "BAD_REQUEST" not in (state["banner"] or ""),
+            "顶栏横幅为空（空状态不是故障）",
+            f"空状态却在横幅里报了错：{state['banner']!r}",
+        )
+        self.shot("03-cold-open-empty-state.png")
+
+    def step_actions_page(self) -> None:
+        """④ 任务页的「可以做的事」：动作以意图命名、禁用时给可读理由。"""
+        self.note("④ 任务页：动作清单 + 预检（禁用时给理由）")
+        state = self.open_page("commands")
+        self.check(state["actionButtons"] > 0, "动作清单有按钮", "动作清单是空的")
+        self.note(
+            f"  动作按钮={state['actionButtons']} 禁用={state['blockedActions']} "
+            f"理由样例={state['actionBlockers']}"
+        )
+        only_in_year = self.cdp.evaluate(
+            "(() => { const nodes = [...document.querySelectorAll('#panels .action-title')];"
+            " return nodes.map((node) => node.textContent.trim()); })()"
+        )
+        self.note(f"  动作标题：{only_in_year}")
+        self.check(
+            all(not any(flag in title for flag in ("--", "company_dir", "run_dir"))
+                for title in only_in_year),
+            "动作标题里没有内部参数名或 CLI 开关",
+            f"动作标题里出现了内部名字：{only_in_year}",
+        )
+        self.shot("04-actions.png")
+
+    def step_data_page(self) -> None:
+        """⑤ 数据页：清单 / 缺口 / 仓规模，以及「联网」与「离线」两个可分辨的动作。"""
+        self.note("⑤ 数据页：清单 / 缺口 / 仓规模 + 拉取与离线重建两个动作")
+        state = self.open_page("data")
+        self.check(
+            "data.universe" in state["ids"] or "data.store" in state["ids"],
+            "数据页列出了数据面板",
+            f"数据页没有数据面板：{state['ids']}",
+        )
+        effects = self.cdp.evaluate(
+            "(() => [...document.querySelectorAll('#panels .action-card')].map((card) => ({"
+            "  id: card.dataset.actionId, enabled: card.dataset.enabled,"
+            "  effects: (card.querySelector('.action-effects') || {}).textContent || '',"
+            "})) )()"
+        )
+        self.note(f"  数据动作：{effects}")
+        online = [item for item in effects if item["id"] in ("data.pull_all", "data.fill_gaps")]
+        offline = [item for item in effects if item["id"] == "data.rebuild"]
+        self.check(
+            all("联网" in item["effects"] for item in online) and bool(online),
+            "联网动作明确标出「需要联网」",
+            f"联网动作的文案没标联网：{online}",
+        )
+        self.check(
+            all("离线" in item["effects"] for item in offline) and bool(offline),
+            "离线重建明确标出「离线执行」",
+            f"离线动作的文案没标离线：{offline}",
+        )
+        self.shot("05-data.png")
+
+    def step_chart_basis(self) -> None:
+        """⑥ 图表：口径可切换、图上标明口径与单位、每张图都按容器宽度绘制。"""
+        self.note("⑥ 图表页：口径默认年度、可切换，标出单位与口径")
+        state = self.open_page("charts", f"company={urllib.parse.quote(self.company)}")
+        self.check(state["canvases"] >= 3, f"渲染出 {state['canvases']} 张图", "图不够 3 张")
+        # 口径切换器只在**这份数据包真有多种口径**时才出现；只有年度口径时，
+        # 工具栏必须写明「口径：年度（累计）」——两种情况都算「按口径可查看」。
+        declared = self.cdp.evaluate(
+            """(async () => {
+              const response = await fetch('/api/v1/companies/' +
+                encodeURIComponent(new URLSearchParams(location.hash.split('?')[1] || '').get('company') || '') +
+                '/charts');
+              const payload = await response.json();
+              const charts = (payload.data && payload.data.charts) || {};
+              return Object.fromEntries(Object.entries(charts).map(([key, value]) => [key, value.bases || []]));
+            })()"""
+        )
+        self.note(f"  各图可用口径：{declared}")
+        multi = [key for key, bases in (declared or {}).items() if len(bases) > 1]
+        if multi:
+            self.check(
+                bool(state["chartBasis"]),
+                f"多种口径的图有切换器：{state['chartBasis']}",
+                f"多口径的图（{multi}）没有切换器（AC-7 要求能按口径查看）",
+            )
+        else:
+            self.note("  （这份数据包只有一种口径，切换器按设计不出现）")
+        labels = self.cdp.evaluate(
+            "(() => [...document.querySelectorAll('#panels .chart-toolbar')]"
+            ".map((node) => node.textContent.replace(/\\s+/g, ' ').trim()))()"
+        )
+        self.note(f"  图表工具栏：{labels}")
+        self.check(
+            bool(labels) and all("口径" in text for text in labels),
+            "每张图都标明了口径（累计/单期）",
+            f"图上没有口径标注：{labels}",
+        )
+        self.check(
+            bool(labels) and all("单位" in text for text in labels),
+            "每张图都标明了单位",
+            f"图上没有单位标注：{labels}",
+        )
+        self.check(
+            state["tableControls"] >= 0 and state["freshness"] >= 0,
+            "（新鲜度徽标与表格控件为可选观察点）",
+            "不可达",
+        )
+        # 切到单季：序列与标签必须跟着换（不是画同一份数据）。
+        # 切**真的有多档口径**的那张图：第一张图（年度行情）天生只有年度口径，没有切换器。
+        target = (multi or [None])[0]
+        if not target:
+            self.note("  （没有任何多口径的图，跳过切换判据）")
+        else:
+            switched = self.cdp.evaluate(
+                """(() => {
+                  const panel = document.querySelector("[data-panel-id='%s']");
+                  const node = panel && panel.querySelector('[data-chart-basis]');
+                  if (!node) return { error: 'no-basis-switcher' };
+                  const canvas = panel.querySelector('canvas');
+                  const before = canvas.toDataURL();
+                  const options = [...node.options].map((item) => item.value);
+                  if (!options.includes('quarter')) return { skipped: true, options: options };
+                  node.value = 'quarter';
+                  node.dispatchEvent(new Event('change', { bubbles: true }));
+                  return { options: options, beforeLength: before.length };
+                })()""" % target
+            )
+            self.note(f"  口径切换（{target}）：{switched}")
+            time.sleep(3.0)
+            self.shot("06b-charts-quarter.png")
+            after = self.cdp.evaluate(
+                """(() => {
+                  const panel = document.querySelector("[data-panel-id='%s']");
+                  const canvas = panel.querySelector('canvas');
+                  const toolbar = panel.querySelector('.chart-toolbar');
+                  return {
+                    length: canvas.toDataURL().length,
+                    toolbar: toolbar ? toolbar.textContent.replace(/\\s+/g, ' ').trim() : '',
+                    hash: location.hash,
+                  };
+                })()""" % target
+            )
+            self.note(f"  切换后：{after}")
+            self.check(
+                after["length"] != (switched or {}).get("beforeLength")
+                and "单季" in after["toolbar"]
+                and "basis=quarter" in after["hash"],
+                "切到单季口径后图重画、标注跟着换、URL 带 basis=quarter",
+                f"口径切换没有生效：切换前={switched} 切换后={after}",
+            )
+        self.shot("06-charts.png")
+
+    def step_action_run(self, action_id: str, *, timeout: float) -> None:
+        """⑦ 执行一个动作：确认层 → 任务 → 产出。
+
+        指定的动作在当前数据下可能**按设计被禁用**（例如仓里没有这家公司的记录时
+        「离线重建」不可用）。这时按「意图化动作可用」的原则**换一个可用的公司级动作**，
+        并把换用的事实写进证据；一个都不可用就明确记一笔（不假装通过）。
+        """
+        self.note(f"⑦ 执行动作 {action_id}（真实按钮，不是接口调用）")
+        state = self.open_page("commands")
+        before = self._job_ids()
+        available = self.cdp.evaluate(
+            "(() => [...document.querySelectorAll('[data-action-run]')]"
+            ".filter((node) => !node.disabled).map((node) => node.dataset.actionRun))()"
+        )
+        if action_id not in (available or []):
+            self.note(f"  （{action_id} 在当前上下文下被禁用；可用的动作：{available}）")
+            # 优先挑**不联网**的动作：走查不该顺手消耗数据源配额（那是使用者花钱买的）。
+            safe = [item for item in (available or []) if item != "data.pull_all"
+                    and item != "data.fill_gaps"]
+            if not safe:
+                self.note("  ⏭️ 可用的动作都会联网（会花配额）：这一步跳过；"
+                          "失败与重试由下一步单独覆盖，联网动作改由真实使用触发。")
+                return
+            action_id = safe[0]
+            self.note(f"  改用可用动作（不联网）：{action_id}")
+        selector = f"[data-action-run='{action_id}']"
+        if not self.check(
+            self.cdp.click_selector(selector),
+            f"点到了动作 {action_id}",
+            f"页面上没有可执行的 {action_id}（禁用或不存在）",
+        ):
+            return
+        time.sleep(0.6)
+        # 危险动作必须经过一次显式确认（AC-4）；取消 = 不提交、无副作用。
+        confirm = self.cdp.evaluate(
+            "(() => { const node = document.querySelector('.confirm-layer');"
+            " return node ? node.textContent.replace(/\\s+/g, ' ').trim().slice(0, 120) : ''; })()"
+        )
+        if confirm:
+            self.note(f"  确认层：{confirm}")
+            self.check(
+                self.cdp.click_selector("[data-confirm-cancel]"),
+                "确认层可以取消",
+                "确认层没有取消按钮",
+            )
+            time.sleep(0.8)
+            jobs_after_cancel = len(_http_json(f"{self.base}/api/v1/jobs")["data"]["jobs"])
+            self.note(f"  取消后任务数={jobs_after_cancel}（取消不应产生任务）")
+            self.shot("07-action-confirm-cancelled.png")
+            self.check(
+                self.cdp.click_selector(selector),
+                f"再次点击 {action_id}",
+                f"取消后按钮不可再点：{action_id}",
+            )
+            time.sleep(0.6)
+            self.check(
+                self.cdp.click_selector("[data-confirm-accept]"),
+                "确认层点了「确认执行」",
+                "确认层没有确认按钮",
+            )
+        job = self._wait_job(before, timeout=timeout)
+        if not self.check(bool(job), "动作产生了任务", f"{timeout:.0f}s 内没有任务"):
+            return
+        self.note(f"  任务 {job['id']} 状态={job['status']} 步骤={job.get('progress')}")
+        self.note(f"  实际命令行：{' '.join(job.get('argv') or [])}")
+        self.check(
+            job["status"] in ("finished", "awaiting_agent"),
+            f"动作跑到了终态或交接点（{job['status']}）",
+            f"动作状态={job['status']}（错误={job.get('error')!r}）",
+        )
+        self.shot("08-action-result.png")
+
+    def step_failure_and_retry(self) -> None:
+        """⑧ 失败与重试：失败原因是人话、原始日志可展开、重试可用。"""
+        self.note("⑧ 失败与重试：故意让一个动作失败，看「发生了什么 + 怎么办」与重试")
+        failed = self.cdp.evaluate(
+            """(async () => {
+              // 用接口构造一次必然失败的动作：环境变量指向不存在的目录 → 步骤 1 失败。
+              const response = await fetch('/api/v1/jobs', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: 'runs_resolve', params: { company_dir: '/nonexistent/definitely-not-here' } }),
+              });
+              const payload = await response.json();
+              return payload.ok ? payload.data.id : ('ERROR: ' + JSON.stringify(payload.error));
+            })()"""
+        )
+        self.note(f"  构造的失败任务：{failed}")
+        if not isinstance(failed, str) or failed.startswith("ERROR"):
+            self.check(False, "构造失败任务", f"没能构造失败任务：{failed}")
+            return
+        deadline = time.time() + 60
+        job = None
+        while time.time() < deadline:
+            job = _http_json(f"{self.base}/api/v1/jobs/{failed}")["data"]
+            if job["status"] not in ("running", "queued"):
+                break
+            time.sleep(0.5)
+        self.check(job and job["status"] == "failed", "任务确实失败了", f"任务状态={job and job['status']}")
+        if not job:
+            return
+        self.check(bool(job.get("failure_summary", {}).get("what")), "失败给了「发生了什么」", "没有失败摘要")
+        self.check(bool(job.get("failure_summary", {}).get("how")), "失败给了「怎么办」", "没有下一步建议")
+        self.check(bool(job.get("log")), "原始日志保留", "日志被删了")
+        self.open_page("commands")
+        time.sleep(1.5)
+        shown = self.cdp.evaluate(
+            "(() => { const node = document.querySelector('#panels .job-failure');"
+            " return node ? node.textContent.replace(/\\s+/g, ' ').trim().slice(0, 160) : ''; })()"
+        )
+        self.note(f"  页面上的失败文案：{shown}")
+        self.check(bool(shown), "任务中心展示了失败原因", "任务中心没有展示失败原因")
+        retry = self.cdp.evaluate("document.querySelectorAll('[data-job-retry]').length")
+        self.check(retry > 0, f"有 {retry} 个任务可以重试", "没有可重试的任务按钮")
+        self.shot("09-failure-retry.png")
+
+    def step_switch_company(self, ticker: str, other: str) -> None:
+        """⑨ 切换公司：全站跟随，旧公司不残留。"""
+        self.note(f"⑨ 从 {ticker} 切到 {other}：标题与数据随之切换")
+        self.select_company(other)
+        self.open_page("charts", f"company={urllib.parse.quote(other)}")
+        state = self.panel_state()
+        self.check(
+            other in urllib.parse.unquote(state["hash"]),
+            f"切到 {other} 后 URL 跟上了",
+            f"切换后 URL 没跟上：{state['hash']}",
+        )
+        self.shot("10-switched-company.png")
+
+    # -- 旧步骤（REQ-009 的回归路径，继续保留） ------------------------------
 
     def step_companies(self) -> None:
         self.note("① 公司页：应列出 output/ 下的公司")
@@ -456,18 +905,23 @@ class Walkthrough:
         payload = _http_json(f"{self.base}/api/v1/jobs")
         return {job["id"] for job in payload["data"]["jobs"]}
 
-    def _wait_job(self, before: set, *, timeout: float):
+    def _wait_job(self, before: set, *, timeout: float, newest: bool = False):
+        """等到出现一个**不在 `before` 里的**任务并收口；`newest=True` 时等最新的那个。"""
         deadline = time.time() + timeout
-        newest = None
+        candidate = None
+        seen = False
         while time.time() < deadline:
             payload = _http_json(f"{self.base}/api/v1/jobs")
             fresh = [job for job in payload["data"]["jobs"] if job["id"] not in before]
             if fresh:
-                newest = fresh[0]
-                if newest["status"] != "running":
-                    return newest
+                candidate = fresh[0]
+                seen = True
+                if candidate["status"] not in ("running", "queued"):
+                    return candidate
+            elif newest and seen:
+                return candidate
             time.sleep(0.5)
-        return newest
+        return candidate
 
 
 # --------------------------------------------------------------------------- 驱动
@@ -510,6 +964,29 @@ def _wait_for_target(port: int, *, timeout: float = 30.0):
     return None
 
 
+def _company_catalog(base: str) -> list:
+    """`GET /api/v1/companies` 的公司清单（ticker 优先，目录名兜底）。"""
+    payload = _http_json(f"{base}/api/v1/companies")["data"]
+    return payload.get("companies") or []
+
+
+def _resolve_ticker(catalog: list, wanted: str) -> str:
+    """把 `--company` 解析成 **ticker**（URL 与选择器的规范形式）。"""
+    text = str(wanted or "").strip()
+    for item in catalog:
+        if text in (item.get("ticker"), item.get("dir")):
+            return item.get("ticker") or item.get("dir") or text
+    return text
+
+
+def _other_ticker(catalog: list, current: str) -> str:
+    for item in catalog:
+        candidate = item.get("ticker") or item.get("dir") or ""
+        if candidate and candidate != current:
+            return candidate
+    return ""
+
+
 def _require_console(base: str) -> str:
     try:
         payload = _http_json(f"{base}/api/v1/healthz", timeout=5)
@@ -521,7 +998,8 @@ def _require_console(base: str) -> str:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--base", default="http://127.0.0.1:8765", help="控制台地址")
-    parser.add_argument("--company", default="600887_伊利", help="output/ 下的公司目录名")
+    parser.add_argument("--company", default="600887.SH",
+                        help="公司标识：ticker（规范）或 output/ 下的目录名")
     parser.add_argument("--out", default=None, help="证据目录（默认 output/.webui_walkthrough/<UTC>）")
     parser.add_argument("--browser", default=None, help="浏览器可执行文件")
     parser.add_argument("--debug-port", type=int, default=0, help="DevTools 端口（默认自动挑空闲端口）")
@@ -532,6 +1010,10 @@ def main(argv=None) -> int:
         help="按键参数 key=value，可重复（默认 company_dir=output/<company>）",
     )
     parser.add_argument("--job-timeout", type=float, default=120.0, help="等任务结束的秒数")
+    parser.add_argument(
+        "--action", default="data.rebuild",
+        help="走查时要真实执行的动作 id（默认「从仓离线重建」：不联网、不花钱）",
+    )
     args = parser.parse_args(argv)
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -539,8 +1021,14 @@ def main(argv=None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     base = args.base.rstrip("/")
     version = _require_console(base)
+    # 按键参数（旧路径）默认用**目录名**：`runs resolve --company-dir` 要的是目录。
+    catalog = _company_catalog(base)
+    directory = next(
+        (item.get("dir") for item in catalog if args.company in (item.get("ticker"), item.get("dir"))),
+        args.company,
+    )
     params = dict(item.split("=", 1) for item in args.param) or {
-        "company_dir": f"output/{args.company}"
+        "company_dir": f"output/{directory}"
     }
 
     browser = _resolve_browser(args.browser)
@@ -577,12 +1065,29 @@ def main(argv=None) -> int:
         devtools.send("Runtime.enable")
         print(f"已连上 DevTools（{target.get('title') or 'about:blank'}）", flush=True)
 
-        walkthrough = Walkthrough(devtools, base, out_dir, args.company)
+        ticker = _resolve_ticker(catalog, args.company)
+        walkthrough = Walkthrough(devtools, base, out_dir, ticker)
+        # REQ-012 的 AC-12 全路径：落地页 → 选公司 → 图表/报告/迭代 → 执行动作 →
+        # 观察失败与重试 → 切换公司。旧步骤（REQ-009 的 AC-8）继续跑，证明没有回退。
+        walkthrough.step_home()
+        walkthrough.step_company_context(ticker)
+        walkthrough.step_cold_open_without_company()
+        walkthrough.step_data_page()
+        walkthrough.step_actions_page()
+        walkthrough.step_chart_basis()
+        walkthrough.step_report()
+        walkthrough.step_runs()
+        walkthrough.step_action_run(args.action, timeout=args.job_timeout)
+        walkthrough.step_failure_and_retry()
+        other = _other_ticker(catalog, ticker)
+        if other:
+            walkthrough.step_switch_company(ticker, other)
+        else:
+            walkthrough.note("（只有一家公司，跳过「切换公司」这一步）")
+        # REQ-009 的既有路径（AC-8 的回归）：公司页 → 点进图表 → 悬停 → 按键页
         walkthrough.step_companies()
         walkthrough.step_company_click_to_charts()
         walkthrough.step_chart_hover()
-        walkthrough.step_report()
-        walkthrough.step_runs()
         walkthrough.step_command(args.command, params, timeout=args.job_timeout)
         walkthrough.step_collect()
     finally:
@@ -599,7 +1104,8 @@ def main(argv=None) -> int:
         return 1
     payload = {
         "base": base,
-        "company": args.company,
+        "company": walkthrough.company,
+        "action": args.action,
         "framework_version": version,
         "browser": browser,
         "headed": args.headed,
@@ -616,7 +1122,7 @@ def main(argv=None) -> int:
     (out_dir / "observations.md").write_text(
         "# AC-8 浏览器走查记录（CDP 驱动）\n\n"
         f"- 时间：{stamp}\n- 控制台：{base}（框架版本 {version}）\n"
-        f"- 公司：{args.company}\n- 浏览器：{browser}"
+        f"- 公司：{walkthrough.company}\n- 动作：{args.action}\n- 浏览器：{browser}"
         f"{'（可见窗口）' if args.headed else '（无头）'}\n"
         f"- 按键：{args.command} {params}\n"
         f"- 结论：{'全部检查通过' if not walkthrough.failures else '不通过'}\n\n"
