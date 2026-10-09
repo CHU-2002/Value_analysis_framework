@@ -379,6 +379,8 @@ python3 scripts/analysis_status.py --root output --all --json
 
 `agent_report` 插件声明固定报告按键，`agent_action.py` 把动作映射到 Codex `exec` 或 Claude `-p`。
 Codex 读取既有命令文档执行完整流程；agent 仍负责分析段，Python 仍负责确定性计算。
-CommandSpec 的可选 validate/exclusive 声明由通用任务运行器在提交/入队锁内执行；注册与路由分发不识别业务。
+CommandSpec 的可选 validate/exclusive/exclusive_group/exclusive_key 声明由通用任务运行器在提交/入队锁内执行；注册与路由分发不识别业务。
 前端 form 通过插件下发的预检/产物接口展示完整命令、确认额度、跟踪任务与链接产物；
 原有按键未声明这些可选字段时继续使用既有行为。取消/超时通过包装脚本终止其隔离进程组。
+
+REQ-013 的产物链接只采用成功启动子进程后记录的 execution_started_at→finished_at 区间；未启动即取消的排队任务没有新产物。三个 agent 动作按解析后的真实公司目录共享互斥组（覆盖市场后缀别名），避免并发写公司产物而互相误认。

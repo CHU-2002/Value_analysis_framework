@@ -78,15 +78,15 @@ _ENUM_SLOT_RE = re.compile("\x00(\\d+)\x00")
 
 #: 已知的错误 → 「发生了什么 + 怎么办」。命中不了就给通用兜底（不硬猜原因）。
 _FAILURE_RULES: tuple = (
-    (re.compile(r"model.*not supported|unsupported.*model|模型.*不支持", re.I),
-     "CLI 配置的模型不支持当前登录方式",
-     "在 CLI 配置中选择当前账号可用的模型，再手动重新提交；不会自动重试。"),
     # **必须排在最前**：服务重启会把手里的任务标成「已中断」，它确实启动过，
     # 落到兜底的「命令没能启动」是误导（门② 第八轮 F5）。这条规则让**重建**出来的
     # 摘要与当初失败时生成的一致。
     (re.compile(r"已中断|interrupted", re.I),
      "服务重启时这个任务还在跑，已经被中断",
      "重新发起一次；已经跑完的步骤不会白费——产物仍在产物目录里。"),
+    (re.compile(r"model.*not supported|unsupported.*model|模型.*不支持", re.I),
+     "CLI 配置的模型不支持当前登录方式",
+     "在 CLI 配置中选择当前账号可用的模型，再手动重新提交；不会自动重试。"),
     (re.compile(r"NO_TOKEN|未配置\s*Tushare\s*token|TUSHARE_TOKEN", re.I),
      "没有可用的数据源凭据",
      "在项目 .env 或环境变量里配置 TUSHARE_TOKEN 后重试。"),
@@ -396,6 +396,8 @@ class JobRunner:
             description=spec.description,
             danger=spec.danger,
             exclusive=spec.exclusive,
+            exclusive_group=spec.exclusive_group,
+            exclusive_key=spec.exclusive_key(values) if spec.exclusive_key else None,
             outputs=spec.outputs,
         )
 
@@ -812,12 +814,21 @@ class JobRunner:
     # ---------------------------------------------------------------- 入队与调度
 
     def _enqueue(self, *, command, title, argv, params, action="", description="",
-                 steps=(), outputs=None, danger=False, exclusive=False) -> dict:
+                 steps=(), outputs=None, danger=False, exclusive=False, exclusive_group="",
+                 exclusive_key=None) -> dict:
         with self._wake:
-            if exclusive and any(item.command == command and item.params == params
-                                 and item.status not in TERMINAL
-                                 for item in self._jobs.values()):
-                raise DuplicateJob("这个动作正在为同一家公司执行。", hint="等任务结束或先取消它。")
+            if exclusive and any(
+                item.status not in TERMINAL
+                and ((item.outputs.get("exclusive_key") == exclusive_key)
+                     if exclusive_key is not None else item.params == params)
+                and (item.command == command or (exclusive_group and not item.action
+                     and self._spec_lookup(item.command).exclusive_group == exclusive_group))
+                for item in self._jobs.values()
+            ):
+                raise DuplicateJob("同一家公司已有互斥任务正在执行。", hint="等任务结束或先取消它。")
+            job_outputs = dict(outputs or {})
+            if exclusive_key is not None:
+                job_outputs["exclusive_key"] = exclusive_key
             running = sum(1 for item in self._jobs.values() if item.status in ACTIVE)
             if running >= int(self.config.max_concurrent_jobs):
                 # 刻意不用 `or 20`：队列上限为 0 是**合法配置**（等于「不排队、超限即拒」），
@@ -842,7 +853,7 @@ class JobRunner:
                 action=action,
                 description=description,
                 steps=list(steps),
-                outputs=dict(outputs or {}),
+                outputs=job_outputs,
                 danger=bool(danger),
                 queued_at=queued_at,
                 log=deque(maxlen=max(10, int(self.config.job_log_tail))),
@@ -879,6 +890,7 @@ class JobRunner:
 
     def _run(self, job: Job) -> None:
         process = None
+        execution_started_at = self._clock()
         try:
             process = self._popen(
                 job.argv,
@@ -894,6 +906,7 @@ class JobRunner:
             self._finish(job, FAILED, None, f"{type(exc).__name__}: {exc}")
             return
         with self._guard:
+            job.outputs["execution_started_at"] = execution_started_at
             self._processes[job.id] = process
             if job.cancelled:
                 process.terminate()

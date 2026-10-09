@@ -1,0 +1,74 @@
+{
+  "attempts": [
+    {
+      "label": "default",
+      "model": "gpt-6.1-sol",
+      "elapsed_seconds": 7.5,
+      "exit_code": 1,
+      "usage": []
+    },
+    {
+      "label": "gpt55-blocked",
+      "model": "gpt-5.5",
+      "elapsed_seconds": 328.3,
+      "exit_code": 0,
+      "usage": [
+        {
+          "input_tokens": 1268519,
+          "cached_input_tokens": 1169536,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 10956,
+          "reasoning_output_tokens": 3104
+        }
+      ]
+    },
+    {
+      "label": "gpt55-completed",
+      "model": "gpt-5.5",
+      "elapsed_seconds": 954.5,
+      "exit_code": 0,
+      "usage": [
+        {
+          "input_tokens": 6719155,
+          "cached_input_tokens": 6320768,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 41022,
+          "reasoning_output_tokens": 6082
+        }
+      ]
+    }
+  ],
+  "run_id": "20261009T172345870819Z",
+  "ledger_status": "complete",
+  "source": "structured",
+  "artifacts": [
+    {
+      "path": "output/.live_req013/workspace/output/600887_伊利/runs/20261009T172345870819Z/qualitative_report.md",
+      "bytes": 8776,
+      "sha256": "96aff8ba647bbbec8263ce7333e0eaf55bc798b000ebe2fccccf7e5d49e6b82c"
+    },
+    {
+      "path": "output/.live_req013/workspace/output/600887_伊利/runs/20261009T172345870819Z/change_report_2026H1.md",
+      "bytes": 4910,
+      "sha256": "3422277f95f1d3e2fe096f21add2f9e967be3a5629850fceefbb7128c7b6c56d"
+    },
+    {
+      "path": "output/.live_req013/workspace/output/600887_伊利/runs/20261009T172345870819Z/change_report_2026H1.json",
+      "bytes": 2647,
+      "sha256": "47b743ff039c26a9e6cc28c4ddd9161c214dfea41c49aff8c3db91cd3f501175"
+    },
+    {
+      "path": "output/.live_req013/workspace/output/600887_伊利/runs/20261009T172345870819Z/run.json",
+      "bytes": 814,
+      "sha256": "19d193fa35207209541eb581937660b34997c94b7583cdbe26a109cb038846b1"
+    }
+  ],
+  "validator_exit_codes": {
+    "business_moat": 0,
+    "environment": 0,
+    "governance": 0,
+    "mda_quality": 0,
+    "period_delta": 0,
+    "synthesis": 0
+  }
+}

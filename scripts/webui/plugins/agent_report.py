@@ -94,6 +94,8 @@ def command_specs(config=None) -> list:
             description=description,
             validate=partial(_validate, action=action, root=root, cli=cli_value),
             exclusive=True,
+            exclusive_group="agent-report",
+            exclusive_key=partial(_exclusive_key, root=root),
             outputs={"artifacts_endpoint": "/api/v1/agent/jobs/{job_id}/artifacts"},
         )
         for command_id, action, title, description in ACTIONS
@@ -106,6 +108,13 @@ def _validate(params, *, action, root, cli):
     except (ValueError, FileNotFoundError) as exc:
         raise InvalidParam(str(exc)) from exc
     return {"ticker": ticker}
+
+
+def _exclusive_key(params, *, root):
+    directories = agent_action.find_company_dirs(root, params["ticker"])
+    if len(directories) != 1:
+        raise InvalidParam("公司目录状态已变化，请刷新后重新提交。")
+    return str(safe_join(root, directories[0].name))
 
 
 def _preflight(ctx, **_):
@@ -138,9 +147,11 @@ def _artifacts(ctx, job_id, **_):
     root = Path(ctx.config.output_root)
     dirs = agent_action.find_company_dirs(root, job["params"].get("ticker", ""))
     links = []
-    if len(dirs) == 1 and job["status"] not in ("running", "queued"):
+    execution_started_at = job.get("outputs", {}).get("execution_started_at")
+    if (len(dirs) == 1 and execution_started_at
+            and job["status"] not in ("running", "queued")):
         base = safe_join(root, dirs[0].name)
-        start = datetime.fromisoformat(job["started_at"].replace("Z", "+00:00")).timestamp()
+        start = datetime.fromisoformat(execution_started_at.replace("Z", "+00:00")).timestamp()
         end = datetime.fromisoformat(job["finished_at"].replace("Z", "+00:00")).timestamp()
         for path in sorted(base.rglob("*")):
             if not path.is_file():

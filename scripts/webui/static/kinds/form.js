@@ -165,10 +165,16 @@ export async function render(container, panel, data) {
           })
         ).data;
         const head = document.createElement("p");
-        head.className = "command-argv";
-        // 回显**实际执行的完整命令行**（含本次参数），这是「点了什么就跑什么」的凭据。
-        head.textContent = `已提交 ${job.id}：${(job.argv || []).join(" ")}`;
+        head.textContent = `已提交 ${job.id}`;
         result.append(head);
+        const execution = document.createElement("details");
+        const executionTitle = document.createElement("summary");
+        executionTitle.textContent = "实际执行命令";
+        const actualArgv = document.createElement("pre");
+        actualArgv.className = "command-argv";
+        actualArgv.textContent = (job.argv || []).join(" ");
+        execution.append(executionTitle, actualArgv);
+        result.append(execution);
         await follow(job.id, result, command);
       } catch (error) {
         const problem = document.createElement("p");
