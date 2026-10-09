@@ -3,6 +3,7 @@
 // 约定：**失败给人话 + 原始日志两份**（`failure_summary` 是服务端算的，日志一个字不删）；
 // 队列、进行中、历史三块都列；离开页面任务照常在服务端跑，回来还能看到。
 import { api } from "/app.js";
+import { mountHandoff } from "/kinds/handoff.js";
 
 const STATUS_LABEL = {
   queued: "排队中",
@@ -201,10 +202,11 @@ function jobCard(job, refresh, options = {}) {
   const outputs = outputsBox(job);
   if (outputs) card.append(outputs);
   if (job.handoff && job.handoff.awaiting) {
-    const note = document.createElement("p");
-    note.className = "handoff";
-    note.textContent = `等你操作：${job.handoff.title || ""}（在「可以做的事」里继续或放弃）`;
-    card.append(note);
+    // **从状态重建**交接面板，而不是只在「刚点执行」的回调里渲染它：
+    // 门② 第六轮实测——刷新或重新进入页面后，等待中的任务既看不到可复制的命令、
+    // 也找不到继续/放弃的入口；点继续而产物不合格时界面还不说缺什么。
+    // 谁拿到 awaiting 的 job，谁就把交接面板挂出来（与动作面板共用 `kinds/handoff.js`）。
+    mountHandoff(card, job, refresh);
   }
   card.append(logDetails(job, options));
   return card;
@@ -216,7 +218,17 @@ export async function render(container, panel, data) {
   let timer = null;
 
   async function refresh() {
-    const payload = data || (await api(panel.endpoint)).data;
+    // **每次刷新都要重新取**：原先写成 `data || await api(...)`，也就是首屏那份载荷
+    // 一旦存在就永远优先——面板于是**再也不会更新**（门② 第六轮：点「我跑完了，继续」
+    // 被拦下之后，界面永远显示校验前的话术，因为渲染用的还是首屏载荷）。
+    // 闭包里的 `data` 只作为取不到时的兜底。
+    let payload = null;
+    try {
+      payload = (await api(panel.endpoint)).data;
+    } catch (error) {
+      payload = data;
+    }
+    payload = payload || data;
     const jobs = (payload && payload.jobs) || [];
     const queue = (payload && payload.queue) || [];
     list.innerHTML = "";

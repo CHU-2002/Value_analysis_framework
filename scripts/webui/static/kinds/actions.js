@@ -2,6 +2,7 @@
 // 前端**不做任何判断**：能不能跑、缺什么、会发生什么、要不要确认，全部由服务端算
 // （`GET /api/v1/actions`），这样预检可以被 CI 断言（AC-4 / AC-3 的可判定形式）。
 import { api, selection } from "/app.js";
+import { mountHandoff } from "/kinds/handoff.js";
 
 function actionCard(action, refresh) {
   const card = document.createElement("div");
@@ -155,8 +156,8 @@ export async function follow(job, box, refresh) {
   for (;;) {
     head.textContent = statusLine(current);
     if (current.handoff && current.handoff.awaiting) {
-      box.querySelectorAll(".handoff").forEach((node) => node.remove());
-      box.append(handoffPanel(current, () => refresh && refresh()));
+      // 交接面板统一由 `kinds/handoff.js` 渲染（任务中心与这里共用同一份实现）。
+      mountHandoff(box, current, () => refresh && refresh());
       break;
     }
     if (current.status !== "running" && current.status !== "queued") break;
@@ -176,97 +177,6 @@ function statusLine(job) {
   const current = progress.title && job.status === "running" ? ` · 正在：${progress.title}` : "";
   const status = job.status === "awaiting_agent" ? "等你操作" : job.status;
   return `状态：${status}${steps}${current}`;
-}
-
-function handoffPanel(job, refresh) {
-  const box = document.createElement("div");
-  box.className = "handoff";
-  const handoff = job.handoff || {};
-  const title = document.createElement("p");
-  title.className = "handoff-title";
-  title.textContent = `需要你手动跑一步：${handoff.title || ""}`;
-  box.append(title);
-  if (handoff.hint) {
-    const hint = document.createElement("p");
-    hint.className = "panel-note";
-    hint.textContent = handoff.hint;
-    box.append(hint);
-  }
-  if (handoff.slash) {
-    const row = document.createElement("p");
-    row.className = "handoff-command";
-    const code = document.createElement("code");
-    code.textContent = handoff.slash;
-    const copy = document.createElement("button");
-    copy.type = "button";
-    copy.textContent = "复制命令";
-    copy.onclick = () => copyText(handoff.slash, copy);
-    row.append(code, copy);
-    box.append(row);
-  }
-  const paths = handoff.paths || {};
-  const keys = Object.keys(paths);
-  if (keys.length) {
-    const list = document.createElement("dl");
-    list.className = "handoff-paths";
-    for (const key of keys) {
-      const dt = document.createElement("dt");
-      dt.textContent = { company_dir: "公司目录", run_dir: "本次 run", ticker: "标的", primary_period: "期次" }[key] || key;
-      const dd = document.createElement("dd");
-      const code = document.createElement("code");
-      code.textContent = paths[key];
-      dd.append(code);
-      list.append(dt, dd);
-    }
-    box.append(list);
-  }
-  if ((handoff.expects || []).length) {
-    const expects = document.createElement("p");
-    expects.className = "panel-note";
-    expects.textContent = `继续前会检查这些产物是否存在且是这次跑出来的：${handoff.expects.join("、")}`;
-    box.append(expects);
-  }
-  if ((handoff.missing || []).length) {
-    const missing = document.createElement("p");
-    missing.className = "handoff-missing";
-    // 「找不到」与「找到了但没更新」是两回事：服务端只回缺了哪几项，
-    // 措辞要说清两种可能，别让用户以为文件不在（独立验收抓到的措辞问题）。
-    missing.textContent = "这些产物还没就绪（可能不存在，或没有比这一步开始时更新）："
-      + handoff.missing.join("、");
-    box.append(missing);
-  }
-  const row = document.createElement("p");
-  row.className = "handoff-actions";
-  const done = document.createElement("button");
-  done.type = "button";
-  done.dataset.handoffContinue = "1";
-  done.textContent = "我跑完了，继续";
-  done.onclick = async () => {
-    done.disabled = true;
-    try {
-      await api(`/api/v1/jobs/${encodeURIComponent(job.id)}/continue`, { method: "POST" });
-    } catch (error) {
-      box.append(problem(error));
-    } finally {
-      done.disabled = false;
-      refresh();
-    }
-  };
-  const give = document.createElement("button");
-  give.type = "button";
-  give.dataset.handoffAbandon = "1";
-  give.textContent = "放弃这次";
-  give.onclick = async () => {
-    give.disabled = true;
-    try {
-      await api(`/api/v1/jobs/${encodeURIComponent(job.id)}/abandon`, { method: "POST" });
-    } finally {
-      refresh();
-    }
-  };
-  row.append(done, give);
-  box.append(row);
-  return box;
 }
 
 function jobDetails(job) {

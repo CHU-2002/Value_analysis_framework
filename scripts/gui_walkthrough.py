@@ -509,6 +509,116 @@ class Walkthrough:
         )
         self.shot("03-cold-open-empty-state.png")
 
+    def _api(self, method: str, path: str, body=None) -> dict:
+        """直接打接口（用来**造**一个交接中的任务；界面动作需要真跑一次分析，代价太大）。"""
+        import urllib.request as _request
+
+        data = json.dumps(body).encode("utf-8") if body is not None else None
+        request = _request.Request(f"{self.base}{path}", data=data, method=method)
+        if data is not None:
+            request.add_header("Content-Type", "application/json")
+        with _OPENER.open(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def step_handoff(self, ticker: str) -> None:
+        """⑬ 人机交接（`AC-2.4`）：刷新后仍能继续/放弃，且失败时界面**说清缺什么**。
+
+        门② 第六轮的三条阻断都在这一屏上：
+
+        1. 点「我跑完了，继续」而产物不合格 → 交接面板整体消失、界面一个字都不说缺什么；
+        2. 刷新/重新进入后交接**不可达**（可复制命令、路径、继续/放弃全没了）；
+        3. 界面唯一入口会再起一个等待任务。
+
+        修法：交接面板改为**从状态重建**（`kinds/handoff.js`，任务中心与动作面板共用），
+        点继续失败时把 `handoff.missing` 显示出来。这里用接口造一个交接中的任务，
+        然后**刷新页面**验证上面三条。
+        """
+        self.note("⑬ 人机交接：刷新后仍可继续/放弃；点继续失败要说清缺什么（AC-2.4）")
+        job = self._api("POST", "/api/v1/actions/company.update_analysis/run",
+                        {"params": {}, "context": {"company": ticker}})["data"]
+        deadline = time.time() + 30
+        current = job
+        while time.time() < deadline:
+            current = self._api("GET", f"/api/v1/jobs/{job['id']}")["data"]
+            if current["status"] == "awaiting_agent":
+                break
+            time.sleep(0.3)
+        if not self.check(current["status"] == "awaiting_agent",
+                          "造出一个停在交接步的任务",
+                          f"任务没有停在交接步：{current['status']} {current.get('error')}"):
+            return
+
+        # ① 刷新后交接必须可达（这是第六轮的阻断项之一）
+        self.cdp.reload(settle=3.5)
+        self.open_page("commands", f"company={urllib.parse.quote(ticker)}")
+        state = self.cdp.evaluate(
+            """(() => {
+              const panel = document.querySelector('[data-handoff-for="%s"]');
+              return {
+                panel: panel ? 1 : 0,
+                slash: document.querySelectorAll('[data-handoff-for="%s"] .handoff-command code').length,
+                continueButton: document.querySelectorAll('[data-handoff-continue]').length,
+                abandonButton: document.querySelectorAll('[data-handoff-abandon]').length,
+                missing: document.querySelectorAll('[data-handoff-missing]').length,
+              };
+            })()""" % (job["id"], job["id"])
+        )
+        self.note(f"  刷新后交接面板：{state}")
+        self.check(state["panel"] == 1, "刷新后仍能看到交接面板",
+                   f"刷新后交接面板消失了：{state}")
+        self.check(state["continueButton"] >= 1 and state["abandonButton"] >= 1,
+                   "刷新后仍能继续/放弃",
+                   f"刷新后找不到继续/放弃按钮：{state}")
+        self.check(state["slash"] >= 1, "刷新后仍能看到可复制的命令",
+                   f"刷新后看不到要跑的命令：{state}")
+
+        # ② 产物不合格时点继续：必须**留在原地**，并把「缺什么」显示出来
+        # 点继续**之前** `missing` 是空的（还没校验过），这是正常的：
+        # 界面此刻应当把「要产出什么」告诉用户（`expects`），校验结果在点完之后出现。
+        before = self._api("GET", f"/api/v1/jobs/{job['id']}")["data"]
+        self.check(bool(before["handoff"]["expects"]), "接口给出了要校验的产物清单",
+                   f"接口没给 expects：{before['handoff']}")
+        clicked = self.cdp.evaluate(
+            """(() => {
+              const node = document.querySelector('[data-handoff-continue]');
+              if (!node) return false;
+              node.click();
+              return true;
+            })()"""
+        )
+        self.check(clicked, "点了「我跑完了，继续」", "找不到继续按钮")
+        time.sleep(2.0)
+        after = self.cdp.evaluate(
+            """(() => {
+              const panel = document.querySelector('[data-handoff-for="%s"]');
+              const body = document.body.textContent || '';
+              return {
+                status: panel ? 1 : 0,
+                feedback: (document.querySelector('[data-handoff-feedback]') || {}).textContent || '',
+                visible: body.includes('仍停在这一步') || body.includes('还没就绪'),
+                missingShown: body.includes('还没就绪'),
+              };
+            })()""" % job["id"]
+        )
+        server = self._api("GET", f"/api/v1/jobs/{job['id']}")["data"]
+        self.note(f"  继续之后：界面={after} 服务端状态={server['status']}")
+        self.check(server["status"] == "awaiting_agent", "产物不合格时任务仍停在交接步",
+                   f"任务被放行了：{server['status']}")
+        self.check(after["status"] == 1, "交接面板还在（没有凭空消失）",
+                   "点了继续之后交接面板消失了")
+        self.check(after["missingShown"], "界面说清了「缺什么」",
+                   f"界面没有说缺什么：feedback={after['feedback']!r}")
+        self.check(bool(after["feedback"].strip()), "失败反馈就显示在交接面板上",
+                   f"反馈节点是空的：{after['feedback']!r}")
+        self.shot("14-handoff.png")
+
+        # ③ 收尾：放弃这个交接任务，避免留下僵尸等待任务
+        self._api("POST", f"/api/v1/jobs/{job['id']}/abandon")
+        time.sleep(1.0)
+        final = self._api("GET", f"/api/v1/jobs/{job['id']}")["data"]
+        self.check(final["status"] == "cancelled", "可以放弃这次交接",
+                   f"放弃之后状态是 {final['status']}")
+
     def step_artifact_links(self) -> None:
         """⑫ 任务产出要能**点开**（`AC-5`）：有产出块就必须有链接。
 
@@ -1288,6 +1398,7 @@ def main(argv=None) -> int:
         walkthrough.step_company_context(ticker)
         walkthrough.step_cold_open_without_company()
         walkthrough.step_data_page()
+        walkthrough.step_handoff(ticker)
         walkthrough.step_artifact_links()
         walkthrough.step_unresolvable_company()
         walkthrough.step_table_sorting()

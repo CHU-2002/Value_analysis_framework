@@ -34,6 +34,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
@@ -349,6 +350,9 @@ class JobRunner:
         self._clock = clock or _utc_now
         self._popen = popen or subprocess.Popen
         self.secrets = collect_secrets(self._env) if secrets is None else tuple(secrets)
+        #: `continue` 等校验结果的上限（秒）：够长到覆盖「查几次文件系统」，
+        #: 又不至于让一次 HTTP 请求挂太久。
+        self.continue_wait = float(getattr(config, "continue_wait", 1.0))
         self._jobs: dict = {}
         self._processes: dict = {}
         self._queue: deque = deque()
@@ -470,7 +474,13 @@ class JobRunner:
         return self._public(job)
 
     def continue_action(self, job_id: str, step_index=None) -> dict:
-        """「我跑完了，继续」：交接步的产物**校验**（`AC-2.4`）在这里做，不通过就不继续。"""
+        """「我跑完了，继续」：交接步的产物**校验**（`AC-2.4`）在这里做，不通过就不继续。
+
+        **返回校验之后的状态**（而不是发信号前的快照）：门② 第四/五/六轮都登记过
+        「响应是校验前快照」——客户端拿到的 `handoff.missing` 永远是空数组，界面于是
+        没法立刻说出「缺什么」。这里等一小会儿让步骤线程做完校验（成功则继续跑、失败则
+        原地更新 `missing`），再把最新状态回给调用方；等不到就回当前状态（不阻塞请求）。
+        """
         job = self._jobs.get(job_id)
         if job is None:
             raise JobNotFound(f"没有这个任务：{job_id!r}")
@@ -483,6 +493,12 @@ class JobRunner:
             job.signal = "continue"
             job.handoff = {**job.handoff, "attempt": int(job.handoff.get("attempt", 0)) + 1}
             self._wake.notify_all()
+        # 最多等 `continue_wait` 秒看校验结果：校验很快（查几次文件系统），
+        # 所以正常情况下这里就是「校验后」的状态。
+        deadline = time.monotonic() + self.continue_wait
+        with self._wake:
+            while job.status == AWAITING and job.signal is not None and time.monotonic() < deadline:
+                self._wake.wait(timeout=0.05)
         return self._public(job)
 
     def abandon_action(self, job_id: str) -> dict:
@@ -610,6 +626,7 @@ class JobRunner:
             "writes": [redact(str(item), self.secrets)
                        for item in (job.handoff.get("writes") or [])],
             "missing": list(job.handoff.get("missing") or []),
+            "last_check": job.handoff.get("last_check", ""),
             "awaiting": job.status == AWAITING,
         }
         # 已解析好的路径（可复制）：只给与用户操作相关的几个键。
@@ -1044,13 +1061,18 @@ class JobRunner:
                                  + "、".join(missing))
                     with self._wake:
                         job.status = AWAITING
-                        job.handoff = {**job.handoff, "missing": missing}
+                        # 校验结果写进**任务**的 `handoff`（对外的就是它），不是步骤的——
+                        # 写在步骤上会被「本步开始时的那份快照」原样盖回去，于是
+                        # `/api/v1/jobs/{id}` 的 `missing` 永远是 `[]`，界面没法说清缺什么
+                        # （门② 第六轮的阻断项，这里踩过一次）。
+                        job.handoff = {**(job.handoff or {}), "missing": missing,
+                                       "last_check": _utc_now(), "awaiting": True}
                         self._wake.notify_all()
                     self._write_history(job)
                     continue
                 with self._wake:
                     job.status = RUNNING
-                    job.handoff = {**job.handoff, "missing": []}
+                    job.handoff = {**job.handoff, "missing": [], "last_check": _utc_now()}
                 step.status = "done"
                 step.finished_at = self._clock()
                 self._write_history(job)
