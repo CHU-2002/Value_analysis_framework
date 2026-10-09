@@ -15,7 +15,8 @@
   **服务端算**，所以能被 CI 断言；
 - 从仓重建（离线、不花钱、不需要确认）。
 
-安全边界不变（`REQ-012` 的约束）：GUI 只通过 `datalayer` 的**读接口**访问仓，
+安全边界不变（`REQ-012` 的约束）：面板通过 `datalayer` 的读接口访问仓，
+`REQ-014` 的清单写入由独立动作插件通过 `Universe` 编排，
 不接受任何用户提供的路径；仓根本身来自配置（`WEBUI_ARCHIVE_ROOT` / `TURTLE_ARCHIVE_ROOT`），
 不是 URL 参数。
 """
@@ -121,15 +122,8 @@ def _universe_panel(ctx, **_):
     rows.sort(key=lambda item: item["ticker"])
     guide = ""
     if not rows:
-        # 空状态文案也要守 `AC-3`：**不出现命令、开关、路径**（独立验收第二轮抓到的：
-        # 原先这里写着 `make data-universe ARGS='add --ticker … --name …'`，
-        # 那是把「让用户自己当调度机器」的老毛病搬进了引导语）。
-        # 说「做什么」与「谁来做」，不说「敲哪条命令」。
-        # 纯文本（这段会经 HTML 转义渲染，**不能**写 Markdown 记号，否则界面上一堆 `**`）。
-        guide = ("自选股清单还是空的。清单是拉取与缺口计算的唯一依据：先把要跟踪的公司登记进去，"
-                 "再回到这一页执行「拉取全部数据」。"
-                 "登记清单目前属于数据层的准备工作（逐个登记，或从已经分析过的公司一次性导入），"
-                 "控制台里暂时还没有对应的入口——这一条已登记为待办。")
+        guide = ("自选股清单还是空的。先在本页点击「添加公司」，或「从既有产物导入」登记清单，"
+                 "再执行「拉取全部数据」。")
     return {
         "columns": [
             {"key": "company", "title": "公司", "search": True, "sort": "text"},
@@ -274,10 +268,13 @@ def _universe_adapter(ctx, store):
 
 
 def contribute(registry):
+    from .watchlist import contribute as contribute_watchlist
+
+    contribute_watchlist(registry)
     registry.panel(PanelSpec(
         id="data.universe", kind="table", title="自选股清单",
         provider=_universe_panel, size="full",
-        options={"table": {"search": True, "sort": True, "page": 50}},
+        options={"table": {"search": True, "sort": True, "page": 50}, "include_rows": True},
         description="清单是唯一事实来源；完备度按原始仓的实际情况算。",
     ))
     registry.panel(PanelSpec(

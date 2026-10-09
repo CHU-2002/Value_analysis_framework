@@ -1,7 +1,7 @@
 ---
 id: REQ-014
 title: 控制台里的自选股清单维护（添加 / 从既有产物导入 / 移除）
-status: proposed
+status: implemented
 priority: P1
 owner: CHU-2002
 created: 2026-10-09
@@ -9,7 +9,7 @@ updated: 2026-10-09
 issue: "#102"
 design: N/A
 milestone: TBD
-pr: TBD
+pr: "#112"
 depends-on: REQ-012, REQ-011
 supersedes: TBD
 ---
@@ -63,11 +63,7 @@ supersedes: TBD
 
 ## 子需求
 
-<!-- 待评审后再拆。初步设想：
-     REQ-014.1 添加/移除（动作 + 命令行前端的写接口）
-     REQ-014.2 从既有产物导入（幂等 + 跳过原因）
-     REQ-014.3 空清单引导指向真实入口（走查判据）
--->
+本期整体交付与验收，不另拆子需求。
 
 ## 范围
 
@@ -90,16 +86,38 @@ supersedes: TBD
 4. 移除一家公司：清单里消失，产物目录逐文件仍在。
 5. 三个动作在无 token / 网络不可用时都能执行（离线动作），文案不出现命令与路径。
 
+## 交付任务与问题登记
+
+| 任务 | 状态 | 发现与处置 | 证据 |
+|------|------|------------|------|
+| T1 浏览器刷新观察时序 | 已修复 | 首轮实跑在摘要出现时抢先读到旧面板；走查等待动作完成刷新且按钮恢复可用后才断言 | `scripts/watchlist_walkthrough.py`；实跑前后记录 |
+| T2 面板 GET 的行契约 | 已修复 | 独立预检发现 provider 有 rows，而实际 GET 只有 HTML；声明保留行数据，并以实际 GET 断言 AC-1 | `tests/test_watchlist_ui.py` |
+| T3 子进程离线验证 | 已修复 | 父进程打桩不能约束真实命令子进程；添加子进程审计钩子，禁止 socket.connect 与凭据模块导入 | `tests/test_watchlist_ui.py` |
+| T4 本机绑定权限 | 已定位 | 初次 make verify 的 13 条 HTTP 测试均因沙箱禁止 bind 失败；在允许本机绑定的权限下原样重跑门禁，不修改断言 | 全量门禁日志 |
+| T5 开关形态代码 | 已修复 | 独立预检发现代码 A--.SH 可进入结果文案；入口拒绝双连字符及路径形态；简称与导入跳过标签统一净化，测试复用 REQ-012 的 FORBIDDEN 规则，补失败路径断言 | `tests/test_watchlist_ui.py` |
+| T6 浏览器任务历史隔离 | 已落实 | 默认任务历史写产物根的隐藏目录；最终走查改为真实产物原样快照，仓、缓存与任务历史全部写沙箱，真实源只读 | 研发实跑记录及独立报告 |
+| T7 测试的真实凭据依赖 | 已修复 | 独立干净 worktree 中四个数据动作测试因无 .env 失败；共享 fixture 隔离数据层 dotenv，四个联网编排测试显式注入假凭据，不改产品判定 | `tests/conftest.py`、`tests/test_console_data_page.py`及独立报告 |
+
 ## 实跑记录
 
-<!-- 实现后补：命令 + 环境 + 观察 -->
+- 环境：2026-10-09，macOS / Python 3.12.13 / Microsoft Edge 无头浏览器；产物读取项目真实 `output`，
+  初轮清单与缓存指向 `output/.live_req014_after2` 沙箱，任务历史按默认位置写项目 `output/.webui_jobs`；
+  最终走查读取真实产物原样快照，全部运行产物写 `output/.live_req014_final`。真实公司产物只读，
+  不访问真实原始仓，不使用数据源 token。
+- 命令与观察：见 [`2026-10-09-REQ-014-development.md`](../run-records/2026-10-09-REQ-014-development.md)。
+  旧界面入口走查退出码 1，4 条 failures；新界面完整走查退出码 0，`failures: []`。
+  实际首次导入 1 家、跳过 15 项，重复导入 0 家、跳过 16 项；三个代码别名不产生重复，移除仅改沙箱清单。
+- 独立验收与最终门禁记录在收口 PR 补充。
 
 ## 追溯
 
-- 测试文件：TBD（实现时按 §6.1 挂 `REQ-014` / `REQ-014.S`）
+- 测试文件：`tests/test_watchlist_ui.py`（AC-1…AC-5；AC-6 共用实跑入口）
 - 设计文档：N/A（沿用 `docs/CONSOLE_V2_PLAN.md` 的动作层与数据层接口）
 
 ## 变更记录
+
+- 2026-10-09：owner 指令「端到端完成 REQ-14，自己闭环交付，直到关闭 issue」受理本需求：
+  `proposed` → `accepted` → `in-progress`；保留六条 AC 原文，整体验收。实现 PR 合入后为 `implemented`，独立验收后再收口。
 
 - 2026-10-09：登记 `proposed`（Issue #102）。来源：`REQ-012` 门② 第二轮与第七轮两次登记的
   「清单没有界面维护入口」，owner 于 2026-10-09 决定**下一期做界面入口**（而不是把

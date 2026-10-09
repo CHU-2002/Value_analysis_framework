@@ -150,6 +150,14 @@ def make_company_dir(tmp_path: Path) -> Path:
     return directory
 
 
+@pytest.fixture
+def available_credentials(monkeypatch):
+    """这些测试只核对联网动作的编排，显式注入假凭据，不读取真实 .env。"""
+    import datalayer.security as security
+
+    monkeypatch.setattr(security, "resolve_token", lambda *args, **kwargs: "mock-preflight-token")
+
+
 @pytest.fixture(autouse=True)
 def _isolated_parsers():
     parsers.reset_parsers()
@@ -171,9 +179,8 @@ def test_universe_panel_reads_the_declared_list_and_computes_completeness(tmp_pa
     assert panel["meta"]["count"] == 1
     row = panel["rows"][0]
     assert row["ticker"] == TICKER
-    # 产物目录还不存在时没有「规范显示名」可用，就用清单里登记的名字
-    # （统一显示名的判据在 test_data_page_and_company_pages_use_the_same_display_name）。
-    assert row["company"] == "伊利股份"
+    # REQ-014：没有产物的新公司也进入统一公司索引，代码与简称在各页面一致。
+    assert row["company"] == "600887 伊利股份"
     assert row["enabled"] == "启用"
     # 3 条记录里 2 条 ok、1 条无权限 → 完备度 2/3，缺口 1。
     assert row["completeness"] == "2/3"
@@ -269,7 +276,7 @@ def test_data_page_panel_never_receives_a_user_supplied_path(tmp_path):
 # --------------------------------------------------------------- AC-4.2 预估与确认
 
 
-def test_pull_action_publishes_an_estimate_before_any_request(tmp_path):
+def test_pull_action_publishes_an_estimate_before_any_request(tmp_path, available_credentials):
     """AC-4.2：拉取先给**预估**（服务端算）与确认文案，再显示进度。"""
     config, registry = make_app(tmp_path)
     make_store(config, tmp_path)
@@ -332,7 +339,7 @@ def test_pull_action_is_disabled_when_the_watchlist_is_empty(tmp_path):
     assert not any("/api/" in blocker for blocker in blockers), blockers
 
 
-def test_running_pull_goes_through_the_whitelisted_data_layer_command(tmp_path):
+def test_running_pull_goes_through_the_whitelisted_data_layer_command(tmp_path, available_credentials):
     """AC-4.2：一次动作发起全量拉取——真的是**已注册的按键**（白名单，不新开通道）。"""
     config, registry = make_app(tmp_path)
     make_store(config, tmp_path)
@@ -360,7 +367,7 @@ def test_running_pull_goes_through_the_whitelisted_data_layer_command(tmp_path):
 # --------------------------------------------------------------- AC-4.3 / AC-4.4 两个动作
 
 
-def test_filling_gaps_is_its_own_action_not_a_flag_the_user_must_understand(tmp_path):
+def test_filling_gaps_is_its_own_action_not_a_flag_the_user_must_understand(tmp_path, available_credentials):
     """AC-4.3：「只补缺口」是独立动作，标题里不出现 `--only-gaps` 这种开关。"""
     config, registry = make_app(tmp_path)
     make_store(config, tmp_path)
@@ -456,7 +463,7 @@ def test_data_page_and_company_pages_use_the_same_display_name(tmp_path):
 # --------------------------------------------------------------- 独立验收发现的阻断项（回归）
 
 
-def test_pull_action_carries_the_estimate_that_the_ui_shows(tmp_path):
+def test_pull_action_carries_the_estimate_that_the_ui_shows(tmp_path, available_credentials):
     """AC-4 / AC-4.2：**真实接口**的动作条目必须带预估值（预计调用量）。
 
     门② 的阻断项：`pull_estimate()` 在生产链路里**没有调用者**，前端 `action.estimate`

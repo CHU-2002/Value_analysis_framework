@@ -261,7 +261,7 @@ def resolve_identifier(ctx, identifier: str) -> Path | None:
     for item in entries:
         ticker = str(item.get("ticker") or "").strip().upper()
         if ticker and ticker == wanted:
-            return safe_join(ctx.config.output_root, item["dir"])
+            return safe_join(ctx.config.output_root, item["dir"]) if item["dir"] else None
         if item["dir"] == text:
             return safe_join(ctx.config.output_root, item["dir"])
     # 索引里没有（例如这家公司只有目录、还没跑过任何产物）：目录名直接用，
@@ -321,11 +321,43 @@ def context_resolvable(ctx, value) -> bool:
 
 
 def companies_dataset(ctx) -> tuple:
-    return ctx.registry.datastore.get(
-        "companies.index",
-        base=ctx.config.output_root,
-        params={"root": str(ctx.config.output_root)},
-    )
+    try:
+        data, meta = ctx.registry.datastore.get(
+            "companies.index", base=ctx.config.output_root,
+            params={"root": str(ctx.config.output_root)},
+        )
+    except ArtifactMissing:
+        data, meta = {"companies": [], "count": 0}, {"empty": True}
+    # 清单独立于产物：添加新公司后立即可见，未取数时公司页给正常空状态。
+    from datalayer.store import DataStore
+    from datalayer.universe import Universe
+    from watchlist_action import resolve_ticker
+    from datalayer.errors import UniverseError, StoreUnavailable
+
+    items = [dict(item) for item in data["companies"]]
+    known = {}
+    for item in items:
+        try:
+            code = resolve_ticker(item.get("ticker") or item["dir"])
+        except UniverseError:
+            continue
+        known[code] = item
+    try:
+        entries = Universe(DataStore(ctx.config.archive_root)).entries()
+    except StoreUnavailable:
+        # 清单不可用时仍可浏览既有公司；清单动作会给出存储阻断理由。
+        entries = []
+    for entry in entries:
+        code = entry["ticker"]
+        if code in known:
+            if not known[code].get("ticker"):
+                known[code]["ticker"] = code
+            continue
+        items.append({"dir": "", "name": entry["display_name"], "label": "",
+                      "ticker": code, "company": entry["display_name"],
+                      "display_name": display_name(code, entry["display_name"]),
+                      "last_run": "", "primary_period": "", "downstream_stale": False})
+    return {**data, "companies": items, "count": len(items)}, meta
 
 
 def artifacts_dataset(ctx, base: Path) -> tuple:

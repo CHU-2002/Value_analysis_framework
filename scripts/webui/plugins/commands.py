@@ -369,6 +369,8 @@ def _action_entry(ctx, spec, *, extra_context=None) -> dict:
         # 而不是显示一个编出来的数字（预估宁可没有，也不能骗人）。
         "estimate": _estimate_for(spec, ctx, selection, blockers),
     })
+    if hasattr(spec, "inputs_for"):
+        payload["inputs"] = spec.inputs_for(ctx)
     return payload
 
 
@@ -444,6 +446,8 @@ def _run_action(ctx, action_id, **_):
     resolved = _selection(ctx, context)
     runner = _runner(ctx)
     spec = ctx.registry.job_type_spec(action_id)
+    if hasattr(spec, "prepare"):
+        resolved = spec.prepare(ctx, params, resolved)
     entry = _action_entry(ctx, spec, extra_context=context)
     if not entry["enabled"]:
         # 服务端**再判一次**：前端的禁用只是展示，不能当成约束（预检不通过就不起进程）。

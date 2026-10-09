@@ -164,7 +164,7 @@ def universe_rows(ctx) -> list:
             continue
         product = index.get(ticker.upper())
         rows.append(row_for(
-            ticker, entry.get("display_name") or display_name(ticker, ""), ticker,
+            ticker, display_name(ticker, entry.get("display_name") or ""), ticker,
             (product or {}).get("dir", ""), product or {},
         ))
     rows.sort(key=lambda item: item["company"])
@@ -174,11 +174,8 @@ def universe_rows(ctx) -> list:
 def _universe_panel(ctx, **_):
     rows = universe_rows(ctx)
     if not rows:
-        # 与数据页的引导保持**同一口径**（门② 第四轮指出两处互相矛盾）：
-        # 登记清单目前是数据层的准备工作，控制台里还没有入口；拉取才是这一页能做的事。
-        guide = ("还没有任何公司数据。下一步：① 先把要跟踪的公司登记进自选股清单"
-                 "（登记清单目前属于数据层的准备工作，控制台里暂时还没有对应的入口）；"
-                 "② 回到这一页执行「拉取全部数据」。")
+        guide = ("还没有任何公司数据。① 先在本页点击「添加公司」，或「从既有产物导入」，"
+                 "② 再执行「拉取全部数据」。")
         return {
             "columns": _UNIVERSE_COLUMNS,
             "rows": [],

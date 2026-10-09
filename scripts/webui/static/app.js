@@ -331,6 +331,7 @@ async function fillCompanySelector() {
     options.push({ value: item.ticker || item.dir, label: item.display_name || item.name });
   }
   const current = selection.company || remembered || "";
+  select.disabled = false;
   select.innerHTML = "";
   for (const option of options) {
     const node = document.createElement("option");
@@ -404,6 +405,18 @@ function wireCompanySelector() {
 function reload() {
   const { pageId } = parseHash();
   openPage(pageId || defaultPage).catch((error) => banner(problemText(error), "error"));
+}
+
+
+// 清单写入后更新选择器与当前页其它面板，保留动作卡上的执行结果。
+export async function refreshCompanyViews(source) {
+  await fillCompanySelector();
+  const { pageId } = parseHash();
+  const { data: page } = await api(`/api/v1/pages/${encodeURIComponent(pageId || defaultPage)}`);
+  for (const panel of page.panels || []) {
+    const old = document.querySelector(`[data-panel-id="${panel.id}"]`);
+    if (old && !old.contains(source)) old.replaceWith(await mountPanel(panel));
+  }
 }
 
 function problemText(error) {
