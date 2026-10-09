@@ -33,6 +33,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import sys
 import threading
 import time
@@ -679,9 +680,20 @@ class JobRunner:
             self.history_dir.mkdir(parents=True, exist_ok=True)
             path = self.history_dir / f"{job.id}.json"
             payload = json.dumps(self._public(job), ensure_ascii=False, indent=2)
-            tmp = path.with_suffix(f".{os.getpid()}.tmp")
-            tmp.write_text(payload, encoding="utf-8")
-            os.replace(tmp, path)      # 同目录内 rename，读者要么看到旧的、要么看到完整的新
+            # 临时名**必须每次唯一**：`cancel()` 的 QUEUED 分支与 `_release_next()` 都在锁外
+            # 各写一次同一个任务，用 `.<pid>.tmp` 这种「同进程内相同」的名字时，两个写入者会
+            # 抢同一个临时文件，`os.replace` 可能发布**两份快照拼接**出来的非法 JSON
+            # （第二份独立复核 R2：慢盘下 10/10 复现，756B vs 候选 480/690B）。
+            # `mkstemp` 保证名字唯一，并且它已经用 `O_EXCL` 建好了文件。
+            handle, tmp_name = tempfile.mkstemp(dir=str(self.history_dir),
+                                                prefix=f"{job.id}.", suffix=".tmp")
+            try:
+                with os.fdopen(handle, "w", encoding="utf-8") as stream:
+                    stream.write(payload)
+                os.replace(tmp_name, path)   # 同目录 rename：读者要么看到旧的、要么看到完整的新
+            except OSError:
+                Path(tmp_name).unlink(missing_ok=True)
+                raise
         except OSError:  # pragma: no cover - 只影响「重启后仍可查看」，不影响任务执行
             pass
 

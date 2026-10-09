@@ -1106,3 +1106,43 @@ def test_interrupted_history_gets_a_rebuilt_failure_summary(tmp_path):
     assert "被中断" in summary["what"], summary
     assert "命令没能启动" not in summary["what"], "中断过的任务不该说「没能启动」"
     assert summary["how"], "「怎么办」也要有"
+
+
+def test_history_writes_are_safe_under_concurrent_writers(tmp_path):
+    """AC-2.3：同一个任务被**并发写**历史时，磁盘上不能出现半截/拼接的历史。
+
+    第二份独立 delta 复核（`…-reverify9.md` 的 R2）发现：临时名原先只带 pid
+    （`path.with_suffix(f".{os.getpid()}.tmp")`），而 `cancel()` 的 QUEUED 分支与
+    `_release_next()` 都在**锁外**各写一次同一个任务——两个写入者抢同一个临时文件，
+    `os.replace` 于是可能发布「两份快照拼接」出来的非法 JSON（它慢盘下 10/10 复现；
+    本仓库的探针按同样方法测到旧写法 6/12 损坏、改成每次唯一后 0/12）。
+    修法：`tempfile.mkstemp()` 保证每次写入的临时名唯一。
+    """
+    config, registry = make_app(tmp_path)
+    register_demo_action(registry, steps=(CommandStep("step_echo"),))
+    job = call_route(registry, "POST", "/api/v1/actions/demo.chain/run",
+                     body={"context": {}})["data"]
+    runner = registry.jobs
+    real = runner._jobs[job["id"]]
+
+    # 12 个线程并发写同一个任务的历史。
+    import threading
+
+    threads = [threading.Thread(target=runner._write_history, args=(real,)) for _ in range(12)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    history = Path(runner.history_dir)
+    payload = json.loads((history / f"{real.id}.json").read_text(encoding="utf-8"))
+    assert payload["id"] == real.id, "并发写之后历史必须仍然可解析"
+    assert payload["status"] == real.status
+    leftovers = list(history.glob("*.tmp"))
+    assert leftovers == [], f"并发写不该留下临时文件：{leftovers}"
+
+    # 临时名必须**每次唯一**（这正是 R2 的根因）：直接看实现用它而不是拼 pid。
+    source = (Path(__file__).resolve().parents[1] / "scripts" / "webui" / "core"
+              / "jobs.py").read_text(encoding="utf-8")
+    assert "tempfile.mkstemp(" in source, "临时名要用 mkstemp 保证唯一"
+    assert 'with_suffix(f".{os.getpid()}.tmp")' not in source, "不许再用「同进程内相同」的临时名"
