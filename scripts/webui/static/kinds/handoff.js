@@ -114,9 +114,12 @@ export function handoffPanel(job, refresh) {
   feedback.dataset.handoffFeedback = "1";
   if (missing.length) {
     feedback.dataset.handoffBlocked = "1";
-    feedback.textContent = "还没检测到这一步的产物，任务仍停在这一步："
+    // 与上面 `missing` 行**同一套措辞**（第七轮指出同一面板里出现两种说法）。
+    feedback.textContent = "这些产物还没就绪（可能不存在，或没有比这一步开始时更新）："
       + missing.join("、")
-      + (handoff.last_check ? `（校验时间 ${handoff.last_check}）` : "");
+      + (handoff.last_check
+        ? `。任务仍停在这一步，最近一次校验：${handoff.last_check}`
+        : "。任务仍停在这一步。");
   } else {
     feedback.hidden = true;
   }
@@ -142,8 +145,9 @@ export function handoffPanel(job, refresh) {
         feedback.hidden = false;
         feedback.dataset.handoffBlocked = "1";
         feedback.textContent = still.length
-          ? `还没检测到这一步的产物，任务仍停在这一步：${still.join("、")}`
-          : "任务仍停在这一步：产物还没就绪。";
+          ? "这些产物还没就绪（可能不存在，或没有比这一步开始时更新）："
+            + still.join("、") + "。任务仍停在这一步。"
+          : "产物还没就绪，任务仍停在这一步。";
       }
       // 注意：上面只是**即时**反馈；刷新后由 `missing` 重新渲染（见函数开头），
       // 所以这段文字不会因为一次重绘就消失。

@@ -115,6 +115,13 @@ TOKEN_ECHO = CommandSpec(
 )
 
 
+def _probe_frame():
+    """扫描夹具用的一行数据（只为让原始仓非空，内容不重要）。"""
+    import pandas as pd
+
+    return pd.DataFrame({"ts_code": ["600887.SH"], "trade_date": ["20260101"], "close": [1.0]})
+
+
 def make_app(tmp_path: Path, *, max_jobs: int = 4, max_queued: int = 4, env=None, **overrides):
     config = make_config(tmp_path, max_concurrent_jobs=max_jobs, max_queued_jobs=max_queued,
                          **overrides)
@@ -154,6 +161,17 @@ def call_route(registry, method: str, path: str, body=None, **query):
 #: 「还没结束」的状态：`awaiting_agent` 也算——它是一次**合法的暂停**，
 #: 收到「继续/放弃」后线程还要跑完剩下的步骤才收口。等它时不能提前返回。
 _PENDING = ("running", "queued", "awaiting_agent")
+
+
+def wait_history_file(registry, job_id: str, timeout: float = 5.0) -> None:
+    """等某个任务的历史文件落盘（避免「内存已 finished、磁盘还没写」的时序依赖）。"""
+    path = Path(registry.jobs.history_dir) / f"{job_id}.json"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            return
+        time.sleep(0.02)
+    raise AssertionError(f"任务 {job_id} 的历史文件没有落盘：{path}")
 
 
 def wait_job(registry, job_id: str, timeout: float = 15.0, until=None) -> dict:
@@ -299,6 +317,18 @@ def test_action_wording_never_leaks_internal_parameters_or_cli_flags(tmp_path):
     (company / "record.json").write_text(
         '{"subject": {"ticker": "600887.SH", "company": "伊利股份"}}', encoding="utf-8"
     )
+    # **还要有仓与清单**：`estimate` 是从数据层的 `plan()` 算出来的，空仓/空清单时它恒为
+    # `{}`，字段压根不在被扫的载荷里——门② 第七轮往 `estimate.detail` 注入 `--zz-inject`
+    # 时用例仍然判绿，而那条文案真能上屏。所以这里建最小原始仓 + 一条清单，并**带上下文**
+    # 取动作清单，让 `estimate` 真的有内容可扫。
+    from datalayer.store import DataStore as _Store
+    from datalayer.universe import Universe as _Universe
+
+    store = _Store(config.archive_root)
+    store.write_frame(ticker="600887.SH", dataset="daily", period="20260101",
+                      params={"ts_code": "600887.SH"}, frame=_probe_frame(),
+                      result="ok", fetched_at="2026-01-02T03:04:05+00:00")
+    _Universe(store).add("600887.SH", "伊利股份")
 
     # **扫所有注册过的页面**，不手写清单：门② 第三轮用注入证明过手写清单有盲区
     # （往 `collect` 页的面板描述里注入 `--foo`，用例照样绿，因为清单里没有 collect）。
@@ -307,7 +337,8 @@ def test_action_wording_never_leaks_internal_parameters_or_cli_flags(tmp_path):
     assert "collect" in page_ids, "collect 页必须参与扫描（它是被漏掉过的那一页）"
     for page_id in page_ids:
         payloads.append(call_route(registry, "GET", f"/api/v1/pages/{page_id}"))
-    payloads.append(call_route(registry, "GET", "/api/v1/actions"))
+    # 带上下文取：`data.pull_all` / `data.fill_gaps` 的预估需要「这次要拉哪家」。
+    payloads.append(call_route(registry, "GET", "/api/v1/actions", company="600887.SH"))
 
     offenders = []
 
@@ -359,7 +390,11 @@ def test_action_wording_never_leaks_internal_parameters_or_cli_flags(tmp_path):
     # 上面那条「渲染 HTML」的判据够不到——门② 第五轮往 `effects.writes` 注入 `--foo`
     # 时扫描仍绿。这里直接扫**声明**本身。
     declaration_offenders = []
-    for action in call_route(registry, "GET", "/api/v1/actions")["data"]["actions"]:
+    actions_payload = call_route(registry, "GET", "/api/v1/actions", company="600887.SH")["data"]
+    assert any(item.get("estimate") for item in actions_payload["actions"]), (
+        "夹具必须让 estimate 有内容，否则 estimate.detail 不在扫描范围内（判据形同不存在）"
+    )
+    for action in actions_payload["actions"]:
         blob = json.dumps(
             {key: value for key, value in action.items()
              if key not in ("steps", "handler", "id")},
@@ -972,6 +1007,10 @@ def test_job_history_round_trips_through_a_restart(tmp_path):
     final = wait_job(registry, job["id"])
     assert final["status"] == FINISHED
     assert final["outputs"]["writes"][0]["exists"] is True
+    # **等落盘**：`wait_job` 看到内存里 `finished` 就返回，而历史文件的最后一次写入
+    # 可能还差一拍（CI 上就是这么红的：`assert 0 >= 1`）。这里等文件出现再重启 runner，
+    # 判据本身不放宽（仍然断言历史读得回来），只是不再依赖调度时序。
+    wait_history_file(registry, job["id"])
 
     # 模拟「面板重启」：用同一个历史目录新建一个 runner，再读列表。
     restarted = JobRunner(
