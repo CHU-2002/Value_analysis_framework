@@ -325,7 +325,11 @@ def test_pull_action_is_disabled_when_the_watchlist_is_empty(tmp_path):
     actions = {item["id"]: item
                for item in call_route(registry, "GET", "/api/v1/actions")["data"]["actions"]}
     assert actions["data.pull_all"]["enabled"] is False
-    assert any("自选股清单是空的" in blocker for blocker in actions["data.pull_all"]["blockers"])
+    # 阻断理由是人话，且**不含接口路径/命令/开关**（门② 第八轮 F4：原先这里写着
+    # 「先在数据页把要跟踪的公司加进清单」并牵出 `/api/v1/companies` 这类接口字样）。
+    blockers = actions["data.pull_all"]["blockers"]
+    assert any("自选股清单还是空的" in blocker for blocker in blockers), blockers
+    assert not any("/api/" in blocker for blocker in blockers), blockers
 
 
 def test_running_pull_goes_through_the_whitelisted_data_layer_command(tmp_path):

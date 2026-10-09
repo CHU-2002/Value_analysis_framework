@@ -30,7 +30,7 @@ import pytest
 
 from webui.config import Config
 from webui.core.context import RequestContext
-from webui.core.errors import InvalidParam
+from webui.core.errors import BadRequest, InvalidParam, NotFound
 from webui.core.models import PanelSpec
 from webui.core.registry import build_registry
 from webui.core.router import find_route
@@ -132,6 +132,18 @@ def call_route(registry, method: str, path: str, **query):
         method=method, path=path, query=dict(query), config=registry.config, registry=registry
     )
     return route.handler(context, **params)
+
+
+def panel_columns(registry, panel_id: str, **query) -> list:
+    """面板 provider 声明的列（不渲染，只看契约）。"""
+    from webui.core.context import RequestContext as Ctx
+    from webui.core.routes import resolve_params
+
+    spec = registry.panel_spec(panel_id)
+    context = Ctx(method="GET", path=f"/api/v1/panels/{panel_id}",
+                  query={"company": "600887.SH", **query},
+                  config=registry.config, registry=registry)
+    return spec.provider(context, **resolve_params(spec, context))["columns"]
 
 
 def panel_payload(registry, panel_id: str, **query):
@@ -567,26 +579,43 @@ def test_table_panels_declare_and_emit_the_search_sort_page_contract(tmp_path):
     # 面板声明了 `sort` 就**必须**每列都有 `data-sort-key`：门② 第三轮在真实浏览器里
     # 点表头发现批次列表「声明了 sort 却一个可排序表头都没有」——只断言面板级声明的
     # 测试全绿，所以这里把声明与列级契约**绑在一起**判。
-    for panel_id, kwargs in (("collect.batches", {}), ("collect.gaps", {}),
-                             ("collect.rebuild", {}), ("data.gaps", {}),
-                             ("home.universe", {}), ("data.universe", {})):
-        options = registry.panel_spec(panel_id).options.get("table") or {}
-        if not options.get("sort"):
+    # **扫所有注册过的面板**，不手写清单：门② 第八轮指出手写清单漏了 `data.store`
+    # （它声明了 `sort: True` 却 0 个 `data-sort-key`，正是第三轮那条缺陷的形状）。
+    company_dir(tmp_path)          # 公司级面板需要一份产物才能渲染
+    checked, context_dependent = [], []
+    for panel_id in registry.panel_ids():
+        spec = registry.panel_spec(panel_id)
+        if spec.kind != "table":
             continue
-        html = panel_payload(registry, panel_id, **kwargs)["html"]
+        options = spec.options.get("table") or {}
+        columns = panel_columns(registry, panel_id)
+        declares_sort = bool(options.get("sort"))
+        columns_sort = any(col.get("sort") for col in columns)
+        # 两个方向都要判：**声明了就必须落地**（第三轮），**落地了就必须声明**（第八轮：
+        # `collect.archive` 的列有 `sort` 而面板没声明，渲染层不下发控件，键是死代码）。
+        assert declares_sort == columns_sort, (
+            f"{panel_id} 的面板级 `sort` 声明（{declares_sort}）与列级 `sort`"
+            f"（{columns_sort}）脱节——两边必须配对"
+        )
+        if not declares_sort:
+            continue
+        try:
+            html = panel_payload(registry, panel_id, company="600887.SH")["html"]
+        except (BadRequest, NotFound):
+            # 需要别的上下文（例如某个 run / 批次）的面板：这一层跳过，
+            # 但**记下来**，让「到底跳过了哪些」可见（不然又会变成手写清单那种盲区）。
+            context_dependent.append(panel_id)
+            continue
+        checked.append(panel_id)
         if "panel-table-empty" in html or "<table" not in html:
             continue
         heads = re.findall(r"<th[ >][^>]*>", html)   # 注意别把 `<thead>` 算进来
         sortable = [head for head in heads if "data-sort-key=" in head]
         # 判据是「**声明了 sort 的列**都有可排序表头」——不是「所有表头都可排序」：
         # 长文本列（如缺口的原因原文）刻意不声明 sort，它不该长排序键。
-        spec = registry.panel_spec(panel_id)
         from webui.core.context import RequestContext as Ctx
         from webui.core.routes import resolve_params
 
-        context = Ctx(method="GET", path=f"/api/v1/panels/{panel_id}", query=dict(kwargs),
-                      config=registry.config, registry=registry)
-        columns = spec.provider(context, **resolve_params(spec, context))["columns"]
         declared = [col for col in columns if col.get("sort")]
         assert len(sortable) == len(declared), (
             f"{panel_id} 有 {len(declared)} 列声明了 sort，但只有 {len(sortable)} 个表头"
@@ -596,6 +625,18 @@ def test_table_panels_declare_and_emit_the_search_sort_page_contract(tmp_path):
             assert f'data-sort-key="{column["key"]}"' in html, (
                 f"{panel_id} 的 {column['key']} 列声明了 sort，却没有 data-sort-key"
             )
+    # 覆盖范围要**可见且足够宽**：门② 第三轮漏了 collect.*、第八轮漏了 data.store，
+    # 都是「手写清单」的后果。这里正面钉住必须被扫到的那些面板。
+    # `data.store` 是两列键值表：它**不该**声明排序（第八轮 F2 就是它声明了却没落地）。
+    store_options = registry.panel_spec("data.store").options.get("table") or {}
+    assert not store_options.get("sort"), "键值表不该声明排序"
+    for required in ("data.gaps", "data.universe", "collect.batches",
+                     "collect.gaps", "collect.rebuild", "collect.archive",
+                     "companies.list", "home.universe"):
+        assert required in checked, (
+            f"{required} 没有被这条契约扫到（checked={checked} "
+            f"context_dependent={context_dependent}）"
+        )
 
 
 def test_table_behaviour_lives_in_the_shared_renderer():

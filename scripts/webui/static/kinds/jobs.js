@@ -259,18 +259,37 @@ export async function render(container, panel, data) {
       empty.textContent = "还没有任务。去「可以做的事」里发起一个动作。";
       list.append(empty);
     }
-    if (!jobs.some((job) => ["running", "queued"].includes(job.status)) && timer) {
-      clearInterval(timer);
-      timer = null;
-    }
+    // **空闲时放慢，而不是停掉**：原先 `clearInterval` 之后，任务页在空闲时被打开过
+    // 就再也不刷新了——之后新起的任务不会出现（门② 第八轮登记的 F3，设计文档那句
+    // 「只在有 running 任务时轮询」的实际含义比字面弱）。改成自适应间隔：
+    // 有在跑/排队的任务时 2s，空闲时 10s（**永远不会停**，所以之后新起的任务最迟 10s 内出现）。
   }
 
   await refresh();
-  timer = setInterval(() => {
+  // 当前间隔用**闭包变量**记：`setInterval` 在浏览器里返回 number，而 ES 模块恒为严格模式，
+  // 给 number 挂属性会抛 `TypeError: Cannot create property '__period' on number`
+  // （门② 第八轮用真实 Edge 实测过）——那一抛会打断整个任务面板的渲染。
+  let period = 2000;
+  const tick = () => {
     if (!container.isConnected) {
       clearInterval(timer);
+      timer = null;
       return;
     }
-    refresh().catch(() => clearInterval(timer));
-  }, 2000);
+    refresh()
+      .then(() => {
+        // 从卡片自己的 `data-job-status` 判断忙不忙（`jobCard` 每个卡片都写了它）。
+        // 不用 `closest('.job-section')`：那是**标题**节点、不是卡片的祖先，判断会永远为假。
+        const busy = [...list.querySelectorAll("[data-job-status]")]
+          .some((card) => ["running", "queued"].includes(card.dataset.jobStatus));
+        const wanted = busy ? 2000 : 10000;
+        if (timer && period !== wanted) {
+          clearInterval(timer);
+          period = wanted;
+          timer = setInterval(tick, wanted);
+        }
+      })
+      .catch(() => { /* 一次失败不致命：下一拍再试 */ });
+  };
+  timer = setInterval(tick, period);
 }

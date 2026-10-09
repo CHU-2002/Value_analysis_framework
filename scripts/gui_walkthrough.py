@@ -601,6 +601,7 @@ class Walkthrough:
                 status: panel ? 1 : 0,
                 feedback: text,
                 missingText: missingNode ? missingNode.textContent : '',
+                // 反馈节点必须是**可见且非空**的（原先这个字段算出来了却没人用——死值）
                 visible: !!(node && !node.hidden && text.trim()),
                 missingShown: !!(missingNode && missingNode.textContent.includes('还没就绪')),
               };
@@ -617,8 +618,16 @@ class Walkthrough:
         self.check("还没就绪" in after["feedback"],
                    "面板内的失败反馈也说了「还没就绪」",
                    f"反馈措辞不一致或缺失：{after['feedback']!r}")
-        self.check(bool(after["feedback"].strip()), "失败反馈就显示在交接面板上",
-                   f"反馈节点是空的：{after['feedback']!r}")
+        self.check(after["visible"], "失败反馈在界面上可见（不是隐藏节点）",
+                   f"反馈节点不可见：visible={after['visible']} text={after['feedback']!r}")
+        self.cdp.evaluate(
+            """(() => {
+              const panel = document.querySelector('[data-handoff-for="%s"]');
+              if (panel) panel.scrollIntoView({block: 'center'});
+              return true;
+            })()""" % job["id"]
+        )
+        time.sleep(0.5)
         self.shot("14-handoff.png")
 
         # ③ 收尾：放弃这个交接任务，避免留下僵尸等待任务
@@ -745,13 +754,41 @@ class Walkthrough:
                 .map((row) => (row.children[column] || {}).textContent || '').map((t) => t.trim()).slice(0, 5);
             })()"""
         )
-        self.note(f"  排序后该列前三行：{after[:3]}")
-        # 判据：要么行序变了，要么本来就是有序的（两种都算「排序真的作用在数据上」）。
+        self.note(f"  第一次点击后该列（全部行）：{after}")
         numbers = [float(text) for text in after if text.replace(".", "", 1).isdigit()]
         self.check(
             numbers == sorted(numbers),
-            f"数值列按序排列：{after[:5]}",
-            f"点了排序但数值列不是有序的：{after[:5]}",
+            f"数值列升序排列（{len(numbers)} 行全看）",
+            f"点了排序但数值列不是升序：{after}",
+        )
+        # **再点一次**：asc→desc 必须是真翻转。只点一次的话，「本来就有序」也能骗过判据
+        # （门② 第八轮 F6 指出的证据强度问题）。
+        self.cdp.evaluate(
+            """(() => {
+              const panel = document.querySelector('#panels .panel[data-panel-id="collect.batches"]');
+              const ths = [...panel.querySelectorAll('thead th[data-sort-key]')];
+              const target = ths.find((th) => th.dataset.sortType === 'number') || ths[ths.length - 1];
+              target.click();
+              return true;
+            })()"""
+        )
+        time.sleep(0.4)
+        flipped = self.cdp.evaluate(
+            """(() => {
+              const panel = document.querySelector('#panels .panel[data-panel-id="collect.batches"]');
+              const ths = [...panel.querySelectorAll('thead th[data-sort-key]')];
+              const target = ths.find((th) => th.dataset.sortType === 'number') || ths[ths.length - 1];
+              const column = [...target.parentNode.children].indexOf(target);
+              return [...panel.querySelectorAll('tbody tr')]
+                .map((row) => (row.children[column] || {}).textContent || '').map((t) => t.trim());
+            })()"""
+        )
+        flipped_numbers = [float(text) for text in flipped if text.replace(".", "", 1).isdigit()]
+        self.note(f"  第二次点击后该列：{flipped}")
+        self.check(
+            flipped_numbers == sorted(flipped_numbers, reverse=True),
+            f"再点一次变成降序（{len(flipped_numbers)} 行全看）",
+            f"第二次点击没有翻转：{flipped}",
         )
         self.shot("04b-table-sort.png")
 
