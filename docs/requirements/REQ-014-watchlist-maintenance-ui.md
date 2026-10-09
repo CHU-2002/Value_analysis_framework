@@ -9,7 +9,7 @@ updated: 2026-10-09
 issue: "#102"
 design: N/A
 milestone: N/A（本期单条需求交付）
-pr: "#112"
+pr: "#112, #113"
 depends-on: REQ-012, REQ-011
 supersedes: TBD
 ---
@@ -122,7 +122,7 @@ supersedes: TBD
 ## 变更记录
 
 - 2026-10-09：实现 PR #112 已合 main；未参与实现的独立 agent 在正式 main 上全量测试与实跑通过，
-  六项 AC 逐条通过，独立报告归档；状态 `implemented` → `verified`，收口 PR 合入后关闭 #102。
+  六项 AC 逐条通过，独立报告归档；状态 `implemented` → `verified`，收口 PR #113 合入后关闭 #102。
 
 - 2026-10-09：owner 指令「端到端完成 REQ-14，自己闭环交付，直到关闭 issue」受理本需求：
   `proposed` → `accepted` → `in-progress`；保留六条 AC 原文，整体验收。实现 PR 合入后为 `implemented`，独立验收后再收口。
