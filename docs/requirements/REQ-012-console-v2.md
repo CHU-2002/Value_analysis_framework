@@ -549,3 +549,23 @@ make gui                                     # 终端 1：控制台（默认 127
   本期按「说明现状 + 指向数据层」处理，不擅自扩范围。
 - `POST /api/v1/jobs/{id}/continue` 的响应是**校验前**的快照（客户端要再 `GET` 一次才拿到校验结果）；
   界面侧 `follow()` 本来就会再读，判据不受影响，登记备查。
+
+### 门② 第四轮重验（2026-10-09，结论仍为不通过）
+
+报告 [`docs/verification/2026-10-09-REQ-012-reverify3.md`](../verification/2026-10-09-REQ-012-reverify3.md)。
+**前三轮点名的四条全部确认关闭**（`AC-9`/`AC-1.4`、`AC-4`/`AC-4.2`、`AC-3` 的两处违规、`AC-8`/`AC-3.4`；
+评审者用隔离产物根、CLI 复算、3 次注入、6 张表各点两次表头等方式独立复核）。本轮新发现三条：
+
+| 未通过 | 评审者的现场证据 | 处置 |
+|--------|------------------|------|
+| `AC-5` | 「任务产出链接到对应产物」是**死代码**：`selectionCompany()` 只读 `handoff.paths.ticker`，而终态任务的 `handoff` 是空的（公司上下文在 `outputs.context`）→ 两个条件互斥，实测 111 条任务里 22 条有产出、真实 DOM **0 个链接** | `kinds/jobs.js` 改读 `outputs.context.ticker`（并抽 `artifactHref()`）；走查新增第 ⑫ 步：**有产出块就必须有可点链接且指向报告页**（实测 22/22）。浏览器实测从 0 → 22 个链接 |
+| `AC-10` / `AC-3.5` | 上下文**给了但解析不出来**时（选择器记住的上次选择 + 产物被删/改名/换根）顶栏红横幅只有 `NOT_FOUND`，无「发生了什么 + 下一步」 | `NavItem` 加可选 `context_resolver`（**插件**声明「这个值能不能解析」，核心只调用）→ 解析不出来时回正常空状态「这家公司找不到了 + 重新选一家」；`charts`/`report`/`runs` 三页都挂上；走查横幅禁则表补 `NOT_FOUND`/`PATH_OUTSIDE_ROOT`/`FORBIDDEN`，并新增第 ⑪ 步专门走这条路径。回归判据：`test_unresolvable_company_is_a_readable_empty_state_not_an_error_banner` |
+| `AC-1.2` | 插件注册的子导航在侧栏**渲染两次**（一条缩进、一条平铺）：`registry.nav()` 递归登记子项进 `_nav`（为了「导航项即页面」），而 `/api/v1/nav` 返回扁平全量（docstring 却称「items 是树」） | `nav_items()` 改为**只回根项**（新增 `_child_ids`），另开 `all_pages()` 给「所有页面」的消费者（`/api/v1/pages/{id}`、措辞扫描）；回归判据：`test_sub_navigation_is_not_rendered_twice`（子页仍是页面、但不出现在顶层、内置导航无重复） |
+
+评审者还指出一个**扫描盲区**：把第三轮的违规原样放回**表格行值**（`rows[].rebuild`）时键名扫描不判红。
+已修：措辞扫描增加一条**渲染后 HTML** 的判据（覆盖行值），并给扫描用的夹具补上「一家公司 + 一份数据包」
+（空表渲染不出行，行值违规本来就扫不到——评审者的注入之所以绿，一半原因是空仓）。
+修完重做该注入：**判红并点名** `('collect', 'collect.rebuild', '--[a-z]…', '--ticker')`，还原后全绿。
+
+顺带修掉的非阻断项：`home.universe` 与 `data.universe` 的空清单引导口径统一（不再互相矛盾）、
+走查截图去重到 22 张互不相同、`data.store` 等处的相对路径字样。

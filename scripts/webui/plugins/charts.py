@@ -35,7 +35,7 @@ from ..core.errors import ArtifactMissing
 from ..core.models import DatasetSpec, NavItem, PanelSpec, Param
 from ..datastore import parsers
 from ..datastore.parsers import markdown_tables
-from .companies import company_base
+from .companies import company_base, context_resolvable
 
 _METRIC_ORDER = ("ROE (%)", "毛利率 (%)", "净利率 (%)", "资产负债率 (%)")
 MONTH_SECTION = "年度行情汇总"
@@ -329,6 +329,7 @@ def contribute(registry):
         id="charts", title="图表", group="公司", order=20,
         panels=("charts.annual_price", "charts.metrics", "charts.revenue_profit"),
         requires=("selection.company",),
+        context_resolver=context_resolvable,
         description="看这家公司的趋势图；口径可切换，缺数据的地方断开而不是画成 0。",
     ))
     registry.route("GET", "/api/v1/companies/{ticker}/charts", _charts_route, name="company charts")

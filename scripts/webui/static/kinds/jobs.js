@@ -63,10 +63,12 @@ function outputsBox(job) {
       li.append(note);
     }
     list.append(li);
-    // 产物可直接点开看（数据包/报告都在 output/ 下，走既有的报告页）。
-    if (item.exists && selectionCompany(job)) {
+    // 产物可直接点开看（数据包/报告都在产物目录下，走既有的报告页）。
+    const href = artifactHref(job);
+    if (item.exists && href) {
       const open = document.createElement("a");
-      open.href = `#report?company=${encodeURIComponent(selectionCompany(job))}`;
+      open.href = href;
+      open.dataset.jobOutputLink = "1";
       open.textContent = " 打开报告";
       li.append(open);
     }
@@ -74,8 +76,23 @@ function outputsBox(job) {
   return list;
 }
 
+// 产出链接要用「这家公司」拼报告页的 URL。**读取顺序是关键**：
+// `handoff.paths` 只在交接中的任务上有值（终态任务的 handoff 是空的），
+// 而 `outputs.context` 是**提交时**就留存下来的（重试也用同一份）。
+// 原先只读 `handoff.paths.ticker`，于是「有产出」与「有 ticker」两个条件互斥，
+// 产出链接是**死代码**（门② 第四轮实测：22 个产出块、0 个 <a>）。
 function selectionCompany(job) {
-  return ((job.handoff || {}).paths || {}).ticker || "";
+  const paths = (job.handoff || {}).paths || {};
+  const context = (job.outputs || {}).context || {};
+  return paths.ticker || context.ticker || paths.company_dir || context.company_dir || "";
+}
+
+// 报告页只认 ticker（`AC-1` 的 URL 契约）；`company_dir` 是目录名，作为兜底不算理想，
+// 但比不显示链接好——服务端解析出来的 ticker 正常情况下总是有的。
+function artifactHref(job) {
+  const ticker = (job.outputs || {}).context?.ticker
+    || ((job.handoff || {}).paths || {}).ticker;
+  return ticker ? `#report?company=${encodeURIComponent(ticker)}` : "";
 }
 
 function logDetails(job, options = {}) {

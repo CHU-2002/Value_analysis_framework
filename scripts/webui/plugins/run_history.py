@@ -17,7 +17,7 @@ from ..core import envelope
 from ..core.errors import ArtifactMissing
 from ..core.models import DatasetSpec, NavItem, PanelSpec, Param
 from ..datastore import parsers
-from .companies import company_base
+from .companies import company_base, context_resolvable
 
 
 def _read_jsonl(path: Path) -> tuple:
@@ -190,6 +190,7 @@ def contribute(registry):
     registry.nav(NavItem(id="runs", title="迭代记录", group="公司", order=40,
                          panels=("runs.status", "runs.timeline"),
                          requires=("selection.company",),
+                         context_resolver=context_resolvable,
                          description="这家公司每次 run 的时间、期次、取代关系与结论变化。"))
     registry.route("GET", "/api/v1/companies/{ticker}/runs", _runs_route, name="company runs")
 

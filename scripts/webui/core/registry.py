@@ -38,6 +38,8 @@ class Registry:
         self._job_specs: dict = {}
         self._routes: list = []
         self._origins: dict = {}
+        #: 子导航项的 id（`nav_items()` 只回根项，避免层级被渲染两遍）。
+        self._child_ids: set = set()
         self.origin = "core"
         # 装配时由 `build_application` 填上（供进程内直接调用 handler 的场景使用；
         # handler 本人拿的是 `ctx.config`）。
@@ -77,11 +79,16 @@ class Registry:
         `REQ-012.1` 加了子层级：`children` 里的每一项**也都是页面**，所以这里递归登记到
         `_nav`（否则子项只出现在侧栏里、`/api/v1/pages/{id}` 却打不开——「导航项即页面」
         这条既有语义会被层级破坏）。父项自身仍然按 id 冲突检测；子项的冲突在递归里报。
+
+        `_child_ids` 记住「谁是谁的子项」：`nav_items()` 据此**只回根项**。
+        不记的话子项会既出现在父项的 `children` 里、又作为顶层项出现一次，侧栏就渲染两条
+        （门② 第四轮用仓库外插件注册了一个子页，真实侧栏确实出现两条同名链接）。
         """
         self._claim("nav", item.id)
         self._nav[item.id] = item
         for child in item.children:
             self.nav(child)
+            self._child_ids.add(child.id)
         return item
 
     def panel(self, spec: models.PanelSpec) -> models.PanelSpec:
@@ -132,6 +139,12 @@ class Registry:
     # ---------------------------------------------------------------- 查询
 
     def nav_items(self) -> list:
+        """**根**导航项（子项通过各自的父项 `children` 暴露，不在这里重复出现）。"""
+        roots = [item for item_id, item in self._nav.items() if item_id not in self._child_ids]
+        return sorted(roots, key=lambda item: (item.order, item.id))
+
+    def all_pages(self) -> list:
+        """**所有**页面（含子项）——`/api/v1/pages/{id}` 与措辞扫描要的是这一份。"""
         return sorted(self._nav.values(), key=lambda item: (item.order, item.id))
 
     def panel_spec(self, panel_id: str) -> models.PanelSpec:

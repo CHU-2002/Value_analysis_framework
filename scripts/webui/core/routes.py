@@ -149,10 +149,31 @@ def _context_empty_state(item, ctx):
     所以这里在**服务端**就把「缺上下文」判定掉：不渲染面板、不产生 warnings，改回一份
     空状态描述（`message` / `hint` / `supports`），前端按 `supports` 决定给哪些入口按钮。
     核心只比对 `requires` 里的字符串与查询串，不解释任何业务。
+
+    **两种「不满足」**（门② 第四轮补的第二种）：
+
+    - 上下文**没给**（URL 与选择器都空）；
+    - 上下文**给了但解析不出来**（记住了上次选择、而产物被删/改名/换了根目录）——
+      交给插件声明的 `context_resolver` 判断，核心不解释业务。
     """
     for key in item.requires:
         name = key.split(".", 1)[-1]
-        if not ctx.query.get(name):
+        value = (ctx.query.get(name) or "").strip()
+        if value and item.context_resolver is not None:
+            try:
+                resolvable = bool(item.context_resolver(ctx, value))
+            except Exception:  # noqa: BLE001（解析器自己炸了不该打崩页面：当作解析不出来）
+                resolvable = False
+            if not resolvable:
+                return {
+                    "reason": f"{key}.unresolved",
+                    "message": "这家公司找不到了",
+                    "hint": "页面记住的上次选择在这份数据里已经不存在了（可能是产物被移走、"
+                            "改名，或者换了数据目录）。用右上角的「当前公司」重新选一家。",
+                    "supports": ["company_picker", "home_link"],
+                }
+            continue
+        if not value:
             if key == "selection.company":
                 return {
                     "reason": key,

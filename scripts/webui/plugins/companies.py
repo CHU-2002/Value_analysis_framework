@@ -309,6 +309,15 @@ def resolve_company(ctx, company_id: str) -> dict:
     }
 
 
+def context_resolvable(ctx, value) -> bool:
+    """`requires` 的解析器：这个公司标识在这份数据里真的能找到吗？
+
+    挂在声明 `requires=("selection.company",)` 的页面上（`NavItem.context_resolver`）。
+    核心只调用它、不解释它——所以「什么算能解析」仍然由插件决定（`AC-11`）。
+    """
+    return resolve_identifier(ctx, value) is not None
+
+
 def companies_dataset(ctx) -> tuple:
     return ctx.registry.datastore.get(
         "companies.index",
@@ -510,6 +519,7 @@ def contribute(registry):
     registry.nav(NavItem(id="report", title="报告", group="公司", order=30,
                          panels=("report.view", "companies.artifacts"),
                          requires=("selection.company",),
+                         context_resolver=context_resolvable,
                          description="阅读这家公司的分析报告与产物；未选公司时给你选公司的入口。"))
     registry.nav(NavItem(id="companies", title="公司列表（全部）", group="数据", order=15,
                          panels=("companies.list",),
@@ -523,6 +533,6 @@ def contribute(registry):
 
 __all__ = [
     "contribute", "parse_companies", "parse_artifacts", "company_base", "resolve_company",
-    "resolve_identifier", "display_name", "artifacts_dataset", "companies_dataset",
-    "COMPANY_MARKERS",
+    "resolve_identifier", "context_resolvable", "display_name", "artifacts_dataset",
+    "companies_dataset", "COMPANY_MARKERS",
 ]
