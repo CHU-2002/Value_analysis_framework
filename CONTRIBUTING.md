@@ -140,6 +140,12 @@ CI 只有两个 job：一个干全部活，一个汇总（分支保护只认汇�
 - 所有 review 对话已解决；
 - 分支与 `main` 同步（`strict` 模式）。
 
+**agent 合入（owner 常设授权，2026-09-30）**：本仓库没有第二个 review 批准人，owner 因此常设授权
+agent 以 **admin 权限直接合入**。admin **只**替代上面**前三条里的 review 门**——「至少 1 个 review
+批准」「CODEOWNERS 指定的审阅人已批准」（两者是 GitHub 同一套 review 要求；本仓库的 CODEOWNERS
+就是 owner 本人）与「所有 review 对话已解决」；**`ci-success` 仍必须通过**，**不得**用 admin
+跳过任何必需检查。见 [`AGENTS.md`](AGENTS.md) 的「## 常设授权」（登记于 `REQ-006` 任务 T10）。
+
 ## 需求、测试与开发
 
 三者用需求编号连成闭环，各有独立权威文档：
@@ -160,6 +166,9 @@ CI 只有两个 job：一个干全部活，一个汇总（分支保护只认汇�
 ## 管理员与分支保护
 
 管理员可在保护规则中直接合并 PR，并绕过必需检查与 review。
+
+**本仓库只使用其中的「绕过 review」这一半**：owner 常设授权 agent 用 admin 合入时，
+`ci-success` 仍必须绿，不得跳过必需检查（见 [`AGENTS.md`](AGENTS.md) 的「## 常设授权」）。
 
 - **管理员名单**：编辑 [`.github/admins.yml`](.github/admins.yml)，在 `admins` 下追加 `- username` 即可，无需改代码。
 - **应用规则**：进入 GitHub 的 Actions → **Setup Branch Protection** → Run workflow，按需设置 review 数、是否限制管理员、是否 dry-run，然后运行。
