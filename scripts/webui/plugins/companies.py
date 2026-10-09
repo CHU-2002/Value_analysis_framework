@@ -238,7 +238,9 @@ def company_base(ctx, company_id: str) -> Path:
     safe_join(ctx.config.output_root, company_id)
     raise NotFound(
         f"没有这家公司：{company_id}",
-        hint="公司清单见 /api/v1/companies；也可以从工作台的公司列表点进去。",
+        # 这条 hint 会经 `actions.py` 的 `f"{message}：{hint}"` 拼进**面向用户的阻断理由**，
+        # 所以不许出现接口路径（`AC-3` 的禁则）。说「去哪里」而不是「打哪个接口」。
+        hint="打开「公司列表（全部）」看看有哪些公司，或在右上角的「当前公司」里重新选一家。",
     )
 
 
