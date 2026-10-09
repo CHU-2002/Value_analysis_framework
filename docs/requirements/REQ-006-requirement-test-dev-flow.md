@@ -56,6 +56,7 @@ supersedes: TBD
 | T7 | 测试 scope 预算上调（40→48 文件、1600→1800 用例），为图形化控制台（REQ-009）及其后续 GUI 需求留出余量；同步 `scripts/test_scope.py`、`docs/TESTING.md` §5、`docs/DEVELOPMENT.md` §14 与本需求 AC-7 的例外通道 | 完成 | **PR #48**（收口 PR 回填）。本项是**门禁阈值调整**，按 AC-3 的评审粒度在 REQ-006.1 收口时由独立评审者复核：见 [`docs/verification/2026-09-25-REQ-006.1.md`](../verification/2026-09-25-REQ-006.1.md) 的 **T7 复核**小节（48/1800 预算、owner 批准留痕、AC-7 例外通道均成立），不为它单独拉一轮评审 |
 | T8 | **REQ-006.1 AC-1.5 的收口前置**：`synthesis` 默认预算按真实载荷设定（40,000 → 120,000）与丢弃记账修正（列表条目逐条计数、标签可读）；补真实规模回归测试 | 完成 | **PR #46**（已合入 `b23270b`）。依据两轮实跑实测（完整载荷 96,496 / 97,359 字符；旧默认下丢 148 项，含每个模块的 `quality.missing_inputs`；同预算下丢弃计数 148 → 220）。代码 `scripts/results/synthesis.py`（`DEFAULT_MAX_CHARS`、`_list_item_label`），测试 `tests/test_results_pipeline.py` 的 `test_default_budget_*` 与 `test_dropped_accounting_counts_every_list_item` |
 | T9 | 测试 scope 预算再次上调（48→52 文件、1800→2000 用例），为数据层重构（`REQ-011`）与控制台 2.0（`REQ-012`）共 7 个新测试文件留出余量；同步 `scripts/test_scope.py`、`docs/TESTING.md` §5、`docs/DEVELOPMENT.md` §14、`docs/TEST_SCOPE.md` 与本需求 AC-7 的变更记录 | 完成（阈值与文档已在本次 docs 改动中同步） | 依据：两条需求**共用** 10 文件 / 147 条用例余量（38/48、1653/1800），按 `REQ-009` 的实测消耗（4 文件 / 64 条）估算需要 140~180 条。使用者在 2026-09-28 会话中被明确告知「先清理再谈上调」的纪律与「本次改为直接上调」的区别后，选择**直接上调到 52 文件 / 2000 用例**。变更记录见本文件 AC-7 下的 2026-09-28 条目。**本项是门禁阈值调整**，按 AC-3 的评审粒度，在下一个子需求/大特性收口时由独立评审者复核，不为它单独拉一轮评审 |
+| T10 | **常设授权落地**（owner 于 2026-09-30 会话内直接授权，原话逐字：「以后本仓库1. 你可以用admin权限直接合入 2.默认授权你可以使用真实token进行验证，修改相应的文件」）：① agent 可用 **admin 权限直接合入** PR——前提是 `ci-success` 绿，admin **只**替代 review 门（至少 1 个 review 批准 / CODEOWNERS 审阅人 / 对话已解决），不得用它跳过任何必需检查（验收报告 / 回归记录 / PR 描述 / 追溯 / scope / 覆盖率仍在 CI 里判）；② **默认授权 agent 用真实 token / 真实数据源 / 真实环境做实跑**（「实跑」类判据），不必每次问人，边界是 token 卫生不变（不进产物/日志/提交）、实跑默认写沙箱目录（`output/.live_*` 或临时目录）、**动使用者真实存档（`~/turtle_archive`）或删数据仍要先问** | 完成（文档已同步 + 独立复核通过） | 授权范围、边界与否决项写在 [`AGENTS.md`](../../AGENTS.md) 的「## 常设授权」；同步 [`docs/DEVELOPMENT.md`](../DEVELOPMENT.md) §4.1 / §12 / §13 / §16、[`CONTRIBUTING.md`](../../CONTRIBUTING.md) 的「合并条件」「管理员与分支保护」、[`docs/requirements/README.md`](README.md) §7.1。**这不是 AC 变更**（所有验收标准一字未动）、**也不是门禁阈值或判定调整**（scope / 覆盖率 / 门禁脚本均未改）；`docs/requirements/` 里引用旧规则「实跑类判据由使用者执行」的两处已加「已被常设授权取代」的注明。**独立复核通过**（未参与实现的独立 agent；改动属治理类、风险高，按 `DEVELOPMENT.md` §12「高风险改动加一轮独立对抗式评审」做，报告见 [`2026-09-30-REQ-006-T10-常设授权复核.md`](../verification/2026-09-30-REQ-006-T10-常设授权复核.md)：B1–B6 阻断项全部通过——138 个 tracked `.md` 的 AC 小节与定义行逐字零改动、`scripts/`/`.github/`/`tests/`/阈值零改动、授权未超出 owner 原话、五条边界齐全、`docs/verification/` 与 `docs/run-records/` 零改写；2 条非阻塞建议已采纳）。PR #NN（合入后回填） |
 
 ## 子需求
 
@@ -586,7 +587,9 @@ supersedes: TBD
 | 评审粒度 | 独立验收改为**按子需求/大特性收口**触发（AC-3 变更，使用者要求）：`acceptance_gate` 只看「本 PR 是否把编号推进到 `verified`」，不看 PR 大小与目标分支；收口 PR 必须署名该编号并链接报告；`pr_body_guard` 不再要求报告栏；CI 的验收步骤对所有 PR 生效 |
 
 **REQ-006.1 交付内容**（一次真实实跑暴露 6 个问题 + 1 个观察，全部落在同一个子需求里；
-状态仍为 `in-progress`——**AC-1.9「无补丁复跑」要在真实 token + 只读 HOME 下由使用者执行**）：
+状态仍为 `in-progress`——**AC-1.9「无补丁复跑」要在真实 token + 只读 HOME 下由使用者执行**
+（**该「由使用者执行」的规则已由 2026-09-30 的常设授权取代**：实跑默认可由 agent 执行，见
+[`AGENTS.md`](../../AGENTS.md) 的「## 常设授权」；本段其余内容是当时的原始记录，不改写）：
 
 | AC | 实跑暴露的问题 | 交付 |
 |----|----------------|------|
