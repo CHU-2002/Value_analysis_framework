@@ -45,6 +45,7 @@ from pathlib import Path
 
 from ..config import REPO_ROOT
 from .errors import (
+    DuplicateJob,
     InvalidParam,
     JobNotFound,
     NotFound,
@@ -77,6 +78,9 @@ _ENUM_SLOT_RE = re.compile("\x00(\\d+)\x00")
 
 #: 已知的错误 → 「发生了什么 + 怎么办」。命中不了就给通用兜底（不硬猜原因）。
 _FAILURE_RULES: tuple = (
+    (re.compile(r"model.*not supported|unsupported.*model|模型.*不支持", re.I),
+     "CLI 配置的模型不支持当前登录方式",
+     "在 CLI 配置中选择当前账号可用的模型，再手动重新提交；不会自动重试。"),
     # **必须排在最前**：服务重启会把手里的任务标成「已中断」，它确实启动过，
     # 落到兜底的「命令没能启动」是误导（门② 第八轮 F5）。这条规则让**重建**出来的
     # 摘要与当初失败时生成的一致。
@@ -111,7 +115,7 @@ _FAILURE_RULES: tuple = (
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
 def coerce_value(param, raw):
@@ -379,12 +383,20 @@ class JobRunner:
                 f"没有这个按键：{command_id!r}",
                 hint="按键清单见 /api/v1/commands。",
             ) from exc
-        argv = build_argv(spec, dict(params or {}))
+        values = dict(params or {})
+        build_argv(spec, values)  # reject undeclared fields before plugin validation
+        if spec.validate is not None:
+            values = spec.validate(values)
+        argv = build_argv(spec, values)
         return self._enqueue(
             command=spec.id,
             title=spec.title or spec.id,
             argv=argv,
-            params=dict(params or {}),
+            params=values,
+            description=spec.description,
+            danger=spec.danger,
+            exclusive=spec.exclusive,
+            outputs=spec.outputs,
         )
 
     def submit_action(self, action_id: str, params: dict | None = None, *, context=None) -> dict:
@@ -800,8 +812,12 @@ class JobRunner:
     # ---------------------------------------------------------------- 入队与调度
 
     def _enqueue(self, *, command, title, argv, params, action="", description="",
-                 steps=(), outputs=None, danger=False) -> dict:
+                 steps=(), outputs=None, danger=False, exclusive=False) -> dict:
         with self._wake:
+            if exclusive and any(item.command == command and item.params == params
+                                 and item.status not in TERMINAL
+                                 for item in self._jobs.values()):
+                raise DuplicateJob("这个动作正在为同一家公司执行。", hint="等任务结束或先取消它。")
             running = sum(1 for item in self._jobs.values() if item.status in ACTIVE)
             if running >= int(self.config.max_concurrent_jobs):
                 # 刻意不用 `or 20`：队列上限为 0 是**合法配置**（等于「不排队、超限即拒」），
@@ -879,6 +895,8 @@ class JobRunner:
             return
         with self._guard:
             self._processes[job.id] = process
+            if job.cancelled:
+                process.terminate()
         try:
             for line in process.stdout:  # type: ignore[union-attr]
                 job.log.append(redact(line.rstrip("\n"), self.secrets))
@@ -1038,6 +1056,8 @@ class JobRunner:
             return None, line
         with self._guard:
             self._processes[job.id] = process
+            if job.cancelled:
+                process.terminate()
         chunks: list = []
         try:
             for line in process.stdout:  # type: ignore[union-attr]

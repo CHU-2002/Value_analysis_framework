@@ -1,0 +1,11 @@
+{
+  "failures": [
+    "提交前缺完整的 agent 命令行",
+    "选定动作后缺额度告知",
+    "目录不匹配时提交仍可用"
+  ],
+  "state": {
+    "text": "更新分析报告\n\n命令行：/Users/everett.li/Project/Turtle_investment_framework/.venv/bin/python /Users/everett.li/Project/Turtle_investment_framework/scripts/agent_action.py --action update-analysis …\n\nticker *\n确认执行（会联网/覆盖）",
+    "disabled": false
+  }
+}

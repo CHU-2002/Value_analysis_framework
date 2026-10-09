@@ -149,6 +149,9 @@ class CommandSpec:
     params: tuple = ()
     danger: bool = False          # 会覆盖/删除/联网的按键，界面上要二次确认
     description: str = ""
+    validate: object = None      # callable(params) -> normalized params; runs before enqueue
+    exclusive: bool = False     # reject an active command with the same normalized params
+    outputs: dict = field(default_factory=dict)  # optional output resolver metadata
 
     def to_json(self) -> dict:
         return {

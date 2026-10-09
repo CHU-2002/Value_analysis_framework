@@ -380,3 +380,11 @@ REQ-011 同样只换「原始数据存在哪儿、从哪儿取」，不改 1.2 �
 [`docs/requirements/ledger.md`](requirements/ledger.md)、
 [`docs/requirements/REQ-009-local-gui-console.md`](requirements/REQ-009-local-gui-console.md)、
 [`docs/TEST_SCOPE.md`](TEST_SCOPE.md)。
+
+## REQ-013 生成报告
+
+生成报告页使用三个固定动作，只填写股票代码。服务端预检标的、公司目录与本机 CLI；
+完整命令行折叠展示，明确告知模型额度与耗时，确认后进入任务视图，可取消与展开原始日志。
+默认使用 Codex CLI 的 ChatGPT 登录态与模型配置（先执行 `codex login`），认证由 CLI 管理；
+可用 `AGENT_CLI` / `AGENT_BACKEND` 配置 Claude 兼容入口。没有自由文本 prompt 或 GUI 凭据入口。
+任务结束按本次时间范围筛选可阅读报告、变化报告与 run 目录，不把旧产物冒充本次输出。

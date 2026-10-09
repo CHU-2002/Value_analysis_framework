@@ -13,6 +13,7 @@ CODES = (
     "NOT_FOUND",
     "UNKNOWN_ROUTE",
     "INVALID_PARAM",
+    "DUPLICATE_JOB",
     "UNKNOWN_COMMAND",
     "SHELL_METACHAR",
     "PATH_OUTSIDE_ROOT",
@@ -72,6 +73,11 @@ class UnknownRoute(WebUIError):
 class InvalidParam(WebUIError):
     code = "INVALID_PARAM"
     status = 422
+
+
+class DuplicateJob(WebUIError):
+    code = "DUPLICATE_JOB"
+    status = 409
 
 
 class UnknownCommand(WebUIError):

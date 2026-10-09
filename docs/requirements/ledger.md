@@ -20,7 +20,7 @@
 | [REQ-010](REQ-010-latest-valuation-publication.md) | 最新价值分析报告发布与历史版本保留 | `verified` | P1 | #61 | #78, #79, #80, #81 | `tests/test_latest_valuation_publication.py` |
 | [REQ-011](REQ-011-unified-data-acquisition.md) | 一次性全量数据获取与统一原始数据仓 | `verified` | P1 | #73 | #83 | `tests/test_data_store.py` `tests/test_data_pull.py` `tests/test_offline_rebuild.py` |
 | [REQ-012](REQ-012-console-v2.md) | 控制台 2.0（公司上下文 + 任务式交互 + 视图质量） | `verified` | P1 | #74 | #92, #95, #96, #97, #98, #99, #100, #101, #104, #106, #109 | `tests/test_console_context.py` `tests/test_console_actions.py` `tests/test_console_views.py` `tests/test_console_data_page.py` |
-| [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `accepted` | P1 | #75 | #77 | `tests/test_agent_action.py` |
+| [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `in-progress` | P1 | #75 | #77 | `tests/test_agent_action.py` |
 | [REQ-014](REQ-014-watchlist-maintenance-ui.md) | 控制台里的自选股清单维护（添加 / 从既有产物导入 / 移除） | `verified` | P1 | #102 | #112, #113 | `tests/test_watchlist_ui.py` |
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
@@ -49,9 +49,9 @@
 | [REQ-012.2](REQ-012-console-v2.md) | REQ-012 | 任务式动作层 | `verified` | #92, #104, #109 | `tests/test_console_actions.py` |
 | [REQ-012.3](REQ-012-console-v2.md) | REQ-012 | 视图质量与口径修正 | `verified` | #92, #104, #109 | `tests/test_console_views.py` |
 | [REQ-012.4](REQ-012-console-v2.md) | REQ-012 | 数据页（依赖 REQ-011） | `verified` | #92, #104, #109 | `tests/test_console_data_page.py` |
-| [REQ-013.1](REQ-013-agent-cli-report.md) | REQ-013 | 包装脚本与动作白名单 | `accepted` | #77 | `tests/test_agent_action.py` |
-| [REQ-013.2](REQ-013-agent-cli-report.md) | REQ-013 | 最小界面（一键页） | `accepted` | #77 | `tests/test_agent_action.py` |
-| [REQ-013.3](REQ-013-agent-cli-report.md) | REQ-013 | 提交前预检、完整命令行与产出链接 | `accepted` | TBD | `tests/test_agent_action.py` |
+| [REQ-013.1](REQ-013-agent-cli-report.md) | REQ-013 | 包装脚本与动作白名单 | `in-progress` | #77 | `tests/test_agent_action.py` |
+| [REQ-013.2](REQ-013-agent-cli-report.md) | REQ-013 | 最小界面（一键页） | `in-progress` | #77 | `tests/test_agent_action.py` |
+| [REQ-013.3](REQ-013-agent-cli-report.md) | REQ-013 | 提交前预检、完整命令行与产出链接 | `in-progress` | TBD | `tests/test_agent_action.py` |
 
 > **编号按登记顺序，交付按「交付顺序」**：`REQ-009` 的交付顺序为
 > **`REQ-009.3`（框架，先）→ `REQ-009.4`（采集与长期存档）→ `REQ-009.1`（按键执行器）→ `REQ-009.2`（视图）**，
@@ -113,3 +113,5 @@
 | **`DataUnavailable` 的文案与实际尝试次数不符**：权限类错误立即放弃时仍写 `failed after 5 retries`，实际只尝试 1 次 | `REQ-011` 的 `AC-9` 真实 token 实跑（2026-09-29，`yc_cb` 的 `error_excerpt`） | 既有（`REQ-009.4` 搬过来的语义），只影响 `error_excerpt` 可读性；建议改成实际尝试次数 |
 | **`docs/requirements/README.md` §11 的「需求条目一览」表没有门禁覆盖**：它列的状态与 `ledger.md` 必须一致，但 `tests/test_update_docs_contract.py` 只看仓库根的 `README.md`，推进状态时容易漏更新（`REQ-011` 收口时就漏了一次，靠人工发现） | `REQ-011` 收口（2026-09-29） | **已实现（2026-09-29）**：`tests/test_requirement_traceability.py::test_readme_index_status_matches_the_ledger` 断言 §11 与台账状态一致、且 §11 的编号都在台账里 |
 | **`REQ-009` 里 `.3` 子需求的验收轮次写作「三轮」，与它自己的报告不符**：`.3` 报告有「第四轮（基线 `1ef5cda`）逐条复核」小节，`:145-146` 也提到第四轮；而需求条 `:155-156` 与 `:530` 的 `.3` 分句仍写「三轮」 | 2026-09-30 校正**父需求**轮次（三轮→五轮，见 `REQ-009:530` / `:623`）时顺带发现 | **未改**（属历史描述文本；要改需逐处核对 `.3` 报告的全部轮次）。父需求的计数已校正；这里只登记，留待下一次碰 `REQ-009` 时一并处理 |
+
+| `scripts/gui_agent_walkthrough.py` 的覆盖率豁免登记 | REQ-013 T4 真实浏览器走查 | 单次证据工具只在有本机浏览器/控制台时运行，CI 全 mock 不覆盖浏览器；以截图 + observations 和能抓住 #77 已知三项缺口的前后对照验证，保持原覆盖率门槛不变 |
