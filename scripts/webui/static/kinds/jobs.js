@@ -48,6 +48,22 @@ function failureBox(job) {
 
 function outputsBox(job) {
   const outputs = job.outputs || {};
+  if (outputs.artifacts_endpoint && ["finished", "failed", "cancelled"].includes(job.status)) {
+    const box = document.createElement("div");
+    box.className = "job-artifacts";
+    const path = outputs.artifacts_endpoint.replace("{job_id}", encodeURIComponent(job.id));
+    api(path).then(({ data }) => {
+      box.textContent = data.message || "";
+      for (const link of data.links || []) {
+        const a = document.createElement("a");
+        a.textContent = link.label;
+        a.href = link.href;
+        a.dataset.jobOutputLink = "1";
+        box.append(a, document.createElement("br"));
+      }
+    }).catch((error) => { box.textContent = `产物暂时无法读取：${error.message}`; });
+    return box;
+  }
   const writes = outputs.writes || [];
   if (!writes.length) return null;
   const list = document.createElement("ul");

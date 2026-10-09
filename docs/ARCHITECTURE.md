@@ -374,3 +374,11 @@ python3 scripts/analysis_status.py --root output --all --json
 - 数值测试覆盖组合引擎的风险贡献与情景分析。
 - 失败路径测试覆盖输入变更、产物篡改、过期摘要与非法枚举。
 - 迭代测试覆盖台账写入与重复 run 拒绝、`adopt` 非破坏接管、状态判定的各分支与退出码、`covered_periods` 的失败/大小/归属校验、变化报告上下文的预算降级。
+
+## REQ-013 程序化 agent 入口
+
+`agent_report` 插件声明固定报告按键，`agent_action.py` 把动作映射到 Codex `exec` 或 Claude `-p`。
+Codex 读取既有命令文档执行完整流程；agent 仍负责分析段，Python 仍负责确定性计算。
+CommandSpec 的可选 validate/exclusive 声明由通用任务运行器在提交/入队锁内执行；注册与路由分发不识别业务。
+前端 form 通过插件下发的预检/产物接口展示完整命令、确认额度、跟踪任务与链接产物；
+原有按键未声明这些可选字段时继续使用既有行为。取消/超时通过包装脚本终止其隔离进程组。

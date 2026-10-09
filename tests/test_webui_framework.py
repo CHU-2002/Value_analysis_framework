@@ -56,6 +56,11 @@ _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 # `models/errors/config` 不在此列——它们本来就该随框架演进（新错误码、新配置项）；
 # 真正的判据是「注册与分发的实现不需要改」。
 FINGERPRINTED_FILES = (
+    "core/models.py",
+    "core/jobs.py",
+    "core/security.py",
+    "static/kinds/form.js",
+    "static/kinds/jobs.js",
     "core/registry.py",
     "core/router.py",
     "core/routes.py",

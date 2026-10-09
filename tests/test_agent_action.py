@@ -1,5 +1,6 @@
 # 覆盖需求：REQ-013.1（包装脚本与动作白名单：AC-1.1~AC-1.4）
 # 覆盖需求：REQ-013.2（最小界面「一键页」：AC-2.1~AC-2.5）
+# 覆盖需求：REQ-013、REQ-013.3（预检、链接、审计、并发与取消：AC-1~AC-7 / AC-3.1~AC-3.4）
 """一键出报告的测试。
 
 三条刻意的手法：
@@ -18,6 +19,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -26,7 +29,7 @@ import agent_action
 from webui.config import Config
 from webui.core.context import RequestContext
 from webui.core.errors import InvalidParam
-from webui.core.jobs import build_argv
+from webui.core.jobs import build_argv, JobRunner
 from webui.core.registry import build_registry
 from webui.core.router import find_route
 from webui.core.routes import install_core_routes
@@ -44,9 +47,24 @@ out = os.environ.get("FAKE_CLI_OUT")
 if out:
     with open(out, "w", encoding="utf-8") as handle:
         json.dump(sys.argv[1:], handle, ensure_ascii=False)
+if os.environ.get("FAKE_CLI_CHILD_PID"):
+    import subprocess
+    child = subprocess.Popen([sys.executable, "-c", "import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(30)"])
+    with open(os.environ["FAKE_CLI_CHILD_PID"], "w") as handle:
+        handle.write(str(child.pid))
 sleep_for = float(os.environ.get("FAKE_CLI_SLEEP") or 0)
 if sleep_for:
     time.sleep(sleep_for)
+if os.environ.get("FAKE_CLI_SECRET"):
+    print(os.environ["FAKE_CLI_SECRET"], flush=True)
+if os.environ.get("FAKE_CLI_ARTIFACTS"):
+    from pathlib import Path
+    base = Path(os.environ["FAKE_CLI_ARTIFACTS"])
+    run = base / "runs" / "new-run"
+    run.mkdir(parents=True, exist_ok=True)
+    (run / "run.json").write_text('{"run_id":"new-run"}')
+    (run / "qualitative_report.md").write_text("# updated report")
+    (run / "change_report_2026H1.md").write_text("# changed")
 sys.stdout.write("fake-cli-stdout\\n")
 sys.stdout.flush()
 sys.stderr.write("fake-cli-stderr\\n")
@@ -256,6 +274,11 @@ def test_agent_cli_env_var_is_used_when_the_flag_is_absent(tmp_path):
 def test_directory_code_derivation_matches_the_slash_command_convention(tmp_path):
     """AC-2：`{directory_code}` = 只去掉最后的市场后缀（与 `.claude/commands/*.md` 一致）。"""
     assert agent_action.directory_code("600887.SH") == "600887"
+    codex = agent_action.build_agent_argv("/bin/codex", "update-analysis", "600887.SH", "codex")
+    assert codex[:6] == ["/bin/codex", "exec", "--sandbox", "workspace-write", "--json", codex[-1]]
+    assert "/update-analysis 600887.SH" in codex[-1]
+    assert ".claude/commands/update-analysis.md" in codex[-1]
+    assert agent_action.resolve_backend("codex") == "codex"
     assert agent_action.directory_code("00700.HK") == "00700"
     assert agent_action.directory_code("AAPL.US") == "AAPL"
     assert agent_action.directory_code("BRK.B.US") == "BRK.B"
@@ -289,8 +312,7 @@ def test_each_command_pins_its_action_and_exposes_only_the_ticker(tmp_path):
         assert [param["name"] for param in item["params"]] == ["ticker"]
         assert item["params"][0]["required"] is True
         assert "600887.SH" in item["params"][0]["help"]
-        assert item["argv"][-1] == action
-        assert item["argv"][-2] == "--action"
+        assert item["argv"][2:4] == ["--action", action]
         assert item["group"] == agent_plugin.GROUP
         assert item["danger"] is True                      # 复用既有「确认执行」语义（AC-4）
         assert "消耗模型额度" in item["description"]
@@ -307,10 +329,12 @@ def test_hidden_flags_are_scanned_from_the_script_but_not_shown(tmp_path):
 
 def test_build_argv_yields_the_full_audited_command_line(tmp_path):
     """AC-4 / AC-5：真实命令行 = 解释器 + 脚本 + 固定动作 + 用户填的标的。"""
-    _, registry = make_app(tmp_path)
+    config, registry = make_app(tmp_path)
     spec = registry.command_spec("agent_update_analysis")
     assert build_argv(spec, {"ticker": "600887.SH"}) == [
-        sys.executable, str(SCRIPT), "--action", "update-analysis", "--ticker", "600887.SH",
+        sys.executable, str(SCRIPT), "--action", "update-analysis",
+        "--output-root", str(config.output_root.resolve()), "--cli", "codex",
+        "--ticker", "600887.SH",
     ]
 
 
@@ -372,8 +396,143 @@ def test_plugin_only_adds_registrations_through_existing_extension_points(tmp_pa
     before = {(route.method, route.template) for route in registry.routes()}
     agent_plugin.contribute(registry)
     added = {(route.method, route.template) for route in registry.routes()} - before
-    assert added == {("GET", agent_plugin.ENDPOINT)}
+    assert added == {("GET", agent_plugin.ENDPOINT),
+                     ("GET", "/api/v1/agent/preflight"),
+                     ("GET", "/api/v1/agent/jobs/{job_id}/artifacts")}
     assert [spec.id for spec in registry.commands() if spec.id.startswith("agent_")] == [
         "agent_business_analysis", "agent_update_analysis", "agent_value_analysis",
     ]
     assert "agent.actions" in registry.panel_ids()
+
+
+# Three scenarios keep the REQ-013 budget at 25 cases.
+def wait_for(predicate):
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        threading.Event().wait(0.02)
+    raise AssertionError("task did not reach the expected state")
+
+
+def test_preflight_and_all_submission_paths_reject_before_launch(tmp_path, monkeypatch):
+    """AC-1/2/6, AC-3.1/3.2: read-only preflight and runner validation."""
+    fake = make_fake_cli(tmp_path)
+    monkeypatch.setenv("AGENT_CLI", str(fake))
+    config, registry = make_app(tmp_path)
+    company = make_company_dir(config.output_root)
+    calls = []
+    runner = JobRunner(config, spec_lookup=registry.command_spec,
+                       popen=lambda *a, **kw: calls.append(a))
+    registry.jobs = runner
+    path = "/api/v1/agent/preflight"
+    preview = call_route(registry, "GET", path,
+                         command="agent_update_analysis", ticker="600887")["data"]
+    assert preview["ready"] and preview["ticker"] == "600887.SH"
+    assert str(fake.resolve()) in preview["command_line"]
+    assert "/update-analysis 600887.SH" in preview["command_line"]
+    assert "消耗模型额度" in preview["notice"]
+    assert runner.list_jobs() == [] and not calls
+    for ticker in ("not a ticker", "999999.SH", "600887.SH;echo x"):
+        assert not call_route(registry, "GET", path, command="agent_update_analysis",
+                              ticker=ticker)["data"]["ready"]
+        with pytest.raises(Exception) as failure:
+            runner.submit("agent_update_analysis", {"ticker": ticker})
+        assert failure.value.status == (400 if ";" in ticker else 422)
+    with pytest.raises(Exception) as failure:
+        call_route(registry, "GET", path, command="arbitrary", ticker="600887.SH")
+    assert failure.value.status == 404
+    for extra in ("prompt", "api_key", "cli"):
+        with pytest.raises(InvalidParam):
+            runner.submit("agent_update_analysis", {"ticker": "600887", extra: "x"})
+    fake.chmod(0o644)
+    assert not call_route(registry, "GET", path, command="agent_update_analysis",
+                          ticker="600887")["data"]["ready"]
+    with pytest.raises(InvalidParam, match="安装并登录"):
+        runner.submit("agent_update_analysis", {"ticker": "600887"})
+    assert runner.list_jobs() == [] and not calls
+    assert list(company.iterdir()) == []
+
+
+def test_jobs_normalize_deduplicate_cancel_and_preserve_redacted_audit(tmp_path, monkeypatch):
+    """AC-3/5/7: atomic duplicate protection, cancellation and persisted audit."""
+    from concurrent.futures import ThreadPoolExecutor
+    from webui.core.errors import DuplicateJob
+    fake = make_fake_cli(tmp_path)
+    monkeypatch.setenv("AGENT_CLI", str(fake))
+    config, registry = make_app(tmp_path)
+    make_company_dir(config.output_root)
+    marker = tmp_path / "spawned.json"
+    secret = "fake-model-credential-for-test"
+    env = {**os.environ, "FAKE_CLI_OUT": str(marker), "FAKE_CLI_SLEEP": "30",
+           "ANTHROPIC_API_KEY": secret, "FAKE_CLI_CHILD_PID": str(tmp_path / "child.pid")}
+    runner = JobRunner(config, spec_lookup=registry.command_spec, env=env)
+    def submit(ticker):
+        try:
+            return runner.submit("agent_update_analysis", {"ticker": ticker})
+        except DuplicateJob as exc:
+            return exc
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(submit, ("600887", "600887.SH")))
+    assert sum(isinstance(item, DuplicateJob) for item in results) == 1
+    duplicate = next(item for item in results if isinstance(item, DuplicateJob))
+    assert duplicate.status == 409 and duplicate.code == "DUPLICATE_JOB"
+    job = next(item for item in results if isinstance(item, dict))
+    wait_for(lambda: marker.exists() and (tmp_path / "child.pid").exists())
+    runner.cancel(job["id"])
+    wait_for(lambda: runner.get(job["id"])["status"] == "cancelled")
+    first = runner.get(job["id"])
+    assert first["finished_at"] and first["params"] == {"ticker": "600887.SH"}
+    assert first["danger"] and "消耗模型额度" in first["description"]
+    assert first["argv"][-2:] == ["--ticker", "600887.SH"]
+    env.pop("FAKE_CLI_CHILD_PID")
+    env.update(FAKE_CLI_SLEEP="0", FAKE_CLI_SECRET=secret, FAKE_CLI_EXIT="7")
+    second_runner = JobRunner(config, spec_lookup=registry.command_spec, env=env)
+    second = second_runner.submit("agent_update_analysis", {"ticker": "600887"})
+    wait_for(lambda: second_runner.get(second["id"])["status"] == "failed")
+    wait_for(lambda: (second_runner.history_dir / (second["id"] + ".json")).exists())
+    detail = second_runner.get(second["id"])
+    history = (second_runner.history_dir / (second["id"] + ".json")).read_text()
+    assert detail["exit_code"] == 7
+    assert secret not in json.dumps(detail) + history
+    assert "***" in history
+    assert len(second_runner.list_jobs()) == 2  # explicit submissions only; no auto retry
+    assert any("手动" in line for line in detail["log"])
+
+
+def test_only_this_tasks_new_outputs_link_and_empty_result_is_explicit(tmp_path, monkeypatch):
+    """AC-5, AC-3.3/3.4: fresh artifacts, safe links, restart and empty result."""
+    from webui.plugins import companies
+    from webui.datastore import DataStore
+    fake = make_fake_cli(tmp_path)
+    monkeypatch.setenv("AGENT_CLI", str(fake))
+    config, registry = make_app(tmp_path)
+    companies.contribute(registry)
+    registry.datastore = DataStore(config, spec_lookup=registry.dataset_spec)
+    company = make_company_dir(config.output_root)
+    old = company / "qualitative_report.md"
+    old.write_text("# old")
+    os.utime(old, (1, 1))
+    env = {**os.environ, "FAKE_CLI_ARTIFACTS": str(company)}
+    runner = JobRunner(config, spec_lookup=registry.command_spec, env=env)
+    registry.jobs = runner
+    job = runner.submit("agent_update_analysis", {"ticker": "600887"})
+    wait_for(lambda: runner.get(job["id"])["status"] == "finished")
+    path = f"/api/v1/agent/jobs/{job['id']}/artifacts"
+    output = call_route(registry, "GET", path)["data"]
+    assert len(output["links"]) == 3 and not output["message"]
+    assert all(link["path"] != "qualitative_report.md" for link in output["links"])
+    from urllib.parse import urlsplit, parse_qs
+    for link in output["links"]:
+        if link["href"].startswith("#report"):
+            query = {key: values[0] for key, values in parse_qs(
+                urlsplit(link["href"][1:]).query).items()}
+            response = call_route(registry, "GET", f"/api/v1/companies/{query['company']}/report", **query)
+            assert response["data"]["html"]
+    wait_for(lambda: (runner.history_dir / (job["id"] + ".json")).exists())
+    registry.jobs = JobRunner(config, spec_lookup=registry.command_spec, env=os.environ)
+    assert call_route(registry, "GET", path)["data"]["links"] == output["links"]
+    empty = registry.jobs.submit("agent_value_analysis", {"ticker": "600887"})
+    wait_for(lambda: registry.jobs.get(empty["id"])["status"] == "finished")
+    no_output = call_route(registry, "GET", f"/api/v1/agent/jobs/{empty['id']}/artifacts")["data"]
+    assert no_output == {"links": [], "message": "本次没有找到新产物"}

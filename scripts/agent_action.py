@@ -1,46 +1,20 @@
 #!/usr/bin/env python3
-"""把「动作 + 标的」翻译成**一次** agent CLI 的非交互调用（REQ-013.1）。
+"""Run one fixed report action through the local agent CLI (REQ-013).
 
-这个脚本是 `REQ-013` 的确定性外壳：它自己**不做任何分析**，只负责
-「校验输入 → 拼出固定模板的命令行 → 起一个子进程 → 透传退出码」。
-
-## 三条刻意写死的边界
-
-1. **不经过 shell**：`subprocess.run(argv, shell=False, timeout=…)`，argv 是列表。
-   用户能影响的只有 `--ticker`，而且它先过 `config.validate_stock_code` 规范化、
-   再过「本机是否真有这家公司的目录」的检查，最后只是被**插进模板字符串内部**当作
-   一个普通参数值——它不会出现在命令行的语法位置，也就没有拆分/注入的空间。
-2. **没有自由文本 prompt**：动作来自 `ACTION_CHOICES`（枚举），每个动作对应
-   `ACTIONS` 里**一条固定模板**。要新能力就加一个枚举值 + 一条模板，
-   不接受任何「让用户随便写一句提示词」的入口（同一动作的两次执行必须可比、可审计）。
-3. **凭据由 agent CLI 自己管**：本脚本不读、不存、不回显任何模型/agent 凭据，
-   也不接受凭据参数。认证完全取决于 agent CLI 自身的登录态与环境
-   （`claude` 的 `-p/--print` 就是它文档里的非交互入口）。
-
-## 退出码约定
-
-| 码 | 含义 |
-|----|------|
-| `0` | 成功（agent CLI 退出码为 0） |
-| `2` | 用法或校验错误：非法动作 / 非法标的 / 本机找不到该公司目录 |
-| `3` | 找不到或无法执行 agent CLI |
-| `4` | 超时（agent CLI 在 `--timeout` 秒内没有结束，已被终止） |
-| 其它 | **透传** agent CLI 自己的退出码（非 0 即失败；本脚本不自动重试） |
-
-`--dry-run` 只打印将执行的命令行与解析出的路径，**不启动任何进程**；
-它同样会做 CLI 可用性检查（退出码 `3`），这样「配置对不对」在真正跑之前就能发现。
-
-用法：
-
-    python scripts/agent_action.py --action update-analysis --ticker 600887.SH
-    python scripts/agent_action.py --action update-analysis --ticker 600887.SH --dry-run
-    AGENT_CLI=/path/to/claude python scripts/agent_action.py --action value-analysis --ticker 00700.HK
+Default: authenticated Codex ``exec``; Claude ``-p`` remains configurable.
+Validate action, ticker, directory and executable before launch; no shell or
+free-text prompt. Dry-run is read-only. Cancellation/timeout reap the process
+group; a per-action/company flock also protects standalone CLI submissions.
+Exit codes: 0 success, 2 invalid input, 3 unavailable CLI, 4 timeout, 5 busy;
+other CLI exit codes are propagated without retries.
 """
 
 from __future__ import annotations
 
 import argparse
+import fcntl
 import os
+import signal
 import shlex
 import shutil
 import subprocess
@@ -53,6 +27,7 @@ EXIT_OK = 0
 EXIT_USAGE = 2
 EXIT_NO_CLI = 3
 EXIT_TIMEOUT = 4
+EXIT_BUSY = 5
 
 #: 动作枚举（**唯一**的可执行动作来源；`--action` 的 choices 直接用它）。
 ACTION_CHOICES = ("update-analysis", "business-analysis", "value-analysis")
@@ -65,12 +40,12 @@ ACTIONS = {
     "value-analysis": "/value-analysis {ticker}",
 }
 
-DEFAULT_CLI = "claude"
+DEFAULT_CLI = "codex"
 DEFAULT_TIMEOUT = 1800
 DEFAULT_OUTPUT_ROOT = "output"
 
 INSTALL_HINT = (
-    "安装并登录 Claude Code（或其它 agent CLI）后重试；"
+    "安装并登录 Codex（codex login），或 Claude Code 后重试；"
     "也可以用 --cli <可执行文件> 指定路径，或设置环境变量 AGENT_CLI。"
 )
 TICKER_HINT = "股票代码形如 600887.SH / 000858.SZ / 00700.HK / AAPL。"
@@ -87,13 +62,33 @@ def build_prompt(action: str, ticker: str) -> str:
     return template.format(ticker=ticker)
 
 
-def build_agent_argv(cli, action: str, ticker: str) -> list:
-    """agent CLI 的非交互调用形状：`[cli, "-p", prompt]`。
+def build_agent_argv(cli, action: str, ticker: str, backend="claude", company_dir=None) -> list:
+    """Build the fixed non-interactive argv for the configured protocol."""
+    intent = build_prompt(action, ticker)
+    if backend == "codex":
+        prompt = (f"执行固定分析动作：{intent}。\n"
+                  f"读取 .claude/commands/{action}.md，将其中 $ARGUMENTS 替换为 {ticker}，"
+                  "严格执行该文件引用的完整分析流程。只生成该公司分析产物，"
+                  "不要修改程序、需求或测试。复用本机既有登录态与模型配置。"
+                  "凭据只从环境变量读取，不得写入日志、报告或提交；"
+                  "数据存档沿用 TURTLE_ARCHIVE_ROOT 环境变量。"
+                  "报告实际执行情况、产出文件、耗时与消耗；遇到阻断明确说明，不得假报成功。")
+        options = []
+        if company_dir is not None:
+            prompt += (f"公司目录固定为 {company_dir}；命令文档中的 output/公司目录统一替换为此目录，"
+                       "不要访问另一份同代码公司的产物。")
+            options = ["--add-dir", str(company_dir)]
+        return [str(cli), "exec", "--sandbox", "workspace-write", "--json", *options, prompt]
+    return [str(cli), "-p", intent]
 
-    `-p`/`--print` 是 `claude --help` 里写明的非交互入口。prompt 是**一个** argv 元素
-    （含空格也不拆分）——这就是「不经过 shell」的可断言形式。
-    """
-    return [str(cli), "-p", build_prompt(action, ticker)]
+
+def resolve_backend(cli_value, backend=None):
+    value = backend or os.environ.get("AGENT_BACKEND") or "auto"
+    if value == "auto":
+        return "codex" if Path(cli_value).name in ("codex", "codex.js") else "claude"
+    if value not in ("codex", "claude"):
+        raise ValueError("AGENT_BACKEND 只能是 codex / claude / auto。")
+    return value
 
 
 def directory_code(ticker: str) -> str:
@@ -122,7 +117,7 @@ def resolve_cli(value):
     if value.startswith("~") or os.sep in value or (os.altsep and os.altsep in value):
         path = Path(value).expanduser()
         if path.is_file() and os.access(path, os.X_OK):
-            return str(path)
+            return str(path.resolve())
         return None
     return shutil.which(value)
 
@@ -150,8 +145,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--cli",
         default=None,
-        help="agent CLI 可执行文件（默认取环境变量 AGENT_CLI，再默认 claude）",
+        help="agent CLI 可执行文件（默认取环境变量 AGENT_CLI，再默认 codex）",
     )
+    parser.add_argument("--backend", choices=("auto", "codex", "claude"), default=None,
+                        help="非交互协议；默认按可执行文件名识别，可用 AGENT_BACKEND 配置")
     parser.add_argument(
         "--timeout",
         type=int,
@@ -178,40 +175,78 @@ def _fail(message: str, hint: str = "") -> int:
     return EXIT_USAGE
 
 
+def preflight(action, raw_ticker, output_root, cli_value=None, backend=None):
+    """Read-only validation shared by CLI and GUI; never launches a process."""
+    build_prompt(action, "")
+    ticker = validate_stock_code(raw_ticker)
+    directories = find_company_dirs(output_root, ticker)
+    if not directories:
+        raise ValueError(f"找不到 {ticker}：这家公司还没有公司目录；请先获取数据或建立首次分析。")
+    if len(directories) != 1:
+        raise ValueError("这家公司有多个公司目录；请先确认并合并目录后再执行。")
+    directory = directories[0].resolve()
+    if not directory.is_relative_to(Path(output_root).resolve()):
+        raise ValueError("公司目录指向数据目录之外，不能执行。")
+    value = cli_value or os.environ.get("AGENT_CLI") or DEFAULT_CLI
+    cli = resolve_cli(value)
+    if cli is None:
+        raise FileNotFoundError("本机找不到 agent CLI，或它不可执行。" + INSTALL_HINT)
+    return ticker, directory, build_agent_argv(
+        cli, action, ticker, resolve_backend(value, backend), directory,
+    )
+
+
+def _execute(command, timeout):
+    """Cancellation and timeout reap the whole CLI process group."""
+    process = subprocess.Popen(command, shell=False, start_new_session=True)
+
+    def stop(*_):
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        # A child may outlive the CLI leader or ignore SIGTERM.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+
+    def cancelled(signum, _frame):
+        stop()
+        raise SystemExit(128 + signum)
+
+    previous = {sig: signal.signal(sig, cancelled) for sig in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        return process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        stop()
+        raise
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
 
-    # ① 标的校验：规范化（校验失败 → 用法错误，且到这里为止没有任何进程）
+    if args.timeout <= 0:
+        return _fail("超时时间必须大于 0。")
+
     try:
-        ticker = validate_stock_code(args.ticker)
+        ticker, company_dir, command = preflight(
+            args.action, args.ticker, args.output_root, args.cli, args.backend,
+        )
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_NO_CLI
     except ValueError as exc:
         return _fail(f"标的校验失败：{exc}", TICKER_HINT)
 
-    # ② 本机是否有这家公司（与 .claude/commands 的 {directory_code} 推导一致）
-    company_dirs = find_company_dirs(args.output_root, ticker)
-    if not company_dirs:
-        return _fail(
-            f"本机找不到 {ticker} 的公司目录：{args.output_root}/"
-            f"{directory_code(ticker)}_*/ 不存在。",
-            "先跑一次取数/首次分析把该公司目录建出来，或用 --output-root 指定正确的根。",
-        )
-    company_dir = company_dirs[0]
-    if len(company_dirs) > 1:
-        print(
-            f"警告：{ticker} 匹配到 {len(company_dirs)} 个公司目录，将使用 {company_dir}；"
-            "请确认是否需要在继续之前把它们合并。",
-            file=sys.stderr,
-        )
-
-    # ③ agent CLI 是否可用（认证由它自己管，这里只检查可执行）
-    cli_value = args.cli or os.environ.get("AGENT_CLI") or DEFAULT_CLI
-    cli = resolve_cli(cli_value)
-    if cli is None:
-        print(f"找不到 agent CLI：{cli_value!r}", file=sys.stderr)
-        print(f"提示：{INSTALL_HINT}", file=sys.stderr)
-        return EXIT_NO_CLI
-
-    command = build_agent_argv(cli, args.action, ticker)
     print(f"动作：{args.action}")
     print(f"标的：{ticker}")
     print(f"公司目录：{company_dir}")
@@ -222,9 +257,16 @@ def main(argv=None) -> int:
         return EXIT_OK
 
     try:
-        # 子进程继承本进程的 stdout/stderr：这样任务运行器能**逐行**收日志
-        # （capture_output 会把输出憋到结束，长任务在界面上看不到进度）。
-        completed = subprocess.run(command, shell=False, timeout=args.timeout)
+        # Inherit stdout/stderr so the task runner can stream progress.
+        lock_root = Path(args.output_root) / ".agent_locks"
+        lock_root.mkdir(parents=True, exist_ok=True)
+        with (lock_root / f"{ticker}_{args.action}.lock").open("a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                print("同一动作正在为这家公司执行，请等待结束或先取消。", file=sys.stderr)
+                return EXIT_BUSY
+            code = _execute(command, args.timeout)
     except subprocess.TimeoutExpired:
         print(
             f"超时：agent CLI 在 {args.timeout} 秒内没有结束，已被终止。",
@@ -237,13 +279,13 @@ def main(argv=None) -> int:
         print(f"提示：{INSTALL_HINT}", file=sys.stderr)
         return EXIT_NO_CLI
 
-    if completed.returncode != 0:
+    if code != 0:
         print(
-            f"agent CLI 以退出码 {completed.returncode} 结束：本次动作没有成功，"
-            "本脚本不自动重试。",
+            f"agent CLI 以退出码 {code} 结束：本次动作没有成功，"
+            "请展开日志确认原因，检查 CLI 登录态和公司数据后手动重新提交；本脚本不自动重试。",
             file=sys.stderr,
         )
-    return int(completed.returncode)
+    return int(code)
 
 
 if __name__ == "__main__":

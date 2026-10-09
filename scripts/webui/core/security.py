@@ -18,7 +18,9 @@ from .errors import NotLoopback, PathOutsideRoot, ShellMetachar
 # 保守集合：这些字符在参数值里没有任何正当用途，一律拒绝（命令本来就不经过 shell）。
 SHELL_METACHARS = (";", "|", "&", "`", "$(", "\n", "\r", ">", "<")
 # 这些环境变量引用的值会被脱敏（日志、响应、存档）。
-SECRET_ENV_VARS = ("TUSHARE_TOKEN", "TUSHARE_API_URL", "HTTP_PROXY", "HTTPS_PROXY")
+SECRET_ENV_VARS = ("TUSHARE_TOKEN", "TUSHARE_API_URL", "HTTP_PROXY", "HTTPS_PROXY",
+                   "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY",
+                   "ANTHROPIC_AUTH_TOKEN", "CODEX_API_KEY")
 _REDACT_PLACEHOLDER = "***"
 
 

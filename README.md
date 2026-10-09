@@ -209,6 +209,22 @@ make data-import-legacy
 | 采集存档 | 严格只读：批次进度、完备度与缺口清单；真正的采集只由显式命令触发（`REQ-009.4` 的兼容视图，**保留**） |
 | 生成报告 | `REQ-013` 的一键页（让 agent CLI 跑分析，消耗模型额度） |
 
+「生成报告」默认调用本机已登录的 **Codex CLI**：选择更新/首次全量/价值分析，填写股票代码，
+服务端预检通过后才可提交。完整命令行在技术细节中可展开；确认额度告知后开始生成。
+同一动作与标的不能重复并发，任务可取消；结束后直接打开本次报告、变化报告和迭代目录。
+没有发现新产物时会明确提示。认证与模型沿用 CLI 配置，GUI 不接收凭据或模型参数。
+
+```bash
+codex login
+.venv/bin/python scripts/agent_action.py --action update-analysis --ticker 600887.SH --dry-run
+.venv/bin/python scripts/agent_action.py --action update-analysis --ticker 600887.SH
+# 兼容已有 Claude Code：AGENT_CLI=claude，或命令行传 --cli claude --backend claude
+```
+
+`AGENT_CLI` 指定可执行文件；`AGENT_BACKEND=codex|claude|auto` 指定非交互协议。
+可执行文件名为 codex/codex.js 时使用 `codex exec`，其他自定义 CLI 默认按 Claude 的 `-p` 协议。
+`--timeout` 设置单次上限。CLI/登录/模型错误不会自动重试；展开原始日志按提示修正 CLI 配置后手动重新提交。
+
 三条 `REQ-012` 的主线：
 
 - **当前公司是全局上下文**：右上角选一次，图表 / 报告 / 迭代记录自动带上；写进 URL（ticker），
