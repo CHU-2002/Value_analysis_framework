@@ -58,7 +58,15 @@ FORBIDDEN = (
 # 普通英文词的正当字样（`latest.json`、`latest_run`、`defaults to latest fiscal year`）。
 # 禁则要能一眼判定、零误报，宁可少一条也不要把正常数据判成违规
 # （`AC-3` 的原意是「界面**要求用户输入**内部参数」，不是「文档里不许出现这个词」）。
-_TEXT_KEYS = ("title", "description", "label", "hint", "message", "note", "guide", "help")
+_TEXT_KEYS = (
+    "title", "description", "label", "hint", "message", "note", "guide", "help",
+    # `empty_hint` 是空状态文案的另一个常用键（门② 第二轮点名过它不在表里——
+    # 那时它只被 `meta` 承载、又被 `meta` 的豁免一起漏掉，两处一起补）。
+    "empty_hint", "summary", "blockers", "confirm_label", "body",
+)
+#: `meta` 里允许携带面向用户的文案（空状态引导就常放在 `meta.guide`）：
+#: 它是**数据来源说明**的容器，所以按同一个禁则扫——但只扫文本键，不扫指纹/路径这类值。
+_META_SCAN = True
 #: **技术视图**：按键目录（`kind=form` 的 `commands.catalog`）的参数名与开关由各脚本
 #: 的 argparse 扫描得出，属 `REQ-009.1` 的 `AC-1.2` 要求明示的内容；owner 2026-10-09
 #: 裁定它不受 `AC-3` 的文案禁则约束（见 `REQ-012` 的「## 备注」）。
@@ -273,6 +281,7 @@ def test_action_wording_never_leaks_internal_parameters_or_cli_flags(tmp_path):
     """
     from webui.plugins import actions as actions_plugin
     from webui.plugins import charts as charts_plugin
+    from webui.plugins import collect as collect_plugin
     from webui.plugins import companies as companies_plugin
     from webui.plugins import data_page as data_page_plugin
     from webui.plugins import home as home_plugin
@@ -280,11 +289,15 @@ def test_action_wording_never_leaks_internal_parameters_or_cli_flags(tmp_path):
 
     config, registry = make_app(tmp_path)
     for module in (actions_plugin, home_plugin, data_page_plugin, companies_plugin,
-                   charts_plugin, run_history_plugin):
+                   charts_plugin, run_history_plugin, collect_plugin):
         module.contribute(registry)
 
+    # **扫所有注册过的页面**，不手写清单：门② 第三轮用注入证明过手写清单有盲区
+    # （往 `collect` 页的面板描述里注入 `--foo`，用例照样绿，因为清单里没有 collect）。
     payloads = [call_route(registry, "GET", "/api/v1/nav")]
-    for page_id in ("home", "data", "commands", "companies", "report", "charts"):
+    page_ids = [item.id for item in registry.nav_items()]
+    assert "collect" in page_ids, "collect 页必须参与扫描（它是被漏掉过的那一页）"
+    for page_id in page_ids:
         payloads.append(call_route(registry, "GET", f"/api/v1/pages/{page_id}"))
     payloads.append(call_route(registry, "GET", "/api/v1/actions"))
 
@@ -301,6 +314,9 @@ def test_action_wording_never_leaks_internal_parameters_or_cli_flags(tmp_path):
             for name, value in node.items():
                 walk(value, name, current)
         elif isinstance(node, list):
+            for value in node:
+                walk(value, key, panel_id)
+        elif isinstance(node, list) and key == "blockers":
             for value in node:
                 walk(value, key, panel_id)
         elif isinstance(node, str) and key in _TEXT_KEYS:

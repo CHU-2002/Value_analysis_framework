@@ -53,9 +53,11 @@ def _gaps_panel(ctx, **_):
     counts = report["counts"]
     return {
         "columns": [
-            {"key": "ticker", "title": "标的"}, {"key": "period", "title": "期次"},
-            {"key": "dataset", "title": "接口"}, {"key": "result", "title": "结果"},
-            {"key": "reason", "title": "原因（接口原文摘要）"},
+            {"key": "ticker", "title": "标的", "sort": "text", "search": True},
+            {"key": "period", "title": "期次", "sort": "text", "search": True},
+            {"key": "dataset", "title": "接口", "sort": "text", "search": True},
+            {"key": "result", "title": "结果", "sort": "text", "search": True},
+            {"key": "reason", "title": "原因（接口原文摘要）", "search": True},
         ],
         "rows": rows,
         "meta": {"complete": counts["complete"], "total": counts["total"],
@@ -76,9 +78,12 @@ def _archive_summary(ctx):
                      "permissions": count["no_permission"], "rate_limited": count["rate_limited"],
                      "errors": count["error"]})
     return {"columns": [
-        {"key": "ticker", "title": "标的"}, {"key": "period", "title": "期次"},
-        {"key": "completeness", "title": "完备度"}, {"key": "permissions", "title": "无权限"},
-        {"key": "rate_limited", "title": "频率受限"}, {"key": "errors", "title": "其他错误"},
+        {"key": "ticker", "title": "标的", "sort": "text", "search": True},
+        {"key": "period", "title": "期次", "sort": "text", "search": True},
+        {"key": "completeness", "title": "完备度", "sort": "text"},
+        {"key": "permissions", "title": "无权限", "sort": "number"},
+        {"key": "rate_limited", "title": "频率受限", "sort": "number"},
+        {"key": "errors", "title": "其他错误", "sort": "number"},
     ], "rows": rows}
 
 
@@ -102,11 +107,18 @@ def _batches(ctx):
             "archive_hits": usage.get("archive_hits", 0),
             "no_permission": usage.get("no_permission", 0),
         })
+    # 列级 `sort` / `search` 是**服务端契约**（`AC-8`）：面板声明了 `options.table.sort`
+    # 却不在列上写 `sort`，渲染出来的表头就没有 `data-sort-key`，客户端点了也不会排序——
+    # 门② 第三轮是在真实浏览器里点表头才抓到的（CI 只断言了面板级声明，所以一直是绿的）。
     return {"columns": [
-        {"key": "batch_id", "title": "批次"}, {"key": "profile", "title": "档案"},
-        {"key": "status", "title": "状态"}, {"key": "completed", "title": "已完成"},
-        {"key": "total", "title": "总数"}, {"key": "new_requests", "title": "新增请求"},
-        {"key": "archive_hits", "title": "命中存档"}, {"key": "no_permission", "title": "无权限"},
+        {"key": "batch_id", "title": "批次", "sort": "text", "search": True},
+        {"key": "profile", "title": "档案", "sort": "text", "search": True},
+        {"key": "status", "title": "状态", "sort": "text", "search": True},
+        {"key": "completed", "title": "已完成", "sort": "number"},
+        {"key": "total", "title": "总数", "sort": "number"},
+        {"key": "new_requests", "title": "新增请求", "sort": "number"},
+        {"key": "archive_hits", "title": "命中存档", "sort": "number"},
+        {"key": "no_permission", "title": "无权限", "sort": "number"},
     ], "rows": rows}
 
 
@@ -161,13 +173,17 @@ def _rebuild_entries(ctx):
             "company": display_name(ticker, company, directory),
             "pack": pack.relative_to(root).as_posix(),
             "updated": datetime.fromtimestamp(pack.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
-            "rebuild": f"make data-rebuild ARGS='--ticker {ticker or directory}'",
+            # 这一列**曾经是** `make data-rebuild ARGS='--ticker …'`：在普通业务页里教用户
+            # 敲 make 目标，等于把 CLI 又搬回了界面（门② 第三轮判 `AC-3` 不通过）。
+            # 现在只说「去哪里做这件事」——真正的入口是数据页的「从原始仓重建数据包」动作
+            # （`REQ-012.4` 的 `AC-4.4`），本面板只负责展示产物与新鲜度。
+            "rebuild": "数据页 · 从原始仓重建数据包",
         })
     return {"columns": [
-        {"key": "company", "title": "公司"},
-        {"key": "pack", "title": "数据包（由仓离线重建）"},
-        {"key": "updated", "title": "产物时间"},
-        {"key": "rebuild", "title": "重建命令（不花钱）"},
+        {"key": "company", "title": "公司", "sort": "text", "search": True},
+        {"key": "pack", "title": "数据包（由仓离线重建）", "sort": "text", "search": True},
+        {"key": "updated", "title": "产物时间", "sort": "text"},
+        {"key": "rebuild", "title": "重建入口（不花钱）", "search": True},
     ], "rows": rows}
 
 
@@ -187,7 +203,7 @@ def contribute(registry):
         id="collect.rebuild", kind="table", title="离线重建（不花钱，与上面的采集分开）",
         provider=_rebuild_entries, size="full",
         options={"table": {"search": True, "sort": True}},
-        description="由原始仓离线重建数据包；本面板只读产物目录，不读仓、不联网、不触发动作。",
+        description="这些公司可以从原始仓离线重建出数据包；真正发起重建的入口在数据页。",
     ))
     registry.panel(PanelSpec(
         id="collect.gaps", kind="table", title="缺口清单（逐条原因）",

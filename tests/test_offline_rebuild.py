@@ -508,6 +508,11 @@ def test_gui_exposes_a_rebuild_panel_that_is_read_only(seeded, tmp_path):
     # 按 `<代码> <简称>` 拼，而不是把目录名 `600887_伊利` 摆上去（门② 抓到的阻断项）。
     assert rows and rows[0]["company"] == "600887 伊利"
     assert "_" not in rows[0]["company"]
-    assert "data-rebuild" in rows[0]["rebuild"] and "600887.SH" in rows[0]["rebuild"]
+    # 「重建」这一列**不再**教用户敲 CLI（`make data-rebuild ARGS='--ticker …'`）——
+    # 门② 第三轮判 `AC-3` 不通过：普通业务页里出现命令/开关/内部目录名。
+    # 现在它只说「去哪里做这件事」，真正的入口是数据页的「从原始仓重建数据包」动作
+    # （`REQ-012.4` 的 `AC-4.4`）。本面板只负责展示产物与新鲜度。
+    assert "重建" in rows[0]["rebuild"] and "数据页" in rows[0]["rebuild"]
+    assert "make" not in rows[0]["rebuild"] and "--ticker" not in rows[0]["rebuild"]
     assert "collect.rebuild" in [panel for item in registry.nav_items
                                   for panel in item.panels]

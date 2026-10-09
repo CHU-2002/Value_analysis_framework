@@ -486,7 +486,7 @@ def contribute(registry):
     registry.panel(PanelSpec(
         id="companies.list", kind="table", title="公司", provider=_list_panel, size="full",
         options={"table": {"search": True, "sort": True, "page": 50}},
-        description="output/ 下含产物的公司目录；点公司名进入图表页。",
+        description="已经分析过的公司；点公司名进入它的图表页。",
     ))
     registry.panel(PanelSpec(
         id="companies.artifacts", kind="table", title="产物",
@@ -513,7 +513,7 @@ def contribute(registry):
                          description="阅读这家公司的分析报告与产物；未选公司时给你选公司的入口。"))
     registry.nav(NavItem(id="companies", title="公司列表（全部）", group="数据", order=15,
                          panels=("companies.list",),
-                         description="output/ 下含产物的公司目录；点公司名进入它的图表页。"))
+                         description="已经分析过的公司；点公司名进入它的图表页。"))
     registry.route("GET", "/api/v1/companies", _list_companies, name="company list")
     # 路径参数是**公司标识**：ticker（规范）或目录名（兼容别名），见 REQ-009 的参数语义变更记录。
     registry.route("GET", "/api/v1/companies/{ticker}/artifacts", _list_artifacts,
