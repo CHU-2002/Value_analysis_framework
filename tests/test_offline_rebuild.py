@@ -110,20 +110,33 @@ def seeded(store):
 
 
 def test_rebuild_offline_does_not_open_a_socket(seeded, tmp_path):
-    """AC-3.1：禁网（socket 一律抛错）也能从仓重建出数据包。"""
+    """AC-3.1：离线重建不联网——钉住**唯一联网入口**，外加一层 socket 兜底。
+
+    为什么不再只看 socket：`AC-9` 实跑发现，冷进程里光打桩 `socket.socket` 是不够的
+    ——导入链本身会触发 CPython `multiprocessing.connection._has_ipv6()` 建一个
+    `AF_INET6` 探测 socket（**不出站**），而这里的用例因为跑它时模块早已被导入，
+    永远看不到那一步，于是「socket 对象数为 0」其实是**蒙对的**。
+    真正的不变量是「离线路径绝不进 `DataAccess._invoke`」（那里是唯一的远程调用点），
+    所以直接把它打桩成抛错：真有人加了联网调用，这条用例会立刻红。
+    """
+
+    from datalayer.access import DataAccess
 
     class NoNetwork(socket.socket):
         def __init__(self, *args, **kwargs):
             raise AssertionError("离线重建不允许建立任何 socket")
 
     out = tmp_path / "out" / "data_pack_market.md"
-    with patch("socket.socket", NoNetwork):
-        report = rebuild.rebuild(seeded["store"], "600887.SH", out_path=out)
+    with patch.object(DataAccess, "_invoke",
+                      side_effect=AssertionError("离线重建不允许调用远程取数")):
+        with patch("socket.socket", NoNetwork):
+            report = rebuild.rebuild(seeded["store"], "600887.SH", out_path=out)
 
     assert report["out_path"] == str(out)
     assert out.is_file()
     assert report["missing"] == []
     assert report["archived_hits"] > 0
+    assert report["out_path"] != "" and "socket" not in report
 
 
 def test_rebuild_offline_client_has_no_remote_client(store):
@@ -222,6 +235,12 @@ def test_completeness_counts_store_results_and_excludes_no_permission(store, tmp
     assert "无权限 1" in text
     # 完备度行仍是既有格式（下游与既有测试都在看这一行）。
     assert FOOTER_RE.search(text)
+    # 缺口要说清**为什么**：仓里记着「没有权限」时，重建与联网路径渲染同一种原因文字
+    # （AC-9 实跑观察项①：早先重建只写「数据缺失」，把原因丢了）。
+    assert "没有权限" in text, "缺口行要带上仓里记的原因"
+    income = text.split("## 3. 合并利润表", 1)[1].split("## ", 1)[0]
+    assert "数据获取失败" in income and "没有权限" in income, \
+        "有原因时按联网路径的同一种方式渲染，而不是一句「数据缺失」"
 
 
 def test_apply_store_facts_appends_footer_when_absent(store):

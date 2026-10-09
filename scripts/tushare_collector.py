@@ -155,11 +155,23 @@ class TushareClient(
         try:
             return self._access.call(api_name, **kwargs)
         except DataMissing as exc:
+            reason = self._access.missing_reason(exc.dataset, exc.params)
             self.offline_gaps.append({
                 "dataset": exc.dataset,
                 "period": str(exc.params.get("period") or "latest"),
                 "params": exc.params,
+                "reason": (reason or {}).get("label", ""),
+                "error_excerpt": (reason or {}).get("excerpt", ""),
             })
+            if reason and (reason.get("excerpt") or reason.get("label")):
+                # 仓里记着「为什么没这条数据」（无权限/限频/接口错误）时，抛出与联网路径
+                # **同一种** RuntimeError：既有的 `except RuntimeError` 分支会把原因原样说出来
+                # （REQ-006.1 实跑时联网产物写的是「数据缺失（Tushare yc_cb 接口未授权；
+                # 当前账号权限不足）」，重建只写「数据缺失」——AC-9 观察项①）。
+                raise RuntimeError(
+                    f"Tushare API '{exc.dataset}' failed: "
+                    f"{reason.get('excerpt') or reason.get('label')}"
+                ) from None
             return pd.DataFrame()
 
     def _cached_basic_call(self, api_name: str, **kwargs) -> pd.DataFrame:

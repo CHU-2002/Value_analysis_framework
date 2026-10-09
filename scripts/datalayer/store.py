@@ -209,6 +209,14 @@ def target_key(target: dict) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+# 缺口原因的人话标签（与 `datalayer.gaps.RESULT_KINDS` 一一对应）。
+GAP_RESULT_LABELS = {
+    "no_permission": "无权限",
+    "rate_limited": "频率受限",
+    "error": "接口错误",
+}
+
+
 def rows_for_request(frame, request: dict, record_params: dict):
     """按请求的语义入参裁剪行；无法确认服务能力时返回 ``None``。
 
@@ -488,6 +496,33 @@ class DataStore:
              str(target.get("period", "")), param_key(target.get("params", {}))),
         ).fetchone()
         return row["result"] if row is not None else None
+
+    def gap_reason(self, ticker: str, dataset: str, *, params: dict | None = None,
+                   period: str | None = None) -> dict | None:
+        """仓里对**这次读取**记下的失败原因（无权限 / 限频 / 错误）。
+
+        离线重建拿它把缺口说清楚：联网路径在同样的失败下会渲染
+        「数据缺失（Tushare yc_cb 接口未授权；当前账号权限不足）」，重建若只写「数据缺失」
+        就丢掉了一半信息（`AC-9` 实跑观察项①）。返回 ``None`` = 仓里没有能解释这次缺口的记录
+        （例如「压根没拉过」，那时写「数据缺失」才是诚实的）。
+        """
+
+        request = semantic_params(params)
+        rows = self._connect().execute(
+            "SELECT * FROM raw_record WHERE ticker = ? AND dataset = ? "
+            "AND result NOT IN ('ok', 'empty') AND (? IS NULL OR period = ?) "
+            "ORDER BY period DESC, fetched_at DESC",
+            (ticker, dataset, period, period),
+        ).fetchall()
+        for row in rows:
+            record = self._row(row, include_rows=False)
+            if record_serves(record.get("params") or {}, request):
+                return {
+                    "result": record["result"],
+                    "label": GAP_RESULT_LABELS.get(record["result"], record["result"]),
+                    "excerpt": record.get("error_excerpt") or "",
+                }
+        return None
 
     def serves_target(self, target: dict) -> bool:
         """目标**现在**能不能真的由仓服务（读取路径的判据，不只是「上次结果 ok」）。

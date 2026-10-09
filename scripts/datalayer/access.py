@@ -179,6 +179,18 @@ class DataAccess:
 
         return self._fetch_and_store(dataset, params, ticker, period)
 
+    def missing_reason(self, dataset: str, params: dict) -> dict | None:
+        """离线未命中时，仓里对这次读取记下的失败原因（没有就返回 ``None``）。"""
+
+        if self.store is None:
+            return None
+        ticker = str(params.get("ts_code") or params.get("ticker") or "")
+        # 请求里没有明确期次（调用点从不按期次过滤）→ 不限期次找原因：读取路径本来就是
+        # 把多个期次的记录组合起来服务的，按 `latest` 精确找会漏掉「按 20251231 存的」那条。
+        explicit = str(params.get("period") or "")
+        return self.store.gap_reason(ticker, dataset, params=params,
+                                     period=explicit or None)
+
     @staticmethod
     def store_param_json(params: dict) -> str:
         import json

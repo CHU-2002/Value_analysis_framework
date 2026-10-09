@@ -83,6 +83,9 @@ def _gap_label(item: dict) -> str:
         label += f"（{detail}）"
     if suffix and suffix != "latest":
         label += f" {suffix}"
+    reason = str(item.get("reason") or "")
+    if reason:
+        label += f"：{reason}"
     return label
 
 
