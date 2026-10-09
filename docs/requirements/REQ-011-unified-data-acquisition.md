@@ -296,7 +296,7 @@ make data-check
 > 按 [`docs/requirements/README.md`](README.md) §6：已交付能力的零散修正写在这里，不新开编号。
 > 仍走同样的 PR 与门禁，只是没有独立的需求生命周期。
 
-### 2026-09-30 展示与测试诚实性（PR 待填）
+### 2026-09-30 展示与测试诚实性（[PR #87](https://github.com/CHU-2002/Value_analysis_framework/pull/87)）
 
 `AC-9` 真实 token 实跑留下的两条非阻断观察项（原登记在 `ledger.md` 的 Inbox）：
 
