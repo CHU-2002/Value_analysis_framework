@@ -188,6 +188,7 @@ def test_nav_children_are_rendered_as_a_tree_by_the_core(tmp_path):
 def test_page_payload_exposes_requires_so_the_shell_can_show_an_empty_state(tmp_path):
     """AC-1.1：页面描述里带上 `requires`——前端据此决定渲染面板还是先选公司。"""
     _, registry = make_app(tmp_path)
+    make_company(tmp_path)
     page = call_route(registry, "GET", "/api/v1/pages/report")["data"]
     assert page["requires"] == ["selection.company"]
     # 缺上下文时服务端直接给空状态，面板列表是空的（详见下一条用例）。
@@ -500,3 +501,60 @@ def test_a_real_panel_failure_still_gives_readable_copy_with_the_code_collapsed(
     assert html.index("这块内容暂时看不到") < html.index("NOT_FOUND")
     assert "<details" in html and "<summary>技术细节</summary>" in html
     assert response["warnings"], "真失败必须留痕（warnings 不为空）"
+
+
+def test_unresolvable_company_is_a_readable_empty_state_not_an_error_banner(tmp_path):
+    """AC-10 / AC-1.1：上下文**给了但解析不出来**时也要给人话（门② 第四轮抓到的）。
+
+    真实路径：选择器「记住上次选择」之后产物被删/改名，或 URL 里写了不存在的标识。
+    修之前这种情况会一路走到面板渲染失败，把 `NOT_FOUND` 摆进顶栏横幅——「错误码不占主视觉」
+    不成立。现在由插件声明的 `context_resolver` 判定，服务端直接给正常空状态。
+    """
+    _, registry = make_app(tmp_path)
+    make_company(tmp_path)
+
+    response = call_route(registry, "GET", "/api/v1/pages/report", company="999999.XX")
+    page = response["data"]
+    assert page["panels"] == [], "解析不出来时不该去渲染面板"
+    assert response["warnings"] == [], f"空状态不该产生告警：{response['warnings']}"
+    empty = page["empty_state"]
+    assert empty["reason"] == "selection.company.unresolved"
+    assert "找不到了" in empty["message"]
+    assert empty["hint"] and "重新选一家" in empty["hint"]
+    assert "NOT_FOUND" not in json.dumps(response, ensure_ascii=False)
+
+    # 解析器是**插件**声明的（核心只调用它）：换一个解析不出来的值结论一致，
+    # 而解析得出来的值照常渲染——两条路都断，避免「一律空状态」蒙混过关。
+    good = call_route(registry, "GET", "/api/v1/pages/report", company="600887.SH")
+    assert good["data"].get("empty_state") is None
+    assert any(panel["id"] == "report.view" for panel in good["data"]["panels"])
+
+
+def test_sub_navigation_is_not_rendered_twice(tmp_path):
+    """AC-1.2 / AC-11：子导航只出现**一次**（在父项的 `children` 里，不作为顶层项）。
+
+    门② 第四轮用仓库外插件注册了一个子页，真实侧栏出现两条同名链接（一条缩进、一条平铺）：
+    根因是 `registry.nav()` 递归登记子项进 `_nav`（为了「导航项即页面」），而
+    `/api/v1/nav` 直接返回扁平全量。现在 `nav_items()` 只回**根项**，`all_pages()` 才回全部。
+    """
+    _, registry = make_app(tmp_path)
+    child = NavItem(id="demo.child", title="评审者演示子页")
+    registry.nav(NavItem(id="demo.parent", title="评审者演示父页", group="演示", order=900,
+                         children=(child,)))
+
+    nav = call_route(registry, "GET", "/api/v1/nav")["data"]
+    root_ids = [item["id"] for item in nav["items"]]
+    assert root_ids.count("demo.child") == 0, f"子页不该作为顶层项出现：{root_ids}"
+    assert "demo.parent" in root_ids
+    parent = next(item for item in nav["items"] if item["id"] == "demo.parent")
+    assert [item["id"] for item in parent["children"]] == ["demo.child"]
+
+    # 但子页**仍然是页面**（「导航项即页面」这条语义不能被层级破坏）。
+    assert registry.page("demo.child").title == "评审者演示子页"
+    assert call_route(registry, "GET", "/api/v1/pages/demo.child")["data"]["id"] == "demo.child"
+    assert "demo.child" in [item.id for item in registry.all_pages()]
+
+    # 内置导航也不许有重复：所有顶层 id 与所有子 id 不相交。
+    root_ids = {item.id for item in registry.nav_items()}
+    child_ids = {child.id for item in registry.nav_items() for child in item.children}
+    assert root_ids & child_ids == set()

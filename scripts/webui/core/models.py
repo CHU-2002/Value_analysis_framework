@@ -79,6 +79,12 @@ class NavItem:
     children: tuple = ()
     requires: tuple = ()
     default: bool = False
+    #: 可选：`callable(ctx, value) -> bool`，判断某个上下文值**真的能解析**。
+    #: `requires` 只说「需要一个值」，说不清「给了个解析不出来的值」——后者原先会一路走到
+    #: 面板渲染失败，把 `NOT_FOUND` 摆进顶栏横幅（门② 第四轮抓到：老的选择被记住、
+    #: 产物被删/改名之后重开就会走到）。解析器由**插件**提供，核心只负责调用它并把
+    #: 结果变成正常空状态。
+    context_resolver: object = None
 
     def to_json(self) -> dict:
         return {

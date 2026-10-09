@@ -174,7 +174,10 @@ def universe_rows(ctx) -> list:
 def _universe_panel(ctx, **_):
     rows = universe_rows(ctx)
     if not rows:
-        guide = ("还没有任何公司数据。下一步：① 在「数据」页把要跟踪的公司加进自选股清单；"
+        # 与数据页的引导保持**同一口径**（门② 第四轮指出两处互相矛盾）：
+        # 登记清单目前是数据层的准备工作，控制台里还没有入口；拉取才是这一页能做的事。
+        guide = ("还没有任何公司数据。下一步：① 先把要跟踪的公司登记进自选股清单"
+                 "（登记清单目前属于数据层的准备工作，控制台里暂时还没有对应的入口）；"
                  "② 回到这一页执行「拉取全部数据」。")
         return {
             "columns": _UNIVERSE_COLUMNS,
@@ -205,7 +208,7 @@ def _todo_panel(ctx, **_):
     }
     items = [
         {"label": "跟踪的公司", "value": str(len(rows)), "state": "ok" if rows else "warn",
-         "hint": "来自自选股清单与既有产物目录" if rows else "还没有公司：先加自选股再拉数据"},
+         "hint": "来自自选股清单与已经分析过的公司" if rows else "还没有公司：先登记清单，再拉取数据"},
         {"label": "还没拉数据", "value": str(counts["no_data"]),
          "state": "warn" if counts["no_data"] else "ok",
          "hint": "在「数据」页执行「拉取全部数据」"},

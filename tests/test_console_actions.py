@@ -291,11 +291,19 @@ def test_action_wording_never_leaks_internal_parameters_or_cli_flags(tmp_path):
     for module in (actions_plugin, home_plugin, data_page_plugin, companies_plugin,
                    charts_plugin, run_history_plugin, collect_plugin):
         module.contribute(registry)
+    # **要有数据**：空表渲染不出行，行值里的违规就扫不到（门② 第四轮正是用
+    # 「把违规放回行值」证明扫描仍绿——那时是空仓，行不存在）。造一家公司 + 一份数据包。
+    company = tmp_path / "output" / "600887_伊利"
+    company.mkdir(parents=True, exist_ok=True)
+    (company / "data_pack_market.md").write_text("# pack\n", encoding="utf-8")
+    (company / "record.json").write_text(
+        '{"subject": {"ticker": "600887.SH", "company": "伊利股份"}}', encoding="utf-8"
+    )
 
     # **扫所有注册过的页面**，不手写清单：门② 第三轮用注入证明过手写清单有盲区
     # （往 `collect` 页的面板描述里注入 `--foo`，用例照样绿，因为清单里没有 collect）。
     payloads = [call_route(registry, "GET", "/api/v1/nav")]
-    page_ids = [item.id for item in registry.nav_items()]
+    page_ids = [item.id for item in registry.all_pages()]   # 含子页（`nav_items()` 只回根项）
     assert "collect" in page_ids, "collect 页必须参与扫描（它是被漏掉过的那一页）"
     for page_id in page_ids:
         payloads.append(call_route(registry, "GET", f"/api/v1/pages/{page_id}"))
@@ -329,6 +337,22 @@ def test_action_wording_never_leaks_internal_parameters_or_cli_flags(tmp_path):
     for payload in payloads:
         walk(payload)
     assert offenders == [], f"面向用户的文案里出现了内部参数名/开关/路径：{offenders}"
+
+    # **表格行值**也要扫（门② 第四轮：把上一轮的违规原样放回行值 `rows[].rebuild`，
+    # 键名扫描不判红——因为行值不是「文案字段」，但它**渲染出来就是用户看到的文本**）。
+    # 判据放在**渲染后的 HTML** 上，这样键名怎么组织都逃不掉。
+    row_offenders = []
+    for page_id in page_ids:
+        page = call_route(registry, "GET", f"/api/v1/pages/{page_id}")["data"]
+        for panel in page["panels"]:
+            html = panel.get("html") or ""
+            for pattern in FORBIDDEN:
+                matched = re.search(pattern, html)
+                if matched:
+                    row_offenders.append((page_id, panel["id"], pattern, matched.group(0)))
+    assert row_offenders == [], (
+        f"渲染出来的页面里出现了命令/开关/内部参数名：{row_offenders}"
+    )
 
     # 动作标题是「做什么」而不是命令名。
     actions = call_route(registry, "GET", "/api/v1/actions")["data"]["actions"]

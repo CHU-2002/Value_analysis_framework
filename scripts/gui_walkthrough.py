@@ -352,7 +352,10 @@ class Walkthrough:
         )
         # AC-12：全程不得出现**技术化错误页**（错误码当标题 / 整页 500 / 横幅里摆错误码）。
         # 横幅只该说人话；错误码属于「技术细节」，不该占主视觉（AC-10）。
-        banned = ("BAD_REQUEST", "INTERNAL", "PARSE_FAILED", "INVALID_PARAM", "UNKNOWN_COMMAND")
+        # `NOT_FOUND` 也要在内：门② 第四轮发现「记住了上次选择、而产物被删/改名」
+        # 时顶栏会露出 `NOT_FOUND`（那一轮走查的禁则表里没有它，所以没抓住）。
+        banned = ("BAD_REQUEST", "INTERNAL", "PARSE_FAILED", "INVALID_PARAM",
+                  "UNKNOWN_COMMAND", "NOT_FOUND", "PATH_OUTSIDE_ROOT", "FORBIDDEN")
         self.check(
             not state["technical"] and not any(code in (state["banner"] or "") for code in banned),
             "没有技术化错误页",
@@ -505,6 +508,67 @@ class Walkthrough:
             f"空状态却在横幅里报了错：{state['banner']!r}",
         )
         self.shot("03-cold-open-empty-state.png")
+
+    def step_artifact_links(self) -> None:
+        """⑫ 任务产出要能**点开**（`AC-5`）：有产出块就必须有链接。
+
+        门② 第四轮抓到的是死代码：`selectionCompany()` 只读 `handoff.paths.ticker`，
+        而终态任务的 `handoff` 是空的（公司上下文在 `outputs.context` 里）——两个条件互斥，
+        实测 22 个产出块、**0 个链接**。判据只靠走查看得见，所以钉在这里。
+        """
+        self.note("⑫ 任务产出链接：有产出块就必须有可点的链接（AC-5）")
+        self.open_page("commands")
+        counts = self.cdp.evaluate(
+            """(() => {
+              const blocks = [...document.querySelectorAll('#panels .job-outputs')];
+              const links = [...document.querySelectorAll('#panels .job-outputs a[data-job-output-link]')];
+              const hrefs = links.map((a) => a.getAttribute('href')).filter(Boolean);
+              return { blocks: blocks.length, links: links.length,
+                       ok: hrefs.filter((h) => h.startsWith('#report?company=')).length,
+                       sample: hrefs.slice(0, 2) };
+            })()"""
+        )
+        self.note(f"  产出块={counts['blocks']} 链接={counts['links']} 形如报告页={counts['ok']}")
+        self.check(
+            counts["blocks"] == 0 or counts["links"] >= 1,
+            f"每个产出块都能点开（{counts['links']}/{counts['blocks']}）",
+            f"有 {counts['blocks']} 个产出块但一个链接都没有（产出链接是死代码）",
+        )
+        self.check(
+            counts["blocks"] == 0 or counts["ok"] == counts["links"],
+            f"产出链接指向报告页（{counts['ok']}/{counts['links']}）",
+            f"产出链接的 href 不对：{counts['sample']}",
+        )
+        self.shot("13-artifact-links.png")
+
+    def step_unresolvable_company(self) -> None:
+        """⑪ 上下文**解析不出来**时也要给人话（`AC-10`）：不能把 `NOT_FOUND` 摆上横幅。
+
+        真实路径：选择器「记住上次选择」之后产物被删/改名，或 URL 里写了一个不存在的标识。
+        门② 第四轮就是这么复现的——那一轮走查的横幅禁则表不含 `NOT_FOUND`，所以没抓住。
+        """
+        self.note("⑪ 上下文解析不出来：URL 里写一个不存在的公司，应给可读空状态")
+        self.cdp.goto(f"{self.base}/#report?company=999999.XX", settle=3.0)
+        state = self.panel_state()
+        self.pages["report-unresolvable"] = state
+        self.check(
+            state["emptyState"] >= 1,
+            "给了「这家公司找不到了」的空状态",
+            f"没有空状态（面板={state['ids']} 横幅={state['banner']!r}）",
+        )
+        self.check(
+            not state["degraded"] and not state["technical"]
+            and "NOT_FOUND" not in (state["banner"] or ""),
+            "没有降级卡、横幅里也没有错误码",
+            f"解析不出来时露出了技术细节：降级={state['degraded']} 横幅={state['banner']!r}",
+        )
+        text = self.cdp.evaluate(
+            "(() => { const node = document.querySelector('#panels .panel-empty-state');"
+            " return node ? node.textContent.replace(/\\s+/g, ' ').trim() : ''; })()"
+        )
+        self.note(f"  空状态文案：{text}")
+        self.check("找不到了" in text, "空状态说清了发生了什么", f"空状态文案不可读：{text!r}")
+        self.shot("12-unresolvable-company.png")
 
     def step_table_sorting(self) -> None:
         """表格能力要**真的点**（`AC-8`）：声明了 sort 不等于能排序。
@@ -1209,6 +1273,8 @@ def main(argv=None) -> int:
         walkthrough.step_company_context(ticker)
         walkthrough.step_cold_open_without_company()
         walkthrough.step_data_page()
+        walkthrough.step_artifact_links()
+        walkthrough.step_unresolvable_company()
         walkthrough.step_table_sorting()
         walkthrough.step_actions_page()
         walkthrough.step_chart_basis()
