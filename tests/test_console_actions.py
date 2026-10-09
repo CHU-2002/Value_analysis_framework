@@ -985,3 +985,33 @@ def test_job_history_round_trips_through_a_restart(tmp_path):
     assert reloaded["status"] == FINISHED
     assert reloaded["outputs"]["writes"][0]["path"] == str(target)
     assert reloaded["outputs"]["context"]["company_dir"] == str(company_dir)
+
+
+def test_continue_reports_the_missing_artifacts_in_its_response(tmp_path):
+    """AC-2.4：点「继续」而产物不合格时，**响应本身**就要说清缺什么。
+
+    门② 第六轮抓到的界面阻断项有一部分根因在这里：`continue` 返回的是**校验前**的快照
+    （`handoff.missing` 恒为空数组），客户端因此没法立刻把「缺什么」显示出来，
+    只能再取一次——而界面当时根本没再取。现在响应就是校验后的状态。
+    """
+    _, registry = make_app(tmp_path)
+    target = tmp_path / "output" / "600887_伊利" / "latest.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _handoff_action(registry, (str(target),))
+    job = call_route(registry, "POST", "/api/v1/actions/demo.chain/run", body={"context": {}})["data"]
+    wait_status(registry, job["id"], AWAITING)
+
+    # 产物不存在：继续的响应必须**当场**带出 missing，而不是空数组。
+    parked = call_route(registry, "POST", f"/api/v1/jobs/{job['id']}/continue")["data"]
+    assert parked["status"] == AWAITING, "产物不合格不许放行"
+    assert parked["handoff"]["missing"] == [str(target)], (
+        f"continue 的响应要带校验结果，实际 {parked['handoff'].get('missing')!r}"
+    )
+    assert "还没就绪" in json.dumps(parked, ensure_ascii=False)
+
+    # 产物就绪：同一个接口把任务放行（响应里状态离开 awaiting）。
+    target.write_text("{}", encoding="utf-8")
+    resumed = call_route(registry, "POST", f"/api/v1/jobs/{job['id']}/continue")["data"]
+    assert resumed["status"] in (FINISHED, "running"), (
+        f"产物就绪后应当放行：{resumed['status']}"
+    )
