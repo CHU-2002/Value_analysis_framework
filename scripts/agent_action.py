@@ -4,7 +4,7 @@
 Default: authenticated Codex ``exec``; Claude ``-p`` remains configurable.
 Validate action, ticker, directory and executable before launch; no shell or
 free-text prompt. Dry-run is read-only. Cancellation/timeout reap the process
-group; a per-action/company flock also protects standalone CLI submissions.
+group; a per-company flock also protects standalone CLI submissions.
 Exit codes: 0 success, 2 invalid input, 3 unavailable CLI, 4 timeout, 5 busy;
 other CLI exit codes are propagated without retries.
 """
@@ -260,11 +260,11 @@ def main(argv=None) -> int:
         # Inherit stdout/stderr so the task runner can stream progress.
         lock_root = Path(args.output_root) / ".agent_locks"
         lock_root.mkdir(parents=True, exist_ok=True)
-        with (lock_root / f"{ticker}_{args.action}.lock").open("a") as lock:
+        with (lock_root / f"{ticker}.lock").open("a") as lock:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
-                print("同一动作正在为这家公司执行，请等待结束或先取消。", file=sys.stderr)
+                print("这家公司已有分析任务在执行，请等待结束或先取消。", file=sys.stderr)
                 return EXIT_BUSY
             code = _execute(command, args.timeout)
     except subprocess.TimeoutExpired:

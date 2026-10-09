@@ -1,0 +1,52 @@
+{
+  "failures": [
+    "提交后实际执行命令保留且折叠"
+  ],
+  "observations": [
+    {
+      "check": "提交前完整 agent 命令预览",
+      "passed": true
+    },
+    {
+      "check": "选定动作后的额度告知",
+      "passed": true
+    },
+    {
+      "check": "只填写人话标的字段",
+      "passed": true
+    },
+    {
+      "check": "技术细节折叠",
+      "passed": true
+    },
+    {
+      "check": "目录不匹配时禁用提交",
+      "passed": true
+    },
+    {
+      "check": "预检没有创建任务",
+      "passed": true
+    },
+    {
+      "check": "拒绝确认不创建任务",
+      "passed": true
+    },
+    {
+      "check": "确认后只创建一个成功任务",
+      "passed": true
+    },
+    {
+      "check": "报告、变化报告与迭代目录链接",
+      "passed": true
+    },
+    {
+      "check": "提交后实际执行命令保留且折叠",
+      "passed": false
+    },
+    {
+      "check": "真实点击产物链接可阅读报告",
+      "passed": true
+    }
+  ],
+  "exit_code": 1
+}

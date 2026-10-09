@@ -478,6 +478,8 @@ def test_jobs_normalize_deduplicate_cancel_and_preserve_redacted_audit(tmp_path,
     duplicate = next(item for item in results if isinstance(item, DuplicateJob))
     assert duplicate.status == 409 and duplicate.code == "DUPLICATE_JOB"
     job = next(item for item in results if isinstance(item, dict))
+    with pytest.raises(DuplicateJob):
+        runner.submit("agent_value_analysis", {"ticker": "600887"})
     wait_for(lambda: marker.exists() and (tmp_path / "child.pid").exists())
     runner.cancel(job["id"])
     wait_for(lambda: runner.get(job["id"])["status"] == "cancelled")
@@ -498,6 +500,10 @@ def test_jobs_normalize_deduplicate_cancel_and_preserve_redacted_audit(tmp_path,
     assert "***" in history
     assert len(second_runner.list_jobs()) == 2  # explicit submissions only; no auto retry
     assert any("手动" in line for line in detail["log"])
+    failed_job = second_runner._jobs[second["id"]]
+    failed_job.error = "服务重启，已中断"
+    failed_job.log.append("model gpt-test not supported")
+    assert "中断" in second_runner._summarise(failed_job)["what"]
 
 
 def test_only_this_tasks_new_outputs_link_and_empty_result_is_explicit(tmp_path, monkeypatch):
@@ -536,3 +542,27 @@ def test_only_this_tasks_new_outputs_link_and_empty_result_is_explicit(tmp_path,
     wait_for(lambda: registry.jobs.get(empty["id"])["status"] == "finished")
     no_output = call_route(registry, "GET", f"/api/v1/agent/jobs/{empty['id']}/artifacts")["data"]
     assert no_output == {"links": [], "message": "本次没有找到新产物"}
+    # A cancelled queue entry never executed; another producer's fresh file
+    # must not become its artifact merely because it waited in the queue.
+    from dataclasses import replace
+    config = replace(config, max_concurrent_jobs=1)
+    from webui.core.models import CommandSpec
+    registry.command(CommandSpec(id="unrelated_busy", argv=(str(fake),)))
+    marker = tmp_path / "slow-cli-started.json"
+    slow = JobRunner(config, spec_lookup=registry.command_spec,
+                     env={**os.environ, "FAKE_CLI_SLEEP": "30",
+                          "FAKE_CLI_OUT": str(marker)})
+    registry.jobs = slow
+    active = slow.submit("unrelated_busy", {})
+    wait_for(marker.exists)
+    queued = slow.submit("agent_value_analysis", {"ticker": "600887"})
+    assert queued["status"] == "queued"
+    old.write_text("# concurrent producer's report")
+    slow.cancel(queued["id"])
+    cancelled_outputs = call_route(
+        registry, "GET", f"/api/v1/agent/jobs/{queued['id']}/artifacts")["data"]
+    assert cancelled_outputs == {"links": [], "message": "本次没有找到新产物"}
+    assert "execution_started_at" not in slow.get(queued["id"])["outputs"]
+    slow.cancel(active["id"])
+    wait_for(lambda: slow.get(active["id"])["status"] == "cancelled")
+    slow.shutdown()

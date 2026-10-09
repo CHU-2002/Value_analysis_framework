@@ -110,6 +110,8 @@ def main(argv=None):
             wait_for(lambda: c.evaluate("Boolean(document.querySelector('.job-artifacts a'))"))
             check(c.evaluate("document.querySelectorAll('.job-artifacts a').length") >= 3,
                   '报告、变化报告与迭代目录链接')
+            check(c.evaluate("(() => {const n=[...document.querySelectorAll('.command-argv')].find(n=>n.textContent.includes('--action'));return Boolean(n && n.closest('details') && !n.closest('details').open);})()"),
+                  '提交后实际执行命令保留且折叠')
             c.screenshot(out / '03-finished-artifacts.png')
             c.click_selector('.job-artifacts a')
             check(wait_for(lambda: c.evaluate("location.hash.startsWith('#report') && Boolean(document.querySelector('.panel-markdown h1'))")),
