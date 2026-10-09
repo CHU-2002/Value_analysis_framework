@@ -280,11 +280,36 @@ def test_one_display_name_across_company_list_report_and_selector(tmp_path):
 
 
 def test_display_name_never_falls_back_to_the_exchange_suffix(tmp_path):
-    """AC-9 的边界：缺名字时退回目录名，但**不**把 `600887.SH` 当公司名。"""
+    """AC-9 的边界：缺名字时退回目录名约定，但**不**把 `600887.SH` 当公司名。
+
+    「退回目录名」在真实数据上踩过一次：`output/` 里有一批早期产物没有 `record.json`，
+    工作台因此把 `000858_五粮液` 原样当显示名——而 `AC-9` 要求目录名只作为技术标识出现。
+    所以这里同时钉住「按 `<代码>_<简称>` 约定拼」与「不合约定就原样返回」。
+    """
     assert companies_plugin.display_name("600887.SH", "伊利股份") == "600887 伊利股份"
     assert companies_plugin.display_name("600887.SH", "") == "600887"
     assert companies_plugin.display_name("", "伊利股份") == "伊利股份"
-    assert companies_plugin.display_name("", "", "600887_伊利") == "600887_伊利"
+    # 没有 record.json 的老产物：目录名 → 显示名
+    assert companies_plugin.display_name("", "", "600887_伊利") == "600887 伊利"
+    assert companies_plugin.display_name("", "", "000858_五粮液") == "000858 五粮液"
+    # 不合约定的目录名不许被改写（不猜）
+    assert companies_plugin.display_name_from_label("portfolio_2026") == "portfolio_2026"
+    assert companies_plugin.display_name_from_label("handoff") == "handoff"
+    assert companies_plugin.display_name_from_label("") == ""
+
+
+def test_workbench_shows_a_display_name_even_without_a_record_file(tmp_path):
+    """AC-1.4 / AC-9 的实测回归：没有 `record.json` 的老产物也要按约定显示公司名。"""
+    _, registry = make_app(tmp_path)
+    directory = tmp_path / "output" / "000858_五粮液"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "data_pack_market.md").write_text("# pack", encoding="utf-8")
+
+    row = panel_data(registry, "home.universe")["rows"][0]
+    assert row["company"] == "000858 五粮液", "目录名不该出现在显示名位置"
+    assert "_" not in row["company"].split(" ")[0]
+    listing = panel_data(registry, "companies.list")["rows"][0]["name"]
+    assert listing == row["company"], "工作台与公司列表必须是同一个显示名"
 
 
 # --------------------------------------------------------------- AC-1 端点接受 ticker

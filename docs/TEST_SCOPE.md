@@ -15,7 +15,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | 项 | 当前 | 上限 | 使用率 |
 |----|------|------|--------|
 | 测试文件数 | 47 | 52 | 90% |
-| 收集到的用例数 | 1873 | 2000 | 94% |
+| 收集到的用例数 | 1874 | 2000 | 94% |
 
 （用例数含 `parametrize` 展开，由 `pytest --collect-only` 统计；函数数见下表末列，仅作参考。）
 
@@ -30,7 +30,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_comparable_periods.py` | REQ-002 | `unit` | — | 39 |
 | `tests/test_config.py` | 基线 | `unit` | `scripts/config.py` | 43 |
 | `tests/test_console_actions.py` | REQ-009.1, REQ-012, REQ-012.2 | `unit` | — | 29 |
-| `tests/test_console_context.py` | REQ-009, REQ-009.2, REQ-012, REQ-012.1 | `unit` | — | 15 |
+| `tests/test_console_context.py` | REQ-009, REQ-009.2, REQ-012, REQ-012.1 | `unit` | — | 16 |
 | `tests/test_console_data_page.py` | REQ-012, REQ-012.4 | `unit` | — | 15 |
 | `tests/test_console_views.py` | REQ-009, REQ-009.3, REQ-012, REQ-012.3 | `unit` | — | 15 |
 | `tests/test_coordinator.py` | 基线 | `unit` | — | 9 |
