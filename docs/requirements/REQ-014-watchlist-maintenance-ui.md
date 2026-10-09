@@ -9,7 +9,7 @@ updated: 2026-10-09
 issue: "#102"
 design: N/A
 milestone: TBD
-pr: TBD
+pr: "#112"
 depends-on: REQ-012, REQ-011
 supersedes: TBD
 ---
