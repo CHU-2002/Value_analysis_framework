@@ -119,10 +119,14 @@ def _universe_panel(ctx, **_):
     rows.sort(key=lambda item: item["ticker"])
     guide = ""
     if not rows:
-        guide = ("自选股清单是空的。两步走：① 用命令行把要跟踪的公司加进清单"
-                 "（`make data-universe ARGS='add --ticker 600887.SH --name 伊利股份'`）；"
+        # 空状态文案也要守 `AC-3`：**不出现命令、开关、路径**（独立验收第二轮抓到的：
+        # 原先这里写着 `make data-universe ARGS='add --ticker … --name …'`，
+        # 那是把「让用户自己当调度机器」的老毛病搬进了引导语）。
+        # 说「做什么」与「谁来做」，不说「敲哪条命令」。
+        guide = ("自选股清单是空的。两步走：① 把要跟踪的公司登记进清单"
+                 "（清单是唯一事实来源，支持逐个添加、从既有产物导入两种方式）；"
                  "② 回到这一页执行「拉取全部数据」。"
-                 "如果 output/ 里已经有产物，也可以用 import-output 从既有产物生成清单。")
+                 "如果你的产物目录里已经有公司，可以用「从既有产物导入」一次把清单建起来。")
     return {
         "columns": [
             {"key": "company", "title": "公司", "search": True, "sort": "text"},
