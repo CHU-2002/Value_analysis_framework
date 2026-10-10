@@ -81,6 +81,8 @@ def make_app(tmp_path: Path):
     registry.config = config
     for module in (companies_plugin, charts_plugin, run_history_plugin):
         module.contribute(registry)
+    from webui.plugins.research_timeline import register_research_datasets
+    register_research_datasets(registry)
     registry.datastore = DataStore(config, spec_lookup=registry.dataset_spec)
     return config, registry
 
@@ -624,3 +626,124 @@ def test_financial_pack_cumulative_quarters_are_not_mislabeled_as_single_quarter
         ratios=filter_basis(parse_metrics([path],{}),"quarter")
         assert ratios["series"][0]["values"] == [3,None]
         assert "累计财务比率" in ratios["missing_reasons"]["2026Q3"]
+
+
+def _raw_cache_context(tmp_path):
+    import sqlite3
+    config, registry = make_app(tmp_path)
+    config.archive_root.mkdir()
+    with sqlite3.connect(config.archive_root / "store.db") as connection:
+        connection.execute("CREATE TABLE raw_record (id INTEGER PRIMARY KEY,ticker TEXT,dataset TEXT,rows_json TEXT,fetched_at TEXT,content_sha256 TEXT,result TEXT,params_json TEXT)")
+        prices = [{"trade_date": "20260105", "open": 10, "high": 12, "low": 9, "close": 11, "vol": 100}]
+        income = [{"end_date": "20251231", "revenue": 100_000_000, "n_income_attr_p": 5_000_000}]
+        for index, (dataset, rows) in enumerate((("daily", prices), ("income", income))):
+            connection.execute("INSERT INTO raw_record VALUES (?,?,?,?,?,?,?,?)", (index, "600887.SH", dataset,
+                json.dumps(rows), "2026-01-06", "revision-one-" + dataset, "ok", "{}"))
+    return RequestContext(method="GET", path="/", query={}, config=config, registry=registry)
+
+
+def test_raw_snapshot_and_unified_derived_cache_skip_second_parse(tmp_path, monkeypatch):
+    from webui.plugins import raw_snapshots, research_timeline
+    ctx = _raw_cache_context(tmp_path)
+    decoded, parsed = [], []
+    decoder = raw_snapshots._decode_rows
+    monkeypatch.setattr(raw_snapshots, "_decode_rows", lambda text: (decoded.append(text), decoder(text))[1])
+    for name in research_timeline.RESEARCH_DATASETS:
+        parser = parsers.get_parser(name)
+        def tracked(sources, params, parser=parser, name=name):
+            parsed.append(name)
+            return parser(sources, params)
+        parsers.register_parser(name, tracked, replace=True)
+    first, timeline_meta = research_timeline.cached_timeline(ctx, "600887.SH", as_of="20260106")
+    income, income_meta = research_timeline.cached_financial_income(ctx, "600887.SH")
+    assert not timeline_meta["cached"] and not income_meta["cached"]
+    snapshots = list(ctx.config.output_root.glob(".research_sources/**/raw.json"))
+    mtimes = {p: p.stat().st_mtime_ns for p in snapshots}
+    assert len(decoded) == 2 and len(parsed) == 2
+    assert first["points"][0]["close"] == 11 and income["available"]
+    for read in (lambda: research_timeline.cached_timeline(ctx, "600887.SH", as_of="20260106"),
+                 lambda: research_timeline.cached_financial_income(ctx, "600887.SH")):
+        _, meta = read()
+        assert meta["cached"] and meta["source_snapshot_cached"]
+    assert len(decoded) == 2 and len(parsed) == 2
+    assert {p: p.stat().st_mtime_ns for p in snapshots} == mtimes
+    assert all(p.resolve().is_relative_to(ctx.config.output_root.resolve()) for p in snapshots)
+
+
+def test_raw_source_revision_invalidates_timeline_and_financial_without_overwriting_old_snapshot(tmp_path):
+    import sqlite3
+    from webui.plugins.research_timeline import cached_timeline, cached_financial_income
+    ctx = _raw_cache_context(tmp_path)
+    old_price, old_price_meta = cached_timeline(ctx, "600887.SH", as_of="20260106")
+    old_income, old_income_meta = cached_financial_income(ctx, "600887.SH")
+    old_files = {p: p.read_bytes() for p in ctx.config.output_root.glob(".research_sources/**/raw.json")}
+    with sqlite3.connect(ctx.config.archive_root / "store.db") as connection:
+        connection.execute("UPDATE raw_record SET rows_json=?,content_sha256=?,fetched_at=? WHERE dataset='daily'", (
+            json.dumps([{"trade_date":"20260105","open":10,"high":20,"low":9,"close":19,"vol":100}]),"price-revision-two","2026-01-07"))
+        connection.execute("UPDATE raw_record SET rows_json=?,content_sha256=? WHERE dataset='income'", (
+            json.dumps([{"end_date":"20251231","revenue":150_000_000,"n_income_attr_p":8_000_000}]),"income-revision-two"))
+    price, price_meta = cached_timeline(ctx, "600887.SH", as_of="20260106")
+    income, income_meta = cached_financial_income(ctx, "600887.SH")
+    assert old_price["points"][0]["close"] == 11 and price["points"][0]["close"] == 19
+    assert old_income["series"][0]["values"] == [100] and income["series"][0]["values"] == [150]
+    assert price_meta["raw_revision"] != old_price_meta["raw_revision"]
+    assert income_meta["raw_revision"] != old_income_meta["raw_revision"]
+    assert not price_meta["cached"] and not income_meta["cached"]
+    assert all(p.read_bytes() == content for p, content in old_files.items())
+    assert not list(ctx.config.output_root.glob(".research_sources/**/*.tmp"))
+
+
+def test_research_cache_parameters_parser_version_and_observation_day_each_invalidate(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from webui.plugins.research_timeline import cached_timeline
+    from webui.plugins import raw_snapshots
+    ctx = _raw_cache_context(tmp_path)
+    _, first_meta = cached_timeline(ctx, "600887.SH", as_of="20260105")
+    # If source rows were decoded again these parameter-only calls would fail.
+    monkeypatch.setattr(raw_snapshots, "_decode_rows", lambda _: pytest.fail("原始版本未变，不能重复解码 rows_json"))
+    later, later_meta = cached_timeline(ctx, "600887.SH", as_of="20260106")
+    assert not later["points"][0]["ongoing"] and not later_meta["cached"]
+    assert later_meta["raw_revision"] == first_meta["raw_revision"]
+    for setting in ({"cycle":"week"}, {"window":"3"}, {"range":"all"}):
+        _, meta = cached_timeline(ctx, "600887.SH", as_of="20260106", **setting)
+        assert not meta["cached"] and meta["source_snapshot_cached"]
+    _, repeated = cached_timeline(ctx, "600887.SH", as_of="20260106", cycle="week")
+    assert repeated["cached"]
+    ctx.registry.datastore = DataStore(ctx.config, spec_lookup=lambda name: replace(ctx.registry.dataset_spec(name), parser_version=2))
+    _, upgraded = cached_timeline(ctx, "600887.SH", as_of="20260106", cycle="week")
+    assert not upgraded["cached"] and upgraded["parser_version"] == 2
+    assert upgraded["raw_revision"] == repeated["raw_revision"]
+
+
+def test_snapshot_bridge_rejects_symlinks_bad_identifiers_and_keeps_datastore_output_jail(tmp_path):
+    from webui.plugins.raw_snapshots import ensure_raw_snapshot
+    ctx = _raw_cache_context(tmp_path)
+    outside = tmp_path / "outside"; outside.mkdir()
+    ctx.config.output_root.mkdir(exist_ok=True)
+    (ctx.config.output_root / ".research_sources").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(WebUIError) as error:
+        ensure_raw_snapshot(ctx.config, "600887.SH", ("daily",))
+    assert error.value.code == "PATH_OUTSIDE_ROOT" and list(outside.iterdir()) == []
+    for ticker, datasets in (("../../outside", ("daily",)), ("600887.SH", ("../../income",))):
+        with pytest.raises(WebUIError):
+            ensure_raw_snapshot(ctx.config, ticker, datasets)
+    with pytest.raises(WebUIError) as error:
+        ctx.registry.datastore.get("charts.research_timeline", base=ctx.config.archive_root)
+    assert error.value.code == "PATH_OUTSIDE_ROOT"
+    assert not (ctx.config.archive_root / "manifest.jsonl").exists()
+
+
+def test_failed_atomic_snapshot_does_not_publish_partial_or_touch_previous_revision(tmp_path, monkeypatch):
+    import sqlite3
+    from webui.plugins import raw_snapshots
+    ctx = _raw_cache_context(tmp_path)
+    base, _, _ = raw_snapshots.ensure_raw_snapshot(ctx.config,"600887.SH",("daily",))
+    previous = (base / "raw.json").read_bytes()
+    with sqlite3.connect(ctx.config.archive_root/"store.db") as connection:
+        connection.execute("UPDATE raw_record SET fetched_at='2026-01-08' WHERE dataset='daily'")
+    monkeypatch.setattr(raw_snapshots.os, "replace", lambda *_: (_ for _ in ()).throw(OSError("simulated disk failure")))
+    with pytest.raises(WebUIError, match="快照写入失败"):
+        raw_snapshots.ensure_raw_snapshot(ctx.config,"600887.SH",("daily",))
+    assert (base / "raw.json").read_bytes() == previous
+    assert list(ctx.config.output_root.glob(".research_sources/**/raw.json")) == [base / "raw.json"]
+    assert not list(ctx.config.output_root.glob(".research_sources/**/*.tmp"))

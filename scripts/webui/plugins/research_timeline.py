@@ -199,31 +199,90 @@ def timeline_payload(rows, *, company, cycle="day", window="5", adjustment="none
             "empty_hint": "尚未采集 OHLC 日行情。年度最高/最低汇总不能生成 K 线。" if not rows else ("此范围无交易数据" if not visible else "")}
 
 
-def load_timeline(ctx, company, **settings):
-    # Company identifiers are canonical tickers; legacy output-directory aliases remain supported.
-    if not re.fullmatch(r"[A-Za-z0-9]+\.(?:SH|SZ|BJ|HK|US)", str(company or "")):
-        from .companies import company_base
-        base = company_base(ctx, company)
-        match = re.match(r"(\d{6})", base.name)
-        if match:
-            code = match.group(1)
-            company = code + (".SH" if code.startswith("6") else ".SZ")
-        else:
-            raise BadRequest("请先选择有股票代码的公司")
-    names = ("daily", "daily_basic", "adj_factor", "suspend_d")
-    datasets, sources = {}, []
-    for name in names:
-        datasets[name], versions = read_records(ctx.config.archive_root, company, name)
-        sources.extend(versions)
-    calendar_rows, versions = read_records(ctx.config.archive_root, "", "trade_cal")
-    sources.extend(versions)
+def _canonical_company(ctx, company):
+    if re.fullmatch(r"[A-Za-z0-9]+\.(?:SH|SZ|BJ|HK|US)", str(company or "")):
+        return company
+    from .companies import company_base
+    base = company_base(ctx, company)
+    match = re.match(r"(\d{6})", base.name)
+    if not match:
+        raise BadRequest("请先选择有股票代码的公司")
+    code = match.group(1)
+    return code + (".SH" if code.startswith("6") else ".SZ")
+
+
+def _snapshot_payload(sources):
+    if len(sources) != 1:
+        raise BadRequest("行情源快照必须是一份完整版本")
+    return json.loads(Path(sources[0]).read_text(encoding="utf-8"))
+
+
+def parse_timeline_snapshot(sources, params):
+    raw = _snapshot_payload(sources)
+    datasets = raw["datasets"]
+    source_versions = [source for entry in datasets.values() for source in entry["sources"]]
+    global_calendar = raw["global_datasets"].get("trade_cal", {"rows": [], "sources": []})
+    source_versions.extend(global_calendar["sources"])
+    company = params["company"]
     exchange = "SSE" if company.endswith(".SH") else "SZSE"
-    calendar_rows = [r for r in calendar_rows if not r.get("exchange") or r["exchange"] == exchange]
+    calendar_rows = [row for row in global_calendar["rows"]
+                     if not row.get("exchange") or row["exchange"] == exchange]
     if not calendar_rows:
-        calendar_rows, versions = read_records(ctx.config.archive_root, company, "trade_cal")
-        sources.extend(versions)
-    return timeline_payload(daily_rows(datasets["daily"], datasets["daily_basic"], datasets["adj_factor"]),
-        company=company, sources=sources, calendar_rows=calendar_rows, suspension_rows=datasets["suspend_d"], **settings)
+        calendar_rows = datasets["trade_cal"]["rows"]
+    settings = {key: params[key] for key in ("cycle", "window", "adjustment", "range", "start", "end")}
+    settings["as_of"] = date_value(params["as_of"])
+    return timeline_payload(daily_rows(datasets["daily"]["rows"], datasets["daily_basic"]["rows"],
+                            datasets["adj_factor"]["rows"]), company=company, sources=source_versions,
+                            calendar_rows=calendar_rows, suspension_rows=datasets["suspend_d"]["rows"], **settings)
+
+
+def parse_income_snapshot(sources, params):
+    raw = _snapshot_payload(sources)
+    income = raw["datasets"]["income"]
+    return {**financial_income(income["rows"]), "available": bool(income["rows"]),
+            "sources": income["sources"], "company": params["company"]}
+
+
+RESEARCH_DATASETS = ("charts.research_timeline", "charts.raw_income")
+
+
+def register_research_datasets(registry):
+    from ..core.models import DatasetSpec
+    from ..datastore import parsers
+    for name, parser in zip(RESEARCH_DATASETS, (parse_timeline_snapshot, parse_income_snapshot)):
+        parsers.register_parser(name, parser, replace=True)
+        registry.dataset(DatasetSpec(name=name, sources=("raw.json",), parser=name, parser_version=1))
+
+
+def cached_timeline(ctx, company, **settings):
+    from .raw_snapshots import ensure_raw_snapshot
+    company = _canonical_company(ctx, company)
+    params = {"cycle": "day", "window": "5", "adjustment": "none", "range": "1", "start": "", "end": ""}
+    params.update(settings)
+    day = params.get("as_of") or date.today()
+    day = day if isinstance(day, date) else date_value(day)
+    if day is None:
+        raise BadRequest("无效数据观察日期")
+    params.update(company=company, as_of=day.isoformat())
+    base, revision, reused = ensure_raw_snapshot(ctx.config, company,
+        ("daily", "daily_basic", "adj_factor", "suspend_d", "trade_cal"))
+    params["raw_revision"] = revision
+    data, meta = ctx.registry.datastore.get("charts.research_timeline", base=base, params=params)
+    return data, {**meta, "raw_revision": revision, "source_snapshot_cached": reused}
+
+
+def load_timeline(ctx, company, **settings):
+    data, meta = cached_timeline(ctx, company, **settings)
+    return {**data, "meta": meta}
+
+
+def cached_financial_income(ctx, company):
+    from .raw_snapshots import ensure_raw_snapshot
+    company = _canonical_company(ctx, company)
+    base, revision, reused = ensure_raw_snapshot(ctx.config, company, ("income",))
+    data, meta = ctx.registry.datastore.get("charts.raw_income", base=base,
+        params={"company": company, "raw_revision": revision})
+    return data, {**meta, "raw_revision": revision, "source_snapshot_cached": reused}
 
 
 def financial_income(rows):
