@@ -780,6 +780,10 @@ def test_legal_empty_window_cannot_cover_other_dates_or_unknown_bounds(store):
                       frame=pd.DataFrame(), result="empty")
     access = DataAccess(store, mode="offline")
     assert access.call("suspend_d", **params).empty
+    # Unknown-window snapshots must not add rows to an explicitly archived empty range.
+    store.write_frame(ticker=ticker, dataset="suspend_d", period="latest", params={"ts_code": ticker},
+                      frame=pd.DataFrame({"trade_date": ["20150105"], "suspend_type": ["S"]}), result="ok")
+    assert access.call("suspend_d", **params).empty
     for request in ({**params, "start_date": "20160101", "end_date": "20161231"},
                     {**params, "end_date": "20161231"}, {**params, "start_date": "20140101"}):
         assert not store.serves_target({"ticker": ticker, "dataset": "suspend_d", "period": "latest", "params": request})

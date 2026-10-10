@@ -213,11 +213,25 @@ class DataAccess:
         request = semantic_params(params)
         requested_fields = _field_list(params.get("fields"))
         window_requested = bool(params.get("start_date") or params.get("end_date"))
+        requested_start = str(params.get("start_date") or "")
+        requested_end = str(params.get("end_date") or "")
         frames = []
         empties = []
         usable_records = []
         for record in records:
             record_params = record.get("params") or {}
+            if window_requested:
+                start = str(record_params.get("start_date") or "")
+                end = str(record_params.get("end_date") or "")
+                try:
+                    first = datetime.strptime(start, "%Y%m%d").date()
+                    last = datetime.strptime(end, "%Y%m%d").date()
+                except ValueError:
+                    continue
+                if first > last or (requested_start and end < requested_start) \
+                        or (requested_end and start > requested_end):
+                    continue
+                # 只解码相交的明确日期分片，未知窗口快照不贡献未经覆盖核验的数据。
             frame = decode_frame(record["columns_json"], record["rows_json"])
             if window_requested:
                 # 达到服务端 limit 的响应可能被截断，不能证明整个请求日期区间完整。
@@ -261,8 +275,6 @@ class DataAccess:
             if requested_period in set(values):
                 combined = combined[values == requested_period]
 
-        requested_start = str(params.get("start_date") or "")
-        requested_end = str(params.get("end_date") or "")
         if requested_start or requested_end:
             if date_column:
                 values = combined[date_column].astype(str)
