@@ -291,7 +291,7 @@ def test_archive_dedup_and_resume_never_recharge_remote(tmp_path):
     fresh = _run(store, targets, pro_fresh, "DEDUP2")
     assert pro_fresh.calls == []
     assert fresh["usage"] == {"new_requests": 0, "archive_hits": len(targets),
-                              "failures": 0, "no_permission": 0}
+                              "failures": 0, "no_permission": 0, "actual_requests": 0}
     assert fresh["status"] == "done"
 
     # 同一个批次 id 续跑（未加 force）：同样零远程调用。续跑路径把「本批次已完成」直接跳过，
