@@ -156,8 +156,8 @@ export async function render(container, panel, payload) {
     return "财报/公司基本信息";
   }
   // mountPanel appends the card after render returns. Begin initial reads on
-  // the next frame, when connection guards distinguish mounted from detached.
-  requestAnimationFrame(() => {
+  // the next task, when connection guards distinguish mounted from detached.
+  setTimeout(() => {
     if (!root.isConnected) return;
     void loadBatches();
     if (company || scope.value === "watchlist") void check();
@@ -165,5 +165,5 @@ export async function render(container, panel, payload) {
       if (!root.isConnected) clearInterval(timer);
       else void loadBatches();
     }, 1800);
-  });
+  }, 0);
 }

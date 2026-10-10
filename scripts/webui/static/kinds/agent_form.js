@@ -62,12 +62,12 @@ export async function render(container, panel, data) {
     }catch(e){if(box.isConnected)result.append(node('p',e.message));}finally{pending=false;if(box.isConnected)void check();}
   };
   // render returns before mountPanel attaches this card. Keep detach guards,
-  // but start preflight/resume after the first frame of its mounted lifetime.
-  requestAnimationFrame(() => {
+  // but start preflight/resume on the next task, after mount; background tabs may suspend frames.
+  setTimeout(() => {
     if (!box.isConnected) return;
     void check();
     if(selection.job){void follow(selection.job).catch(error => {
       if (result.isConnected) result.append(node('p', error.message));
     });}
-  });
+  }, 0);
 }
