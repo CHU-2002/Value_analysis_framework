@@ -8,6 +8,7 @@ import threading
 from collections import Counter
 from datetime import date, datetime, timezone
 
+from datalayer.access import DataAccess
 from datalayer.config import default_periods
 from datalayer.pull import PullBatch, _pid_alive, targets_for
 from datalayer.registry import DATASETS, profile_names
@@ -88,12 +89,23 @@ def _split_years(start, end):
 def _state(store, target):
     record = store.find(target["ticker"], target["dataset"], target["period"],
                         params=target["params"], include_rows=False)
-    if store.serves_target(target):
+    family = store.find_family(target["ticker"], target["dataset"], params=target["params"],
+                               period=None if target["period"] == "latest" else target["period"])
+    replayed = DataAccess._replay(family, target["params"])
+    if replayed is not None:
         if record is None:
-            family = store.find_family(target["ticker"], target["dataset"], params=target["params"],
-                                       period=None if target["period"] == "latest" else target["period"])
+            params = target["params"]
+            if params.get("start_date") or params.get("end_date"):
+                family = [item for item in family
+                          if (item.get("params") or {}).get("start_date")
+                          and (item.get("params") or {}).get("end_date")
+                          and (not params.get("start_date")
+                               or str(item["params"]["end_date"]) >= str(params["start_date"]))
+                          and (not params.get("end_date")
+                               or str(item["params"]["start_date"]) <= str(params["end_date"]))]
             record = max(family, key=lambda item: item.get("fetched_at") or "") if family else None
-        result = (record or {}).get("result") or "ok"
+        # 不相交年份的空响应不能决定这个目标的结果；按真正重放后的数据判定。
+        result = "empty" if replayed.empty else "ok"
     elif record:
         result = record["result"] if record["result"] not in ("ok", "empty") else "stale"
     else:

@@ -774,6 +774,7 @@ def test_history_window_replay_requires_both_bounds_and_preserves_year_shards(st
 
 def test_legal_empty_window_cannot_cover_other_dates_or_unknown_bounds(store):
     from datalayer.access import DataMissing
+    from webui.plugins.research_data import _state
     ticker = "600887.SH"
     params = {"ts_code": ticker, "start_date": "20150101", "end_date": "20151231"}
     store.write_frame(ticker=ticker, dataset="suspend_d", period="latest", params=params,
@@ -794,6 +795,17 @@ def test_legal_empty_window_cannot_cover_other_dates_or_unknown_bounds(store):
                       frame=pd.DataFrame(), result="empty")
     with pytest.raises(DataMissing):
         access.call("adj_factor", **params)
+    # Reusing a narrower window is classified from that window, not a newer unrelated year.
+    store.write_frame(ticker=ticker, dataset="daily_basic", period="latest", params=params,
+                      frame=pd.DataFrame({"trade_date": ["20150105"], "pb": [2]}), result="ok",
+                      fetched_at="2026-09-01T00:00:00Z")
+    store.write_frame(ticker=ticker, dataset="daily_basic", period="latest",
+                      params={**params, "start_date": "20160101", "end_date": "20161231"},
+                      frame=pd.DataFrame(), result="empty", fetched_at="2026-09-02T00:00:00Z")
+    narrow_target = {"ticker": ticker, "dataset": "daily_basic", "period": "latest",
+                     "params": {**params, "end_date": "20150630"}}
+    state, source = _state(store, narrow_target)
+    assert state == "ok" and source["fetched_at"] == "2026-09-01T00:00:00Z"
 
 
 def test_history_critical_fields_and_unknown_metadata_remain_missing(store):
