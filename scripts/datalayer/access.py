@@ -29,7 +29,7 @@ from .dataframe_codec import decode_frame
 from .gaps import DONE_KINDS, classify_result
 from .registry import UnknownDataset, period_of
 from .security import redact, token_fingerprint
-from .store import rows_for_request, sanitize_params, semantic_params
+from .store import DataStore, rows_for_request, sanitize_params, semantic_params
 
 MODE_ONLINE = "online"
 MODE_REFRESH = "refresh"
@@ -145,6 +145,7 @@ class DataAccess:
         # 未在注册表声明的接口（如 `--extra-fields` 临时指定的接口）：
         # 能用，但**不落仓**——不编造一个假的口径字段。拉取范围由「扫描 + 注册表门禁」守住。
         self.undeclared: set[str] = set()
+        self.progress_callback = None
 
     # ------------------------------------------------------------------ 主入口
 
@@ -205,25 +206,60 @@ class DataAccess:
 
         四步：① 逐条解码并按请求的语义入参过滤行（如 `report_type="1"`）；
         ② 多条记录按日期列合并去重（拉取按期次各留一条，调用点要的是整段历史）；
-        ③ 按请求投影字段（缺失的列说明接口本来就没给，与联网路径一致）；
-        ④ 按请求裁剪时间窗口与行数。
+        ③ 检查可用分片连续覆盖窗口（窗口读取必须含全部请求字段）；
+        ④ 按请求裁剪日期，再投影字段与行数。
         """
 
         request = semantic_params(params)
+        requested_fields = _field_list(params.get("fields"))
+        window_requested = bool(params.get("start_date") or params.get("end_date"))
+        requested_start = str(params.get("start_date") or "")
+        requested_end = str(params.get("end_date") or "")
         frames = []
         empties = []
+        usable_records = []
         for record in records:
+            record_params = record.get("params") or {}
+            if window_requested:
+                start = str(record_params.get("start_date") or "")
+                end = str(record_params.get("end_date") or "")
+                try:
+                    first = datetime.strptime(start, "%Y%m%d").date()
+                    last = datetime.strptime(end, "%Y%m%d").date()
+                except ValueError:
+                    continue
+                if first > last or (requested_start and end < requested_start) \
+                        or (requested_end and start > requested_end):
+                    continue
+                # 只解码相交的明确日期分片，未知窗口快照不贡献未经覆盖核验的数据。
             frame = decode_frame(record["columns_json"], record["rows_json"])
+            if window_requested:
+                # 达到服务端 limit 的响应可能被截断，不能证明整个请求日期区间完整。
+                try:
+                    if record_params.get("limit") is not None and len(frame) >= int(record_params["limit"]):
+                        continue
+                except (TypeError, ValueError):
+                    continue
             if frame.empty:
+                if any(str(record_params.get(key, "")) != str(value)
+                       for key, value in request.items()):
+                    continue
                 empties.append(frame)
+                usable_records.append(record)
                 continue
-            filtered = _filter_rows(frame, request, record.get("params") or {})
+            filtered = _filter_rows(frame, request, record_params)
             if filtered is None:
                 continue
+            if window_requested:
+                if _date_column(filtered) is None or any(name not in filtered.columns for name in requested_fields):
+                    continue
             period = str((record.get("params") or {}).get("period") or record.get("period") or "")
             # 优先级：明确期次的记录（0）先于 latest 的整段历史记录（1）；同组列数多的先。
             priority = (1 if period in ("", "latest") else 0, -len(filtered.columns))
             frames.append((priority, filtered))
+            usable_records.append(record)
+        if not DataStore._window_covers(usable_records, params):
+            return None
         if not frames:
             if empties:
                 # 「确实为空」也是信息（`REQ-009.4` 的 `AC-4.5`）：空结果直接重放。
@@ -239,22 +275,7 @@ class DataAccess:
             if requested_period in set(values):
                 combined = combined[values == requested_period]
 
-        requested_fields = _field_list(params.get("fields"))
-        if requested_fields:
-            available = [name for name in requested_fields if name in combined.columns]
-            if not available:
-                return None
-            combined = combined[available]
-
-        requested_start = str(params.get("start_date") or "")
-        requested_end = str(params.get("end_date") or "")
         if requested_start or requested_end:
-            starts = [str((record.get("params") or {}).get("start_date") or "")
-                      for record in records]
-            known = [value for value in starts if value]
-            if requested_start and known and min(known) > requested_start:
-                # 仓里的起点更晚 = 历史更短：覆盖不了这次请求。
-                return None
             if date_column:
                 values = combined[date_column].astype(str)
                 if requested_start:
@@ -262,6 +283,12 @@ class DataAccess:
                 if requested_end:
                     values = combined[date_column].astype(str)
                     combined = combined[values <= requested_end]
+
+        if requested_fields:
+            available = [name for name in requested_fields if name in combined.columns]
+            if not available:
+                return None
+            combined = combined[available]
 
         limit = params.get("limit")
         if limit is not None:
@@ -323,13 +350,15 @@ class DataAccess:
         for attempt in range(1, retries + 1):
             self._pace()
             self.remote_calls += 1
+            self._notify("collecting")
             try:
                 return getattr(client.pro, effective_name)(**params)
             except Exception as exc:  # noqa: BLE001（分类与重试规则见下）
                 last_err = exc
                 if self._is_permanent(exc):
                     # 权限类错误重试无意义（F3）：立即放弃，不占用 5 次重试。
-                    print(f"{effective_name}: permanent error ({exc}); not retrying", file=sys.stderr)
+                    print(redact(f"{effective_name}: permanent error ({exc}); not retrying",
+                                 (self.token,)), file=sys.stderr)
                     break
                 if attempt < retries:
                     if self._is_connection_error(exc):
@@ -338,13 +367,21 @@ class DataAccess:
                         client.pro = client._new_pro_api()
                         self._apply_broker(client)
                     else:
-                        print(f"[retry {attempt}/{retries}] {effective_name}: {exc}", file=sys.stderr)
+                        print(redact(f"[retry {attempt}/{retries}] {effective_name}: {exc}",
+                                     (self.token,)), file=sys.stderr)
+                    self._notify("waiting_rate_limit" if classify_result(error=exc)[0] == "rate_limited"
+                                 else "waiting_retry")
                     time.sleep(retry_delay * attempt)
         raise DataUnavailable(dataset, effective_name, retries, last_err)
 
     def _pace(self):
         if self.rate_limit_seconds:
+            self._notify("waiting_rate_limit")
             time.sleep(self.rate_limit_seconds)
+
+    def _notify(self, phase):
+        if self.progress_callback is not None:
+            self.progress_callback(phase)
 
     @staticmethod
     def _is_permanent(exc) -> bool:

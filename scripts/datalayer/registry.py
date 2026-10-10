@@ -65,6 +65,9 @@ _SPECS = (
     # --- 时间序列型：一次调用一段序列，period 记为 latest ---
     _spec("daily", TIMESERIES, False, "日线行情", tiers=_FRUGAL, window=(("years", 1),)),
     _spec("daily_basic", TIMESERIES, False, "每日指标"),
+    _spec("adj_factor", TIMESERIES, False, "价格复权因子", tiers=()),
+    _spec("trade_cal", TIMESERIES, False, "交易日历", tiers=()),
+    _spec("suspend_d", TIMESERIES, False, "停复牌记录", tiers=()),
     _spec("weekly", TIMESERIES, False, "周线行情", window=(("years", 10),)),
     # 10 年：`financials.py::_get_weekly_prices_hk` 的降级路径用 hk_daily 取十年再重采样成周线
     # （独立复核 B5 抓到声明 1 年会让 §11 的 HK 缺口永远补不上：窗口更窄 → 读取判未命中 →

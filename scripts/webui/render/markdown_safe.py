@@ -83,7 +83,7 @@ def _render_table(rows: list) -> str:
     return f"<table><thead><tr>{head_html}</tr></thead><tbody>{body_html}</tbody></table>"
 
 
-def render(text: str) -> str:
+def render(text: str, *, headings=None) -> str:
     """把 Markdown 文本渲染成 HTML 片段（无 `<script>`、无原始 HTML）。"""
     lines = (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
     out: list = []
@@ -93,6 +93,8 @@ def render(text: str) -> str:
     table_rows: list = []
     code_lines: list = []
     in_code = False
+    code_language = ""
+    heading_number = 0
 
     def flush_paragraph() -> None:
         if paragraph:
@@ -120,7 +122,10 @@ def render(text: str) -> str:
         if in_code:
             if _FENCE_RE.match(line):
                 in_code = False
-                out.append(f"<pre><code>{escape(chr(10).join(code_lines))}</code></pre>")
+                block = f"<pre><code>{escape(chr(10).join(code_lines))}</code></pre>"
+                if code_language.lower().strip() == "json":
+                    block = f'<details class="report-json"><summary>技术 JSON（展开查看）</summary>{block}</details>'
+                out.append(block)
                 code_lines = []
             else:
                 code_lines.append(line)
@@ -128,6 +133,7 @@ def render(text: str) -> str:
         if _FENCE_RE.match(line):
             flush_all()
             in_code = True
+            code_language = _FENCE_RE.match(line).group(1)
             code_lines = []
             continue
         if not line.strip():
@@ -143,7 +149,14 @@ def render(text: str) -> str:
         if heading:
             flush_all()
             level = len(heading.group(1))
-            out.append(f"<h{level}>{_inline(escape(heading.group(2).strip()))}</h{level}>")
+            title = heading.group(2).strip()
+            anchor = ""
+            if headings is not None:
+                heading_number += 1
+                key = f"report-heading-{heading_number}"
+                headings.append({"id": key, "level": level, "title": title})
+                anchor = f' id="{key}"'
+            out.append(f"<h{level}{anchor}>{_inline(escape(title))}</h{level}>")
             continue
         if _HR_RE.match(line):
             flush_all()
@@ -167,9 +180,18 @@ def render(text: str) -> str:
         paragraph.append(line.strip())
 
     if in_code and code_lines:  # 未闭合的代码围栏：按代码块收尾，不吞内容
-        out.append(f"<pre><code>{escape(chr(10).join(code_lines))}</code></pre>")
+        block = f"<pre><code>{escape(chr(10).join(code_lines))}</code></pre>"
+        if code_language.lower().strip() == "json":
+            block = f'<details class="report-json"><summary>技术 JSON（展开查看）</summary>{block}</details>'
+        out.append(block)
     flush_all()
     return "".join(out)
 
 
-__all__ = ["render"]
+def render_document(text: str) -> tuple:
+    """目录与 HTML 在同一趟解析生成；围栏内伪标题不会进入目录。"""
+    headings = []
+    return render(text, headings=headings), headings
+
+
+__all__ = ["render", "render_document"]

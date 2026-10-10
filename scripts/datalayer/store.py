@@ -23,7 +23,7 @@ import os
 import sqlite3
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import NamedTuple
 
@@ -38,11 +38,10 @@ CREDENTIAL_KEYS = (
     "access_key", "access_token", "private_key", "auth",
 )
 
-# **投影类**入参不进唯一键：它们只决定「要哪几列、要哪一段窗口、返回多少行」，
-# 不改变这份数据的语义。把它们算进键，会出现「拉取时的 fields 与调用点的 fields
-# 差一个字段就永远读不到仓里的数据」——离线重建会静默变成一片「数据缺失」。
-# 读取路径据此做投影与窗口裁剪，并且**窗口更窄时判为未命中**（缺口可见，不糊弄）。
+# 读取时窗口属于投影，能从连续日期分片组合出来；存储时日期必须进唯一键，
+# 否则同一标的的下一年响应会覆盖上一年。fields / limit 仍不改变记录身份。
 PROJECTION_KEYS = ("fields", "start_date", "end_date", "limit")
+IDENTITY_PROJECTION_KEYS = ("fields", "limit")
 
 # 记录表的列顺序（INSERT 与 SELECT 共用，避免两处漂移）。
 COLUMNS = (
@@ -145,7 +144,7 @@ def sanitize_params(params: dict | None) -> dict:
 
 
 def key_params(params: dict | None) -> dict:
-    """唯一键用的入参：剔除凭据类键、**投影类**键与 ``period``。
+    """唯一键用的入参：剔除凭据、fields / limit 与 ``period``，保留日期分片。
 
     `period` 不进指纹是因为它已经是一列（`raw_record.period`）：同一个接口在同一标的上
     会按多个期次各留一条记录，指纹应当是「同一类请求」的标识，而不是单条记录的标识。
@@ -156,7 +155,7 @@ def key_params(params: dict | None) -> dict:
     return {
         str(key): value
         for key, value in sanitize_params(params).items()
-        if str(key).lower() not in PROJECTION_KEYS and str(key).lower() != "period"
+        if str(key).lower() not in IDENTITY_PROJECTION_KEYS and str(key).lower() != "period"
     }
 
 
@@ -477,6 +476,17 @@ class DataStore:
         if key is None:
             raise ValueError("find() 需要 params 或 param_digest")
         row = self._select(self._connect(), ticker, dataset, period, key)
+        if row is None and params is not None and param_digest is None:
+            # 旧版本的摘要去掉日期。只读兼容，不迁移、不删除；先核对实际参数，
+            # 不能把摘要碰巧相同的上一年记录当作这一年的记录。
+            legacy_params = {name: value for name, value in key_params(params).items()
+                             if name.lower() not in ("start_date", "end_date")}
+            legacy_key = hashlib.sha256(json.dumps(
+                legacy_params, sort_keys=True, ensure_ascii=False,
+                separators=(",", ":"), default=str).encode("utf-8")).hexdigest()[:16]
+            candidate = self._select(self._connect(), ticker, dataset, period, legacy_key)
+            if candidate is not None and key_params(json.loads(candidate["params_json"])) == key_params(params):
+                row = candidate
         return self._row(row, include_rows=include_rows) if row is not None else None
 
     def has(self, target: dict) -> bool:
@@ -489,12 +499,9 @@ class DataStore:
         两者都不该在「补齐缺口」时被当成未完成——`empty` 已在仓里，按 `AC-6` 的去重语义跳过。
         """
 
-        row = self._connect().execute(
-            "SELECT result FROM raw_record WHERE ticker = ? AND dataset = ? AND period = ? "
-            "AND param_key = ?",
-            (str(target.get("ticker", "")), str(target.get("dataset", "")),
-             str(target.get("period", "")), param_key(target.get("params", {}))),
-        ).fetchone()
+        row = self.find(str(target.get("ticker", "")), str(target.get("dataset", "")),
+                        str(target.get("period", "")), params=target.get("params", {}),
+                        include_rows=False)
         return row["result"] if row is not None else None
 
     def gap_reason(self, ticker: str, dataset: str, *, params: dict | None = None,
@@ -516,7 +523,7 @@ class DataStore:
         ).fetchall()
         for row in rows:
             record = self._row(row, include_rows=False)
-            if record_serves(record.get("params") or {}, request):
+            if record_serves(record.get("params") or {}, request) and self._window_covers([record], params or {}):
                 return {
                     "result": record["result"],
                     "label": GAP_RESULT_LABELS.get(record["result"], record["result"]),
@@ -534,7 +541,7 @@ class DataStore:
         这里把两关都过一遍，缺口判定因此与读取路径同源。
         """
 
-        from .dataframe_codec import decode_frame
+        from .access import DataAccess
 
         params = dict(target.get("params") or {})
         ticker = str(target.get("ticker") or params.get("ts_code") or "")
@@ -542,35 +549,53 @@ class DataStore:
         period = str(target.get("period") or "")
         records = self.find_family(ticker, dataset, params=params,
                                    period=None if period in ("", "latest") else period)
-        if not records:
-            return False
-        if not self._window_covers(records, params):
-            return False
-        request = semantic_params(params)
-        requested_fields = [item.strip() for item in str(params.get("fields") or "").split(",")
-                            if item.strip()]
-        for record in records:
-            frame = decode_frame(record["columns_json"], record["rows_json"])
-            if frame.empty:
-                # 「确实为空」也算有记录（与 `REQ-009.4` 的 `AC-4.5` 一致）。
-                return True
-            if requested_fields and not any(name in frame.columns for name in requested_fields):
-                # 与 `_replay` 的投影规则同源：请求的列一列都不在帧里 → 这次读取会判未命中。
-                continue
-            if rows_for_request(frame, request, record.get("params") or {}) is not None:
-                return True
-        return False
+        return bool(records) and DataAccess._replay(records, params) is not None
 
     @staticmethod
     def _window_covers(records: list[dict], params: dict) -> bool:
-        """请求的起点只要不比仓里的起点更早，就算覆盖（终点是「数据截至」，不参与判定）。"""
+        """成功响应的明确请求区间必须连续覆盖目标两端；空结果同样只证明自己的区间。
 
-        requested_start = str(params.get("start_date") or "")
-        if not requested_start:
+        不从首末返回行推测覆盖范围（节假日、停牌、空结果都是合法情况），也不把
+        未登记日期的历史快照当作完整历史。日期分片可相邻或重叠，中间缺一天也算缺口。
+        """
+
+        if not params.get("start_date") and not params.get("end_date"):
             return True
-        starts = [str((record.get("params") or {}).get("start_date") or "") for record in records]
-        known = [value for value in starts if value]
-        return not known or min(known) <= requested_start
+        intervals = []
+        for record in records:
+            recorded = record.get("params") or {}
+            try:
+                start = datetime.strptime(str(recorded.get("start_date") or ""), "%Y%m%d").date()
+                end = datetime.strptime(str(recorded.get("end_date") or ""), "%Y%m%d").date()
+            except ValueError:
+                continue
+            if start <= end:
+                intervals.append((start, end))
+        if not intervals:
+            return False
+        intervals.sort()
+        try:
+            requested_start = datetime.strptime(str(params["start_date"]), "%Y%m%d").date() \
+                if params.get("start_date") else intervals[0][0]
+            requested_end = datetime.strptime(str(params["end_date"]), "%Y%m%d").date() \
+                if params.get("end_date") else max(end for _, end in intervals)
+        except ValueError:
+            return False
+        if requested_start > requested_end:
+            return False
+        covered_end = None
+        for start, end in intervals:
+            if end < requested_start:
+                continue
+            if covered_end is None:
+                if start > requested_start:
+                    return False
+            elif start > covered_end + timedelta(days=1):
+                return False
+            covered_end = max(end, covered_end or end)
+            if covered_end >= requested_end:
+                return True
+        return False
 
     def records(self, *, ticker: str | None = None, dataset: str | None = None,
                 period: str | None = None, period_type: str | None = None,

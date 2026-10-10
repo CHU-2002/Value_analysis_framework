@@ -291,7 +291,7 @@ def test_archive_dedup_and_resume_never_recharge_remote(tmp_path):
     fresh = _run(store, targets, pro_fresh, "DEDUP2")
     assert pro_fresh.calls == []
     assert fresh["usage"] == {"new_requests": 0, "archive_hits": len(targets),
-                              "failures": 0, "no_permission": 0}
+                              "failures": 0, "no_permission": 0, "actual_requests": 0}
     assert fresh["status"] == "done"
 
     # 同一个批次 id 续跑（未加 force）：同样零远程调用。续跑路径把「本批次已完成」直接跳过，
@@ -335,7 +335,9 @@ def test_keyboard_interrupt_pauses_batch_then_resume_pulls_only_remaining(tmp_pa
         seen.append(name)
         if len(seen) == len(targets):
             raise KeyboardInterrupt()
-        return pd.DataFrame({"value": [1]})
+        # 已完成目标必须真的可重放；随意返回 value 列会被正确判为缺口并重新采集。
+        target = next(target for target in targets if target["dataset"] == name)
+        return getattr(_FakePro(), name)(**target["params"])
 
     with pytest.raises(KeyboardInterrupt):
         _run(store, targets, _FakePro(responder), "RESUME")
@@ -571,8 +573,10 @@ def test_only_gaps_uses_the_read_path_not_just_the_result_enum(tmp_path, monkeyp
         {"ticker": "600887.SH", "dataset": "fina_mainbz", "period": "20251231",
          "params": {"ts_code": "600887.SH", "period": "20251231", "type": "P"}},
     ]
-    # 第 0 个是「上次结果 ok」但窗口更窄——旧判据会漏掉它（`result_of` 走投影剔除后的键）。
-    assert store.result_of(targets[0]) == "ok"
+    # 日期分片现在各有唯一键；窄窗口仍保留成功记录，更宽目标没有精确记录。
+    assert store.find("600887.SH", "daily", "latest", params={
+        "ts_code": "600887.SH", "start_date": "20260829", "end_date": "20260929"})["result"] == "ok"
+    assert store.result_of(targets[0]) is None
     assert store.serves_target(targets[0]) is False, "窗口更窄 → 读取路径判未命中"
     # 第 1 个连精确键都对不上（记录没带 `type`），而且语义入参也核不出来。
     assert store.result_of(targets[1]) is None
@@ -607,3 +611,34 @@ def test_force_does_not_leave_the_access_in_refresh_mode(tmp_path):
         batch_id="MODE2", confirm=True)
     assert len(pro.calls) == before, "下一轮非 force 不该因为残留 refresh 而出网"
     assert batch["usage"]["archive_hits"] == len(targets)
+
+# 覆盖需求：REQ-015.4 —— AC-4.2 实际请求含重试、暂停落盘、失败目标可显式恢复。
+
+def test_research_batch_actual_requests_include_retries_and_failed_targets_resume(tmp_path):
+    store = DataStore(tmp_path / "store")
+    targets = _sample_targets()[:1]
+    pro = _FakePro(lambda _: (_ for _ in ()).throw(ValueError("temporary error")))
+    failed = _run(store, targets, pro, "RESEARCH-RETRY")
+    assert failed["status"] == "partial" and failed["usage"]["actual_requests"] == 5
+    assert failed["usage"]["new_requests"] == 1  # legacy logical target count remains compatible
+    resumed = _run(store, targets, _FakePro(), "RESEARCH-RETRY")
+    assert resumed["status"] == "done" and resumed["usage"]["actual_requests"] == 6
+    assert resumed["summary"]["counts"]["ok"] == 1
+
+
+def test_research_batch_user_pause_preserves_completed_and_pending(tmp_path):
+    store = DataStore(tmp_path / "store")
+    targets = _sample_targets()
+    client = _client(store, _FakePro())
+    calls = []
+    def pause_after_one():
+        calls.append(1)
+        return len(calls) > 1
+    with pytest.raises(KeyboardInterrupt):
+        pull.PullBatch(store, targets, "frugal", client._access, token="test-token",
+                       should_pause=pause_after_one).run(batch_id="RESEARCH-PAUSE", confirm=True)
+    persisted = DataStore(tmp_path / "store").load_batch("RESEARCH-PAUSE")
+    assert persisted["status"] == "paused" and persisted["progress"]["completed"] == 1
+    assert len(persisted["targets"]) == len(targets) and persisted["usage"]["actual_requests"] == 1
+    resumed = _run(store, targets, _FakePro(), "RESEARCH-PAUSE")
+    assert resumed["status"] == "done" and resumed["progress"]["completed"] == len(targets)

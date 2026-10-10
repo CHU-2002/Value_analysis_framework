@@ -1,3 +1,4 @@
+# 覆盖需求：REQ-015、REQ-015.2（AC-2.1~2.4：目录、单次模型传递、非法组合零分析、产物判定与审计）
 # 覆盖需求：REQ-013.1（包装脚本与动作白名单：AC-1.1~AC-1.4）
 # 覆盖需求：REQ-013.2（最小界面「一键页」：AC-2.1~AC-2.5）
 # 覆盖需求：REQ-013、REQ-013.3（预检、链接、审计、并发与取消：AC-1~AC-7 / AC-3.1~AC-3.4）
@@ -64,7 +65,8 @@ if os.environ.get("FAKE_CLI_ARTIFACTS"):
     run.mkdir(parents=True, exist_ok=True)
     (run / "run.json").write_text('{"run_id":"new-run"}')
     (run / "qualitative_report.md").write_text("# updated report")
-    (run / "change_report_2026H1.md").write_text("# changed")
+    if not os.environ.get("FAKE_CLI_NO_CHANGE"):
+        (run / "change_report_2026H1.md").write_text("# changed")
 sys.stdout.write("fake-cli-stdout\\n")
 sys.stdout.flush()
 sys.stderr.write("fake-cli-stderr\\n")
@@ -309,7 +311,7 @@ def test_each_command_pins_its_action_and_exposes_only_the_ticker(tmp_path):
     commands = call_route(registry, "GET", agent_plugin.ENDPOINT)["data"]["commands"]
     expected_actions = [action for _, action, _, _ in agent_plugin.ACTIONS]
     for item, action in zip(commands, expected_actions):
-        assert [param["name"] for param in item["params"]] == ["ticker"]
+        assert [param["name"] for param in item["params"]] == ["ticker", "backend", "model"]
         assert item["params"][0]["required"] is True
         assert "600887.SH" in item["params"][0]["help"]
         assert item["argv"][2:4] == ["--action", action]
@@ -333,7 +335,7 @@ def test_build_argv_yields_the_full_audited_command_line(tmp_path):
     spec = registry.command_spec("agent_update_analysis")
     assert build_argv(spec, {"ticker": "600887.SH"}) == [
         sys.executable, str(SCRIPT), "--action", "update-analysis",
-        "--output-root", str(config.output_root.resolve()), "--cli", "codex",
+        "--output-root", str(config.output_root.resolve()), "--require-report",
         "--ticker", "600887.SH",
     ]
 
@@ -349,7 +351,7 @@ def test_free_text_cannot_enter_the_command(tmp_path):
 
 
 def test_agent_page_is_a_form_panel_pointing_at_the_dedicated_endpoint(tmp_path):
-    """AC-2.1 / AC-2.5：复用既有 `form` 渲染器；页面本身不降级。"""
+    """AC-2.1 / AC-2.5：独立 agent-form 继续使用 CommandSpec 与相同预检/确认协议；页面不降级。"""
     _, registry = make_app(tmp_path)
     payload = call_route(registry, "GET", "/api/v1/pages/agent")
     assert payload["warnings"] == []
@@ -357,7 +359,7 @@ def test_agent_page_is_a_form_panel_pointing_at_the_dedicated_endpoint(tmp_path)
     assert page["id"] == "agent" and page["panels"]
     panel = page["panels"][0]
     assert panel["id"] == "agent.actions"
-    assert panel["kind"] == "form" and panel["render"] == "client"
+    assert panel["kind"] == "agent-form" and panel["render"] == "client"
     assert panel["endpoint"] == agent_plugin.ENDPOINT
     assert len(panel["data"]["commands"]) == 3
 
@@ -508,6 +510,7 @@ def test_jobs_normalize_deduplicate_cancel_and_preserve_redacted_audit(tmp_path,
     second = second_runner.submit("agent_update_analysis", {"ticker": "600887"})
     wait_for(lambda: second_runner.get(second["id"])["status"] == "failed")
     wait_for(lambda: (second_runner.history_dir / (second["id"] + ".json")).exists())
+    wait_for(lambda: json.loads((second_runner.history_dir / (second["id"] + ".json")).read_text())["status"] == "failed")
     detail = second_runner.get(second["id"])
     history = (second_runner.history_dir / (second["id"] + ".json")).read_text()
     assert detail["exit_code"] == 7
@@ -554,9 +557,11 @@ def test_only_this_tasks_new_outputs_link_and_empty_result_is_explicit(tmp_path,
     registry.jobs = JobRunner(config, spec_lookup=registry.command_spec, env=os.environ)
     assert call_route(registry, "GET", path)["data"]["links"] == output["links"]
     empty = registry.jobs.submit("agent_value_analysis", {"ticker": "600887"})
-    wait_for(lambda: registry.jobs.get(empty["id"])["status"] == "finished")
+    wait_for(lambda: registry.jobs.get(empty["id"])["status"] == "failed")
+    assert registry.jobs.get(empty["id"])["exit_code"] == 6
     no_output = call_route(registry, "GET", f"/api/v1/agent/jobs/{empty['id']}/artifacts")["data"]
-    assert no_output == {"links": [], "message": "本次没有找到新产物"}
+    assert no_output["links"] == [] and "报告未产出" in no_output["message"]
+    assert no_output["outcome"] == "missing" and no_output["actual_model"] == "未知"
     # A cancelled queue entry never executed; another producer's fresh file
     # must not become its artifact merely because it waited in the queue.
     from dataclasses import replace
@@ -576,8 +581,102 @@ def test_only_this_tasks_new_outputs_link_and_empty_result_is_explicit(tmp_path,
     slow.cancel(queued["id"])
     cancelled_outputs = call_route(
         registry, "GET", f"/api/v1/agent/jobs/{queued['id']}/artifacts")["data"]
-    assert cancelled_outputs == {"links": [], "message": "本次没有找到新产物"}
+    assert cancelled_outputs["links"] == [] and "报告未产出" in cancelled_outputs["message"]
+    assert cancelled_outputs["outcome"] == "missing" and cancelled_outputs["audit"] == {}
     assert "execution_started_at" not in slow.get(queued["id"])["outputs"]
     slow.cancel(active["id"])
     wait_for(lambda: slow.get(active["id"])["status"] == "cancelled")
     slow.shutdown()
+
+
+@pytest.mark.parametrize("backend,model", [("codex", "gpt-5.5"), ("claude", "sonnet")])
+def test_selected_model_reaches_each_fake_cli_once_and_is_audited(tmp_path, backend, model):
+    # AC-2.3: both protocols receive the selected model, per-process only.
+    base = make_company_dir(tmp_path)
+    completed, marker = run_script(tmp_path, "--action", "update-analysis", "--ticker", "600887",
+                                   "--backend", backend, "--model", model,
+                                   "--cli", make_fake_cli(tmp_path), "--output-root", tmp_path,
+                                   "--require-report", env={"FAKE_CLI_ARTIFACTS": str(base)})
+    assert completed.returncode == 0
+    argv = json.loads(marker.read_text())
+    assert argv[argv.index("--model") + 1] == model
+    assert ("exec" in argv) == (backend == "codex")
+    assert ("-p" in argv) == (backend == "claude")
+    audit = json.loads(next((tmp_path / ".agent_audit").glob("*.json")).read_text())
+    assert audit["requested_model"] == model and audit["requested_agent"] == backend
+    assert audit["actual_model"] == "未知" and audit["reports"]
+    assert not (tmp_path / "config.toml").exists()
+    partial_root = tmp_path / "partial"
+    partial_base = make_company_dir(partial_root)
+    partial, _ = run_script(partial_root, "--action", "update-analysis", "--ticker", "600887",
+                            "--backend", backend, "--model", model, "--cli", make_fake_cli(partial_root),
+                            "--output-root", partial_root, "--require-report",
+                            env={"FAKE_CLI_ARTIFACTS": str(partial_base), "FAKE_CLI_NO_CHANGE": "1"})
+    assert partial.returncode == 6 and "变化报告" in partial.stdout and "不会自动重跑" in partial.stdout
+    partial_audit = json.loads(next((partial_root / ".agent_audit").glob("*.json")).read_text())
+    assert partial_audit["exit_code"] == 0 and partial_audit["missing_reports"] == ["变化报告"]
+
+
+def test_invalid_agent_model_combinations_never_launch(tmp_path, monkeypatch):
+    fake = make_fake_cli(tmp_path)
+    monkeypatch.setenv("AGENT_CLI", str(fake))
+    make_company_dir(tmp_path)
+    for backend, model in [("codex", "sonnet"), ("claude", "gpt-5.5"), ("codex", "gpt-6.1-sol"), ("codex", "bad;command")]:
+        completed, marker = run_script(tmp_path, "--action", "value-analysis", "--ticker", "600887",
+                                       "--backend", backend, "--model", model, "--cli", fake, "--output-root", tmp_path)
+        assert completed.returncode == 2 and not marker.exists()
+    config, registry = make_app(tmp_path / "gui")
+    make_company_dir(config.output_root)
+    calls = []
+    runner = JobRunner(config, spec_lookup=registry.command_spec, popen=lambda *a, **kw: calls.append(a))
+    for params in ({"ticker":"600887", "backend":"arbitrary"}, {"ticker":"600887", "backend":"claude", "model":"gpt-5.5"}):
+        with pytest.raises(InvalidParam): runner.submit("agent_value_analysis", params)
+    assert calls == [] and runner.list_jobs() == []
+
+
+def test_preflight_accepts_global_company_and_does_not_create_task(tmp_path, monkeypatch):
+    # REQ-013 T13 + AC-2.1/2.2: metadata in the transport must not block legal input.
+    fake=make_fake_cli(tmp_path);monkeypatch.setenv("AGENT_CLI",str(fake))
+    config,registry=make_app(tmp_path);make_company_dir(config.output_root)
+    result=call_route(registry,"GET","/api/v1/agent/preflight",command="agent_update_analysis",company="600887.SH",ticker="600887")["data"]
+    assert result["ready"] and result["ticker"]=="600887.SH"
+    assert "gpt-5.5" in [m["id"] for a in result["configuration"] for m in a["models"]]
+    with pytest.raises(InvalidParam):
+        call_route(registry,"GET","/api/v1/agent/preflight",command="agent_update_analysis",company="600887.SH",ticker="600887",prompt="evil")
+    assert list((config.output_root/"600887_伊利").iterdir())==[]
+
+
+def test_defaults_remain_unknown_and_known_incompatible_default_is_blocked(tmp_path, monkeypatch):
+    import agent_models
+    monkeypatch.setattr(agent_models.Path,"home",lambda:tmp_path)
+    monkeypatch.delenv("ANTHROPIC_MODEL",raising=False);monkeypatch.delenv("CODEX_HOME",raising=False)
+    assert agent_models.default_model("codex")["model"] is None
+    assert agent_models.default_model("claude")["model"] is None
+    (tmp_path/".codex").mkdir(); (tmp_path/".codex/config.toml").write_text('model = "gpt-6.1-sol"')
+    with pytest.raises(ValueError,match="默认模型已知不兼容"):
+        agent_models.validate_default("codex","default")
+    assert agent_models.validate_model("codex","default") is None
+
+
+def test_report_missing_is_failure_and_only_content_changes_count(tmp_path):
+    base=make_company_dir(tmp_path);(base/"qualitative_report.md").write_text("# unchanged")
+    completed,_=run_script(tmp_path,"--action","business-analysis","--ticker","600887","--cli",make_fake_cli(tmp_path),"--output-root",tmp_path,"--require-report")
+    assert completed.returncode==6 and "报告未产出" in completed.stdout
+    audit=json.loads(next((tmp_path/".agent_audit").glob("*.json")).read_text())
+    assert audit["exit_code"]==0 and audit["reports"]==[]
+
+
+def test_actual_cli_model_event_and_codex_record_are_evidence(tmp_path, monkeypatch):
+    import sqlite3
+    cli=tmp_path/"claude";cli.write_text('#!'+sys.executable+'\nprint(\'{"type":"system","subtype":"init","model":"claude-sonnet-4-6"}\')\n');cli.chmod(0o755)
+    make_company_dir(tmp_path)
+    completed,_=run_script(tmp_path,"--action","business-analysis","--ticker","600887","--cli",cli,"--output-root",tmp_path,"--backend","claude","--model","sonnet")
+    assert completed.returncode==0
+    audit=json.loads(next((tmp_path/".agent_audit").glob("*.json")).read_text())
+    assert audit["actual_model"]=="claude-sonnet-4-6"
+    monkeypatch.setenv("CODEX_HOME",str(tmp_path));db=tmp_path/"state_5.sqlite"
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE threads (id TEXT, model TEXT)")
+        conn.execute("INSERT INTO threads VALUES ('own-thread','gpt-5.5')")
+    assert agent_action._codex_recorded_model("own-thread")=="gpt-5.5"
+    assert agent_action._codex_recorded_model("another-thread") is None

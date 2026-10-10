@@ -48,7 +48,7 @@ def api_eligible(api: str, market: str) -> bool:
         return market in HK_MARKETS
     if api.startswith("us_"):
         return market in US_MARKETS
-    if api == "stock_basic":
+    if api in ("stock_basic", "adj_factor", "trade_cal", "suspend_d"):
         return market in CN_MARKETS
     return True
 
@@ -102,12 +102,15 @@ def targets_for(tickers, periods, profile: str, *, params_by_api=None,
                 base = {**params_for(api, variant, today=today), **params_by_api.get(api, {})}
                 for period in api_periods:
                     params = dict(base)
-                    params.setdefault("ts_code", ticker)
+                    if api == "trade_cal":
+                        params.setdefault("exchange", "SZSE" if market == "SZ" else "SSE")
+                    else:
+                        params.setdefault("ts_code", ticker)
                     if period != "latest":
                         params.setdefault("period", period)
                     # 接口若把 ts_code 钉成字面量（如 yc_cb 的 `1001.CB`），目标的标的
                     # 就是那个值——否则批次去重与冒烟读都会拿错标的去查仓。
-                    targets.append({"ticker": str(params.get("ts_code") or ticker),
+                    targets.append({"ticker": "" if api == "trade_cal" else str(params.get("ts_code") or ticker),
                                     "dataset": api, "period": period, "params": params})
     return targets
 
@@ -205,14 +208,17 @@ def _pid_alive(pid) -> bool:
 
 
 def _target_summary(target: dict) -> dict:
-    return {key: target.get(key) for key in ("ticker", "dataset", "period", "params")}
+    summary = {key: target.get(key) for key in ("ticker", "dataset", "period", "params")}
+    if target.get("company_ticker"):
+        summary["company_ticker"] = target["company_ticker"]
+    return summary
 
 
 class PullBatch:
     """一个批次：逐目标取数、去重、断点续跑、四类计数。"""
 
     def __init__(self, store, targets, profile: str, access, *, token: str = "",
-                 tier_label: str = "", clock=None):
+                 tier_label: str = "", clock=None, should_pause=None):
         self.store = store
         self.targets = [dict(target) for target in targets]
         registry.profile_datasets(profile)  # 未知档位立刻报错
@@ -221,6 +227,7 @@ class PullBatch:
         self.token = token
         self.tier_label = tier_label
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.should_pause = should_pause or (lambda: False)
 
     @staticmethod
     def create_id() -> str:
@@ -245,7 +252,7 @@ class PullBatch:
             "status": "pending", "completed": {}, "created_at": self.clock().isoformat(),
             "estimate": estimate_size,
             "progress": {"completed": 0, "total": len(self.targets)},
-            "usage": {"new_requests": 0, "archive_hits": 0},
+            "usage": {"new_requests": 0, "archive_hits": 0, "actual_requests": 0},
         }
         if batch.get("profile") != self.profile:
             raise UsageError("恢复批次的配额档案与原批次不一致")
@@ -283,6 +290,8 @@ class PullBatch:
         batch.update(status="running", owner_pid=os.getpid(),
                      heartbeat_at=self.clock().isoformat())
         batch.setdefault("usage", {"new_requests": 0, "archive_hits": 0})
+        if "actual_requests" not in batch["usage"] and batch.get("completed"):
+            batch["usage"]["actual_requests_incomplete"] = True
         # 档位标签与配额档案要落到**每条记录**上（`AC-3` 的「档位标签」+ `REQ-009.4` 的
         # `AC-4.7` 语义）：独立复核 B4 抓到 `--tier-label` 是个死选项——批次收了它却从不
         # 传给取数门面，于是仓里的 `tier_label` / `quota_profile` 永远是空。
@@ -293,9 +302,14 @@ class PullBatch:
         self.store.append_batch(batch)
         try:
             for target in batch["targets"]:
+                if self.should_pause():
+                    raise KeyboardInterrupt
+                batch["progress"].update(current={**_target_summary(target)}, phase="collecting")
+                self.store.append_batch(batch)
                 key = _target_key(target)
                 existing = (batch.get("completed") or {}).get(key)
-                if existing and not force:
+                if existing and existing.get("result") in DONE_KINDS and not force \
+                        and self.store.serves_target(target):
                     continue
                 if not force and self.store.result_of(target) in DONE_KINDS \
                         and self.store.serves_target(target):
@@ -311,6 +325,14 @@ class PullBatch:
                 # 早先的实现把后者也计成新增请求——独立复核 B3 在真实仓上实测
                 # 7 个「新增请求」里只有 4 次真的出网。
                 calls_before = self.access.remote_calls
+                requests_before = batch["usage"].get("actual_requests", 0)
+
+                def phase_changed(phase):
+                    batch["usage"]["actual_requests"] = requests_before + max(0, self.access.remote_calls - calls_before)
+                    batch["progress"]["phase"] = phase
+                    self.store.append_batch(batch)
+
+                self.access.progress_callback = phase_changed
                 try:
                     frame = self.access.call(target["dataset"], **target["params"])
                     result, _ = classify_result(data=frame)
@@ -321,12 +343,15 @@ class PullBatch:
                     batch["usage"]["archive_hits"] = batch["usage"].get("archive_hits", 0) + 1
                 else:
                     batch["usage"]["new_requests"] = batch["usage"].get("new_requests", 0) + 1
+                batch["usage"]["actual_requests"] = requests_before + max(0, self.access.remote_calls - calls_before)
                 batch["completed"][key] = {**_target_summary(target), "result": result,
                                            "error_excerpt": excerpt}
                 batch["progress"]["completed"] = len(batch["completed"])
                 batch["heartbeat_at"] = self.clock().isoformat()
                 self.store.append_batch(batch)
 
+            batch["progress"].pop("current", None)
+            batch["progress"].pop("phase", None)
             summary = completeness(batch["completed"].values())
             batch.update(status="partial" if summary["gaps"] else "done", owner_pid=None,
                          heartbeat_at=self.clock().isoformat(), summary=summary,
@@ -354,6 +379,7 @@ class PullBatch:
             # 模式是 access 的共享状态：批次结束要还原，否则同一个门面连跑两批时，
             # 上一轮的 refresh 会让下一轮**非 force** 的目标多出一次出网（独立复核尖角）。
             self.access.mode = previous_mode
+            self.access.progress_callback = None
             try:
                 lock_path.unlink()
             except FileNotFoundError:

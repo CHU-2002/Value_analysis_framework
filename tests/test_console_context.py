@@ -1,3 +1,4 @@
+# 覆盖需求：REQ-015、REQ-015.5（AC-1、AC-6、AC-8、AC-5.1~5.4：导航区域、上下文与既有入口；浏览器实跑另验证URL/键盘）
 # 覆盖需求：REQ-012（父需求 AC-1 公司是上下文、AC-2 工作台首页、AC-9 统一公司标识、
 # AC-11 扩展性不回退）、REQ-012.1（公司上下文与信息架构）—— AC-1.1 全局公司选择器与冷开
 # 公司级页面不降级、AC-1.2 导航按任务分组（父子层级 + requires 声明，全部走注册表扩展点）、
@@ -558,3 +559,40 @@ def test_sub_navigation_is_not_rendered_twice(tmp_path):
     root_ids = {item.id for item in registry.nav_items()}
     child_ids = {child.id for item in registry.nav_items() for child in item.children}
     assert root_ids & child_ids == set()
+
+
+
+def test_research_navigation_uses_existing_declarations_and_keeps_all_pages(tmp_path):
+    from webui.plugins import research
+    config, registry = make_app(tmp_path)
+    from webui.plugins import agent_report
+    agent_report.contribute(registry)
+    research.contribute(registry)
+    items = call_route(registry, "GET", "/api/v1/nav")["data"]["items"]
+    primary = [i["id"] for i in items if i["placement"] == "primary"]
+    context = [i["id"] for i in items if i["placement"] == "context"]
+    assert primary == ["home", "companies", "commands"]
+    assert context == ["research", "charts", "report", "data"]
+    for page in ("collect", "runs", "commands", "agent"):
+        assert registry.page(page).panels
+    assert registry.page("report").actions[0]["page"] == "agent"
+    assert registry.page("data").actions[0]["page"] == "collect"
+    external = NavItem(id="external.context",title="独立插件页",placement="context",actions=({"title":"下一步","page":"external.next"},))
+    registry.nav(external)
+    assert call_route(registry,"GET","/api/v1/nav")["data"]["items"][-1]["placement"] == "context"
+
+
+def test_company_overview_has_scoped_links_and_normal_empty_selection(tmp_path):
+    from webui.plugins import research
+    config,registry=make_app(tmp_path)
+    research.contribute(registry)
+    # Existing company fixture is local; overview must remain read-only.
+    make_company(tmp_path)
+    empty=call_route(registry,"GET","/api/v1/pages/research")
+    assert empty["warnings"]==[] and empty["data"]["empty_state"]
+    payload=call_route(registry,"GET","/api/v1/pages/research",company="600887.SH")
+    assert payload["warnings"]==[] and len(payload["data"]["panels"])==1
+    overview=research.overview(RequestContext(method="GET",path="/",query={"company":"600887.SH"},config=config,registry=registry),company="600887.SH")
+    assert all("company=600887.SH" in row["href"] for row in overview["rows"])
+    missing=call_route(registry,"GET","/api/v1/pages/research",company="999999.SH")
+    assert missing["warnings"]==[] and missing["data"]["empty_state"]

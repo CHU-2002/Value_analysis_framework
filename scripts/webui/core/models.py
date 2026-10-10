@@ -85,6 +85,9 @@ class NavItem:
     #: 产物被删/改名之后重开就会走到）。解析器由**插件**提供，核心只负责调用它并把
     #: 结果变成正常空状态。
     context_resolver: object = None
+    #: Generic navigation region; plugins retain the six existing registration points.
+    placement: str = ""
+    actions: tuple = ()
 
     def to_json(self) -> dict:
         return {
@@ -100,6 +103,8 @@ class NavItem:
             ],
             "requires": list(self.requires),
             "default": bool(self.default),
+            "placement": self.placement,
+            "actions": [dict(action) for action in self.actions],
         }
 
 
