@@ -699,7 +699,7 @@ def test_research_confirmed_collection_runs_and_is_readable_after_server_restart
         def daily(self, **params):
             calls.append(params)
             return pd.DataFrame({"ts_code": [TICKER], "trade_date": ["20250102"],
-                                 "open": [10], "high": [12], "low": [9], "close": [11], "vol": [100]})
+                                 "open": [10], "high": [12], "low": [9], "close": [11], "vol": [100], "amount": [1100]})
     monkeypatch.setattr(tushare_collector, "TushareClient", FakeClient)
     monkeypatch.setattr(research_data, "resolve_token", lambda: "fake-test-token")
     inputs = {"company": TICKER, "periods": "20251231", "chart_start": "20250101", "chart_end": "20250103",

@@ -738,3 +738,123 @@ def test_refresh_without_a_tier_label_keeps_the_recorded_one(store):
     record = store.find("600887.SH", "stock_basic", "latest", params=params)
     assert record["tier_label"] == "", "换了账号就不该继承上一个账号的标签"
     assert record["token_fingerprint"] != token_fingerprint("tok")
+
+# 覆盖需求：REQ-015.4、REQ-015.1 —— 历史窗口存档与离线读取同源，不把单年响应冒充完整历史。
+
+def test_history_window_replay_requires_both_bounds_and_preserves_year_shards(store):
+    from datalayer.access import DataMissing
+    ticker = "600887.SH"
+    access = DataAccess(store, mode="offline")
+    fields = "trade_date,open,high,low,close,vol"
+    first = {"ts_code": ticker, "start_date": "20150101", "end_date": "20151231", "fields": fields}
+    second = {**first, "start_date": "20160101", "end_date": "20161231"}
+    assert param_key(first) != param_key(second)
+    assert param_key(first) == param_key({**first, "fields": "close", "limit": 100})
+    frame = pd.DataFrame({"trade_date": ["20150105"], "open": [10], "high": [12], "low": [9], "close": [11], "vol": [20]})
+    store.write_frame(ticker=ticker, dataset="daily", period="latest", params=first, frame=frame, result="ok")
+    assert store.serves_target({"ticker": ticker, "dataset": "daily", "period": "latest", "params": first})
+    assert not store.serves_target({"ticker": ticker, "dataset": "daily", "period": "latest", "params": second})
+    with pytest.raises(DataMissing):
+        access.call("daily", **second)
+    wide = {**first, "end_date": "20161231"}
+    with pytest.raises(DataMissing):
+        access.call("daily", **wide)
+    second_frame = frame.assign(trade_date="20160104", close=12)
+    store.write_frame(ticker=ticker, dataset="daily", period="latest", params=second, frame=second_frame, result="ok")
+    assert len(store.records(ticker=ticker, dataset="daily")) == 2
+    assert store.serves_target({"ticker": ticker, "dataset": "daily", "period": "latest", "params": wide})
+    assert set(access.call("daily", **wide)["trade_date"]) == {"20150105", "20160104"}
+    # Year shards separated by an unrequested gap cannot prove a continuous history window.
+    third = {**first, "start_date": "20180101", "end_date": "20181231"}
+    store.write_frame(ticker=ticker, dataset="daily", period="latest", params=third,
+                      frame=frame.assign(trade_date="20180102"), result="ok")
+    with pytest.raises(DataMissing):
+        access.call("daily", **{**wide, "end_date": "20181231"})
+
+
+def test_legal_empty_window_cannot_cover_other_dates_or_unknown_bounds(store):
+    from datalayer.access import DataMissing
+    ticker = "600887.SH"
+    params = {"ts_code": ticker, "start_date": "20150101", "end_date": "20151231"}
+    store.write_frame(ticker=ticker, dataset="suspend_d", period="latest", params=params,
+                      frame=pd.DataFrame(), result="empty")
+    access = DataAccess(store, mode="offline")
+    assert access.call("suspend_d", **params).empty
+    for request in ({**params, "start_date": "20160101", "end_date": "20161231"},
+                    {**params, "end_date": "20161231"}, {**params, "start_date": "20140101"}):
+        assert not store.serves_target({"ticker": ticker, "dataset": "suspend_d", "period": "latest", "params": request})
+        with pytest.raises(DataMissing):
+            access.call("suspend_d", **request)
+    # A legacy empty response with no request bounds proves no particular history interval.
+    store.write_frame(ticker=ticker, dataset="adj_factor", period="latest", params={"ts_code": ticker},
+                      frame=pd.DataFrame(), result="empty")
+    with pytest.raises(DataMissing):
+        access.call("adj_factor", **params)
+
+
+def test_history_critical_fields_and_unknown_metadata_remain_missing(store):
+    from datalayer.access import DataMissing
+    ticker = "600887.SH"
+    params = {"ts_code": ticker, "start_date": "20150101", "end_date": "20151231", "fields": "trade_date,open,high,low,close,vol"}
+    incomplete = pd.DataFrame({"trade_date": ["20150105"], "close": [11]})
+    store.write_frame(ticker=ticker, dataset="daily", period="latest", params=params, frame=incomplete, result="ok")
+    target = {"ticker": ticker, "dataset": "daily", "period": "latest", "params": params}
+    assert not store.serves_target(target)
+    access = DataAccess(store, mode="offline")
+    with pytest.raises(DataMissing):
+        access.call("daily", **params)
+    # Narrow field projection is still valid, but must filter dates before dropping trade_date.
+    assert access.call("daily", **{**params, "fields": "close"})["close"].tolist() == [11]
+    # Date filtering must happen before projecting away the date column.
+    assert access.call("daily", **{**params, "start_date": "20150201", "fields": "close"}).empty
+    limited = {**params, "limit": 1}
+    store.write_frame(ticker=ticker, dataset="daily", period="latest", params=limited, frame=incomplete, result="ok")
+    with pytest.raises(DataMissing):
+        access.call("daily", **{**params, "fields": "close"})
+    legacy = {"ts_code": ticker}
+    store.write_frame(ticker=ticker, dataset="daily_basic", period="latest", params=legacy,
+                      frame=pd.DataFrame({"trade_date": ["20150105"], "pe_ttm": [20], "pb": [2]}), result="ok")
+    assert len(access.call("daily_basic", **legacy)) == 1  # available snapshot, no history claim
+    with pytest.raises(DataMissing):
+        access.call("daily_basic", **{**params, "fields": "trade_date,pe_ttm,pb"})
+
+
+def test_old_window_digest_stays_readable_without_claiming_other_year_and_resume_repairs(store):
+    from datalayer.access import DataMissing
+    from datalayer.pull import PullBatch
+    from datalayer.store import target_key
+    from webui.plugins.research_data import explain_batch
+    ticker = "600887.SH"
+    first = {"ts_code": ticker, "start_date": "20150101", "end_date": "20151231", "fields": "trade_date,close"}
+    frame = pd.DataFrame({"trade_date": ["20150105"], "close": [10]})
+    saved = store.write_frame(ticker=ticker, dataset="daily", period="latest", params=first, frame=frame, result="ok")
+    legacy_key = hashlib.sha256(json.dumps({"ts_code": ticker}, sort_keys=True, ensure_ascii=False,
+                                          separators=(",", ":")).encode()).hexdigest()[:16]
+    with store.transaction() as connection:
+        connection.execute("UPDATE raw_record SET param_key = ? WHERE param_key = ?", (legacy_key, saved.record["param_key"]))
+    assert store.find(ticker, "daily", "latest", params=first) is not None
+    second = {**first, "start_date": "20160101", "end_date": "20161231"}
+    with pytest.raises(DataMissing):
+        DataAccess(store, mode="offline").call("daily", **second)
+    target = {"ticker": ticker, "dataset": "daily", "period": "latest", "params": second}
+    # A batch completed by the old faulty replay must be explicitly repairable.
+    store.append_batch({"batch_id": "window-repair", "profile": "frugal", "status": "done", "targets": [target],
+                        "completed": {target_key(target): {**target, "result": "empty"}}, "usage": {},
+                        "progress": {"completed": 1, "total": 1}})
+    old_explanation = explain_batch(store, store.load_batch("window-repair"))
+    assert old_explanation["success"] == 0 and old_explanation["uncompleted"] == 1
+    assert old_explanation["status"] == "partial" and old_explanation["can_resume"]
+    assert old_explanation["rows"][0]["state"] == "stale"
+    calls = []
+    class Pro:
+        def daily(self, **kwargs):
+            calls.append(kwargs)
+            return pd.DataFrame({"trade_date": ["20160104"], "close": [12]})
+    client = type("C", (), {"pro": Pro(), "MAX_RETRIES": 1, "_vip_mode": False})()
+    access = DataAccess(store, client=client, mode="online", rate_limit_seconds=0)
+    repaired = PullBatch(store, [target], "frugal", access, token="test-token").run(batch_id="window-repair", confirm=True)
+    assert len(calls) == 1 and repaired["completed"][target_key(target)]["result"] == "ok"
+    repaired_explanation = explain_batch(store, repaired)
+    assert repaired_explanation["success"] == 1 and repaired_explanation["status"] == "done"
+    assert len(store.records(ticker=ticker, dataset="daily")) == 2
+    assert store.find(ticker, "daily", "latest", params=first)["content_sha256"] == saved.record["content_sha256"]

@@ -29,7 +29,7 @@ from .dataframe_codec import decode_frame
 from .gaps import DONE_KINDS, classify_result
 from .registry import UnknownDataset, period_of
 from .security import redact, token_fingerprint
-from .store import rows_for_request, sanitize_params, semantic_params
+from .store import DataStore, rows_for_request, sanitize_params, semantic_params
 
 MODE_ONLINE = "online"
 MODE_REFRESH = "refresh"
@@ -206,25 +206,46 @@ class DataAccess:
 
         四步：① 逐条解码并按请求的语义入参过滤行（如 `report_type="1"`）；
         ② 多条记录按日期列合并去重（拉取按期次各留一条，调用点要的是整段历史）；
-        ③ 按请求投影字段（缺失的列说明接口本来就没给，与联网路径一致）；
-        ④ 按请求裁剪时间窗口与行数。
+        ③ 检查可用分片连续覆盖窗口（窗口读取必须含全部请求字段）；
+        ④ 按请求裁剪日期，再投影字段与行数。
         """
 
         request = semantic_params(params)
+        requested_fields = _field_list(params.get("fields"))
+        window_requested = bool(params.get("start_date") or params.get("end_date"))
         frames = []
         empties = []
+        usable_records = []
         for record in records:
+            record_params = record.get("params") or {}
             frame = decode_frame(record["columns_json"], record["rows_json"])
+            if window_requested:
+                # 达到服务端 limit 的响应可能被截断，不能证明整个请求日期区间完整。
+                try:
+                    if record_params.get("limit") is not None and len(frame) >= int(record_params["limit"]):
+                        continue
+                except (TypeError, ValueError):
+                    continue
             if frame.empty:
+                if any(str(record_params.get(key, "")) != str(value)
+                       for key, value in request.items()):
+                    continue
                 empties.append(frame)
+                usable_records.append(record)
                 continue
-            filtered = _filter_rows(frame, request, record.get("params") or {})
+            filtered = _filter_rows(frame, request, record_params)
             if filtered is None:
                 continue
+            if window_requested:
+                if _date_column(filtered) is None or any(name not in filtered.columns for name in requested_fields):
+                    continue
             period = str((record.get("params") or {}).get("period") or record.get("period") or "")
             # 优先级：明确期次的记录（0）先于 latest 的整段历史记录（1）；同组列数多的先。
             priority = (1 if period in ("", "latest") else 0, -len(filtered.columns))
             frames.append((priority, filtered))
+            usable_records.append(record)
+        if not DataStore._window_covers(usable_records, params):
+            return None
         if not frames:
             if empties:
                 # 「确实为空」也是信息（`REQ-009.4` 的 `AC-4.5`）：空结果直接重放。
@@ -240,22 +261,9 @@ class DataAccess:
             if requested_period in set(values):
                 combined = combined[values == requested_period]
 
-        requested_fields = _field_list(params.get("fields"))
-        if requested_fields:
-            available = [name for name in requested_fields if name in combined.columns]
-            if not available:
-                return None
-            combined = combined[available]
-
         requested_start = str(params.get("start_date") or "")
         requested_end = str(params.get("end_date") or "")
         if requested_start or requested_end:
-            starts = [str((record.get("params") or {}).get("start_date") or "")
-                      for record in records]
-            known = [value for value in starts if value]
-            if requested_start and known and min(known) > requested_start:
-                # 仓里的起点更晚 = 历史更短：覆盖不了这次请求。
-                return None
             if date_column:
                 values = combined[date_column].astype(str)
                 if requested_start:
@@ -263,6 +271,12 @@ class DataAccess:
                 if requested_end:
                     values = combined[date_column].astype(str)
                     combined = combined[values <= requested_end]
+
+        if requested_fields:
+            available = [name for name in requested_fields if name in combined.columns]
+            if not available:
+                return None
+            combined = combined[available]
 
         limit = params.get("limit")
         if limit is not None:

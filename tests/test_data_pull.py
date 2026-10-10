@@ -335,7 +335,9 @@ def test_keyboard_interrupt_pauses_batch_then_resume_pulls_only_remaining(tmp_pa
         seen.append(name)
         if len(seen) == len(targets):
             raise KeyboardInterrupt()
-        return pd.DataFrame({"value": [1]})
+        # 已完成目标必须真的可重放；随意返回 value 列会被正确判为缺口并重新采集。
+        target = next(target for target in targets if target["dataset"] == name)
+        return getattr(_FakePro(), name)(**target["params"])
 
     with pytest.raises(KeyboardInterrupt):
         _run(store, targets, _FakePro(responder), "RESUME")
@@ -571,8 +573,10 @@ def test_only_gaps_uses_the_read_path_not_just_the_result_enum(tmp_path, monkeyp
         {"ticker": "600887.SH", "dataset": "fina_mainbz", "period": "20251231",
          "params": {"ts_code": "600887.SH", "period": "20251231", "type": "P"}},
     ]
-    # 第 0 个是「上次结果 ok」但窗口更窄——旧判据会漏掉它（`result_of` 走投影剔除后的键）。
-    assert store.result_of(targets[0]) == "ok"
+    # 日期分片现在各有唯一键；窄窗口仍保留成功记录，更宽目标没有精确记录。
+    assert store.find("600887.SH", "daily", "latest", params={
+        "ts_code": "600887.SH", "start_date": "20260829", "end_date": "20260929"})["result"] == "ok"
+    assert store.result_of(targets[0]) is None
     assert store.serves_target(targets[0]) is False, "窗口更窄 → 读取路径判未命中"
     # 第 1 个连精确键都对不上（记录没带 `type`），而且语义入参也核不出来。
     assert store.result_of(targets[1]) is None

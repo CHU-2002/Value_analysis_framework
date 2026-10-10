@@ -197,6 +197,8 @@ def explain_batch(store, batch):
     for target in batch.get("targets") or []:
         outcome = completed.get(target_key(target)) or {}
         state = outcome.get("result") or "unattempted"
+        if state in ("ok", "empty") and not store.serves_target(target):
+            state = "stale"
         record = store.find(target["ticker"], target["dataset"], target["period"], params=target["params"], include_rows=False)
         rows.append({"company": target.get("company_ticker") or target["ticker"] or "市场公共数据",
                      "group": business_group(target["dataset"]), "dataset": target["dataset"],
@@ -210,13 +212,15 @@ def explain_batch(store, batch):
     status = batch.get("status") or "pending"
     if status == "running" and not _pid_alive(batch.get("owner_pid")):
         status = "paused"
+    if status == "done" and counts["stale"]:
+        status = "partial"
     phase = progress.get("phase") if status == "running" else status
     usage = batch.get("usage") or {}
     failure = counts["error"] + counts["no_permission"] + counts["rate_limited"]
     return {"batch_id": batch["batch_id"], "status": status, "status_label": PHASES.get(phase, PHASES.get(status, status)),
             "current": progress.get("current") or {}, "completed": len(completed), "total": len(rows),
             "success": counts["ok"] + counts["empty"], "failures": failure,
-            "uncompleted": counts["unattempted"], "empty": counts["empty"],
+            "uncompleted": counts["unattempted"] + counts["stale"], "empty": counts["empty"],
             "actual_requests": None if usage.get("actual_requests_incomplete") else usage.get("actual_requests"),
             "reused": usage.get("archive_hits", 0),
             "new": max(0, len(completed) - int(usage.get("archive_hits", 0)) - failure),

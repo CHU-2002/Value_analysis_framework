@@ -308,7 +308,8 @@ class PullBatch:
                 self.store.append_batch(batch)
                 key = _target_key(target)
                 existing = (batch.get("completed") or {}).get(key)
-                if existing and existing.get("result") in DONE_KINDS and not force:
+                if existing and existing.get("result") in DONE_KINDS and not force \
+                        and self.store.serves_target(target):
                     continue
                 if not force and self.store.result_of(target) in DONE_KINDS \
                         and self.store.serves_target(target):
