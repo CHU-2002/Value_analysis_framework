@@ -52,7 +52,7 @@
 ┌─────────────────────────────────────────────────────────────────────┐
 │ 前端 shell：static/app.js + kinds/*.js                               │
 │  选上下文 → 渲染 nav 树 → 分发面板 → 记录 selection（URL/local）      │
-│  kinds：chart（+chart_core）/ table / actions / form / jobs / fallback │
+│  kinds：chart（+chart_core）/ report / collection / agent-form / table / actions / form / jobs │
 ├─────────────────────────────────────────────────────────────────────┤
 │ 内核 core/：只做传输、路由、信封、安全、调度——不认识业务             │
 │  server（127.0.0.1）· router（路径模板）· envelope（统一信封）        │
@@ -88,8 +88,8 @@
 
 扩展面与留痕：`core/registry.py` / `router.py` / `routes.py` / `server.py` / `static/index.html` /
 `static/app.js` 的哈希被 `tests/fixtures/webui_core_fingerprint.json` 钉住；而
-`core/models.py`、`core/errors.py`、`config.py` **不在**清单里——它们本来就该随框架演进
-（新字段、新错误码、新配置项）。动清单里的文件要同步指纹，并说明这是「扩展面增量」
+`core/models.py` 及通用form/jobs客户端也在当前清单中（REQ-013的执行隔离复核后加入）；
+`core/errors.py`、`config.py` 可随新增错误码与配置项演进。动清单里的文件要同步指纹，并说明这是「扩展面增量」
 还是「缺陷修复」。设计与新增扩展点的清单见 [`GUI_CONSOLE_PLAN.md`](GUI_CONSOLE_PLAN.md)（`REQ-009`）
 与 [`CONSOLE_V2_PLAN.md`](CONSOLE_V2_PLAN.md)（`REQ-012`，文首 §0 有实现状态与设计偏差）。
 
@@ -384,3 +384,24 @@ CommandSpec 的可选 validate/exclusive/exclusive_group/exclusive_key 声明由
 原有按键未声明这些可选字段时继续使用既有行为。取消/超时通过包装脚本终止其隔离进程组。
 
 REQ-013 的产物链接只采用成功启动子进程后记录的 execution_started_at→finished_at 区间；未启动即取消的排队任务没有新产物。三个 agent 动作按解析后的真实公司目录共享互斥组（覆盖市场后缀别名），避免并发写公司产物而互相误认。
+
+
+### REQ-015 研究工作区接线
+
+`NavItem`可选`placement/actions`描述全局入口、公司页签与就近操作；shell只解释通用声明，
+公司解析、模型白名单、历史聚合与报告版本判断仍在插件。这项通用扩展已单列owner决策，批准与独立QA复核前不收口。
+既有无placement外部插件继续使用group/children，六类注册点不变，URL保存上下文并拒绝过时异步面板响应。
+
+时间轴从配置的原始仓以SQLite只读事务读取版本元数据；新revision才解码原始行并原子投影为
+`output/.research_sources/…/raw.json`不可变源。`DatasetSpec`声明此源，统一`DataStore`按原始revision、
+解析器版本、周期/范围/分位窗口/复权及观察日期缓存派生结果；源路径jail仍限定output，未扩大核心读权限。
+这只是本地可再生成副本，仓与派生缓存保持各自生命周期。财务fallback同层处理，损坏既有数据包仍显示诊断。
+
+`report_reader.catalog/document`将指针、history、run/manifest与报告正文作为sha256输入，
+元信息与安全Markdown结果复用统一缓存；公司jail和索引id在命中前验证，材料不送入Markdown。
+新客户端kind负责目录/版本/查找/差异与采集解释，业务计算不放到浏览器。
+
+agent选择使用本地模型目录与服务端预检，单次argv携带模型，不写全局配置、不重试/降级。
+包装脚本流式捕获CLI事件，实际模型来自结构化事件或本次Codex thread运行记录；缺证据显示未知。
+执行前后报告内容摘要决定本次产物；GUI要求产物时退出0而无本动作报告转为失败。
+采集用不可变计划摘要绑定确认，工作线程各有SQLite连接；批次统计包含未尝试目标，实际请求与逻辑目标分别持久化。
