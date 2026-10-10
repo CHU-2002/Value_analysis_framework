@@ -130,7 +130,7 @@ def _universe_panel(ctx, **_):
             {"key": "ticker", "title": "标的", "search": True, "sort": "text"},
             {"key": "market", "title": "市场", "sort": "text"},
             {"key": "enabled", "title": "状态", "search": True, "sort": "text"},
-            {"key": "completeness", "title": "完备度", "sort": "text"},
+            {"key": "completeness", "title": "已有记录完成数（非计划完备度）", "sort": "text"},
             {"key": "gaps", "title": "缺口", "sort": "number"},
             {"key": "note", "title": "备注", "search": True},
         ],
@@ -170,7 +170,8 @@ def _gaps_panel(ctx, ticker=None, period=None, dataset=None, **_):
             "count": len(gaps),
             "total": len(records),
             "filters": filters_state,
-            "empty_hint": "没有缺口：仓里的目标都是 ok/empty。" if not gaps else "",
+            "empty_hint": ("尚未采集：请检查目标计划，未尝试目标仍属缺口。" if not records
+                           else "已有记录没有缺口；分析完备度请核对上方完整目标计划。") if not gaps else "",
         },
     }
 
@@ -271,6 +272,9 @@ def contribute(registry):
     from .watchlist import contribute as contribute_watchlist
 
     contribute_watchlist(registry)
+    from .research_data import contribute as contribute_research
+
+    contribute_research(registry)
     registry.panel(PanelSpec(
         id="data.universe", kind="table", title="自选股清单",
         provider=_universe_panel, size="full",
@@ -304,7 +308,7 @@ def contribute(registry):
     ))
     registry.nav(NavItem(
         id="data", title="数据获取", group="数据", order=10,
-        panels=("data.actions", "data.universe", "data.gaps", "data.store"),
+        panels=("data.research", "data.actions", "data.universe", "data.gaps", "data.store"),
         description="清单 / 缺口 / 仓规模，以及「拉取」与「离线重建」两个动作。",
     ))
 

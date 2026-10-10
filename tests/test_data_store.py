@@ -462,9 +462,13 @@ def test_datalayer_has_no_second_period_conversion_authority():
     today = date(2026, 9, 28)
     derived = default_periods(today=today, years=3)
     assert derived == [period_to_end_date(make_period(year, "年报"))
-                       for year in (2026, 2025, 2024)]
+                       for year in (2025, 2024, 2023)]
     assert all(is_end_date(period) and end_date_to_period_type(period) == "annual"
                for period in derived)
+    # REQ-011 维护：默认年报计划不能包含未来期末，披露窗口前后均可核对。
+    assert default_periods(today=date(2026, 4, 30), years=1) == ["20241231"]
+    assert default_periods(today=date(2026, 5, 1), years=1) == ["20251231"]
+    assert default_periods(today=date(2026, 12, 31), years=1) == ["20251231"]
 
 
 # --------------------------------------------------------------------------- AC-1.4

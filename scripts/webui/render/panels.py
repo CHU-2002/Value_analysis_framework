@@ -15,7 +15,7 @@ from html import escape
 # 服务端渲染（可在无浏览器环境断言）
 SERVER_KINDS = ("table", "timeline", "stat", "markdown", "fallback")
 # 客户端渲染（服务端只回数据/占位）
-CLIENT_KINDS = ("chart", "form", "jobs", "actions", "report")
+CLIENT_KINDS = ("chart", "form", "jobs", "actions", "report", "collection", "agent-form")
 KNOWN_KINDS = SERVER_KINDS + CLIENT_KINDS
 
 _STATE_CLASS = {"ok": "state-ok", "warn": "state-warn", "error": "state-error"}

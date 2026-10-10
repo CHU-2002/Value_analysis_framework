@@ -52,8 +52,9 @@ def default_periods(today=None, years: int = DEFAULT_PERIOD_YEARS) -> list[str]:
     from periods import make_period, period_to_end_date
 
     end = today or date.today()
-    # 年报 end_date 落在次年 4 月底之前披露；未到年份时退回上一年，避免列出一个还没披露的期次。
-    latest_year = end.year if end.month >= 5 else end.year - 1
+    # 年报期末属于上一年，通常次年 4 月底前披露；窗口未结束时默认取再前一年。
+    # 当前年份的年报尚未结束，不能因已到 5 月就把未来 12/31 填进计划。
+    latest_year = end.year - 1 if end.month >= 5 else end.year - 2
     # 期末日期不写字面量：走 periods.py 的「项目期次 → 接口期次」换算（期次口径只有一处权威）。
     return [period_to_end_date(make_period(year, "年报"))
             for year in range(latest_year, latest_year - max(1, years), -1)]

@@ -145,6 +145,7 @@ class DataAccess:
         # 未在注册表声明的接口（如 `--extra-fields` 临时指定的接口）：
         # 能用，但**不落仓**——不编造一个假的口径字段。拉取范围由「扫描 + 注册表门禁」守住。
         self.undeclared: set[str] = set()
+        self.progress_callback = None
 
     # ------------------------------------------------------------------ 主入口
 
@@ -323,13 +324,15 @@ class DataAccess:
         for attempt in range(1, retries + 1):
             self._pace()
             self.remote_calls += 1
+            self._notify("collecting")
             try:
                 return getattr(client.pro, effective_name)(**params)
             except Exception as exc:  # noqa: BLE001（分类与重试规则见下）
                 last_err = exc
                 if self._is_permanent(exc):
                     # 权限类错误重试无意义（F3）：立即放弃，不占用 5 次重试。
-                    print(f"{effective_name}: permanent error ({exc}); not retrying", file=sys.stderr)
+                    print(redact(f"{effective_name}: permanent error ({exc}); not retrying",
+                                 (self.token,)), file=sys.stderr)
                     break
                 if attempt < retries:
                     if self._is_connection_error(exc):
@@ -338,13 +341,21 @@ class DataAccess:
                         client.pro = client._new_pro_api()
                         self._apply_broker(client)
                     else:
-                        print(f"[retry {attempt}/{retries}] {effective_name}: {exc}", file=sys.stderr)
+                        print(redact(f"[retry {attempt}/{retries}] {effective_name}: {exc}",
+                                     (self.token,)), file=sys.stderr)
+                    self._notify("waiting_rate_limit" if classify_result(error=exc)[0] == "rate_limited"
+                                 else "waiting_retry")
                     time.sleep(retry_delay * attempt)
         raise DataUnavailable(dataset, effective_name, retries, last_err)
 
     def _pace(self):
         if self.rate_limit_seconds:
+            self._notify("waiting_rate_limit")
             time.sleep(self.rate_limit_seconds)
+
+    def _notify(self, phase):
+        if self.progress_callback is not None:
+            self.progress_callback(phase)
 
     @staticmethod
     def _is_permanent(exc) -> bool:

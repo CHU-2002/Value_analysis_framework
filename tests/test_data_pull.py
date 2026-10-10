@@ -607,3 +607,34 @@ def test_force_does_not_leave_the_access_in_refresh_mode(tmp_path):
         batch_id="MODE2", confirm=True)
     assert len(pro.calls) == before, "下一轮非 force 不该因为残留 refresh 而出网"
     assert batch["usage"]["archive_hits"] == len(targets)
+
+# 覆盖需求：REQ-015.4 —— AC-4.2 实际请求含重试、暂停落盘、失败目标可显式恢复。
+
+def test_research_batch_actual_requests_include_retries_and_failed_targets_resume(tmp_path):
+    store = DataStore(tmp_path / "store")
+    targets = _sample_targets()[:1]
+    pro = _FakePro(lambda _: (_ for _ in ()).throw(ValueError("temporary error")))
+    failed = _run(store, targets, pro, "RESEARCH-RETRY")
+    assert failed["status"] == "partial" and failed["usage"]["actual_requests"] == 5
+    assert failed["usage"]["new_requests"] == 1  # legacy logical target count remains compatible
+    resumed = _run(store, targets, _FakePro(), "RESEARCH-RETRY")
+    assert resumed["status"] == "done" and resumed["usage"]["actual_requests"] == 6
+    assert resumed["summary"]["counts"]["ok"] == 1
+
+
+def test_research_batch_user_pause_preserves_completed_and_pending(tmp_path):
+    store = DataStore(tmp_path / "store")
+    targets = _sample_targets()
+    client = _client(store, _FakePro())
+    calls = []
+    def pause_after_one():
+        calls.append(1)
+        return len(calls) > 1
+    with pytest.raises(KeyboardInterrupt):
+        pull.PullBatch(store, targets, "frugal", client._access, token="test-token",
+                       should_pause=pause_after_one).run(batch_id="RESEARCH-PAUSE", confirm=True)
+    persisted = DataStore(tmp_path / "store").load_batch("RESEARCH-PAUSE")
+    assert persisted["status"] == "paused" and persisted["progress"]["completed"] == 1
+    assert len(persisted["targets"]) == len(targets) and persisted["usage"]["actual_requests"] == 1
+    resumed = _run(store, targets, _FakePro(), "RESEARCH-PAUSE")
+    assert resumed["status"] == "done" and resumed["progress"]["completed"] == len(targets)
