@@ -8,8 +8,16 @@ import json
 from pathlib import Path
 
 from ..core.errors import ArtifactMissing, BadRequest, NotFound, WebUIError
+from ..core.models import DatasetSpec
 from ..core.security import safe_join
+from ..datastore import parsers
 from ..render import markdown_safe
+
+# 固定源模式覆盖索引、所有指针/台账/运行与发布元信息，以及正文摘要。
+# 不把用户的路径/id插入glob；每个分片仍以公司base和已验证版本id隔离。
+SOURCES = ("*", "runs/*/*", "value_reports/*/*/*", "value_reports/*/*/artifacts/*")
+CATALOG_VERSION = 1
+DOCUMENT_VERSION = 1
 
 TYPES = {"business": "商业质量", "value": "价值分析", "change": "变化报告", "material": "源材料"}
 
@@ -99,7 +107,7 @@ def _official(base, artifacts, latest, value):
 
 
 def catalog(ctx, company):
-    from .companies import resolve_company, artifacts_dataset, companies_dataset
+    from .companies import resolve_company, companies_dataset
     try:
         resolved = resolve_company(ctx, company)
     except NotFound:
@@ -110,9 +118,31 @@ def catalog(ctx, company):
         return {**known, "base": None}, [], {}, {"empty": True}
     base = resolved["base"]
     try:
-        data, meta = artifacts_dataset(ctx, base)
+        data, meta = ctx.registry.datastore.get("report_reader.catalog", base=base,
+                                                params={"base": str(base)})
     except ArtifactMissing:
-        data, meta = {"artifacts": []}, {"empty": True}
+        data, meta = {"versions": [], "official": {}}, {"empty": True}
+    return resolved, data["versions"], data["official"], meta
+
+
+def _source_paths(sources, base):
+    """统一数据层以output为边界；阅读版本仍严格绑定到此公司jail。"""
+    result = []
+    for source in sources:
+        source = Path(source)
+        try:
+            relative = source.relative_to(base)
+        except ValueError as exc:
+            raise BadRequest("报告数据源不属于当前公司") from exc
+        result.append(safe_join(base, *relative.parts))
+    return result
+
+
+def parse_catalog(sources, params):
+    from .companies import parse_artifacts
+    base = Path(params["base"]).resolve()
+    _source_paths(sources, base)
+    data = parse_artifacts(sources, {"base": str(base)})
     latest, value = _json(base, "latest.json"), _json(base, "value_report.json")
     record = _json(base, "record.json")
     history = _history(base)
@@ -155,7 +185,44 @@ def catalog(ctx, company):
         # 不依赖正文/路径的可见版本号；未知元信息仍显式未知。
         version["label"] = f"{version['period']} · {version['generated_at']} · {origin} · {status} · 版本 {item['id']}"
         versions.append(version)
-    return resolved, versions, official, meta
+    return {"versions": versions, "official": official}
+
+
+def parse_document(sources, params):
+    from .companies import _artifact_id
+    base = Path(params["base"]).resolve()
+    relative = params.get("relative") or ""
+    target = safe_join(base, *Path(relative).parts)
+    allowed = _source_paths(sources, base)
+    if target not in allowed or params.get("id") != _artifact_id(relative):
+        raise NotFound("所选文档不属于当前公司的报告数据源")
+    if Path(relative).suffix.lower() not in (".md", ".markdown"):
+        raise BadRequest("源材料不能进入 Markdown 渲染器")
+    text = target.read_text(encoding="utf-8", errors="replace")
+    html, toc = markdown_safe.render_document(text)
+    return {"text": text, "html": html, "toc": toc}
+
+
+def document(ctx, base, item):
+    # 缓存命中前也验证版本的路径与id，不让派生缓存成为绕过jail的入口。
+    from .companies import _artifact_id
+    relative = item["rel"]
+    safe_join(base, *Path(relative).parts)
+    if not item["markdown"] or item["id"] != _artifact_id(relative):
+        raise BadRequest("所选版本不是合法 Markdown 报告")
+    return ctx.registry.datastore.get("report_reader.document", base=base,
+                                     params={"base": str(base), "relative": relative, "id": item["id"]})
+
+
+def contribute(registry):
+    """由companies插件装配；全部派生通过既有DataStore，无核心变更。"""
+    parsers.register_parser("report_reader.catalog", parse_catalog, replace=True)
+    parsers.register_parser("report_reader.document", parse_document, replace=True)
+    for name, version in (("report_reader.catalog", CATALOG_VERSION),
+                          ("report_reader.document", DOCUMENT_VERSION)):
+        if name not in registry.datasets():
+            registry.dataset(DatasetSpec(name=name, sources=SOURCES, parser=name,
+                                         parser_version=version, hash_strategy="sha256"))
 
 
 def payload(ctx, company, artifact_id=None, run_id=None, kind=None):
@@ -177,8 +244,10 @@ def payload(ctx, company, artifact_id=None, run_id=None, kind=None):
     note = "" if selected else ("本次迭代报告不可用，请选择历史版本。" if run_id else "无法解析此类型的正式发布指针；可选择历史版本，未猜测最新版。")
     html, toc = "", []
     if selected and selected["markdown"]:
-        text = safe_join(resolved["base"], *Path(selected["rel"]).parts).read_text(encoding="utf-8", errors="replace")
-        html, toc = markdown_safe.render_document(text)
+        rendered, document_meta = document(ctx, resolved["base"], selected)
+        html, toc = rendered["html"], rendered["toc"]
+        meta = {**meta, "document": document_meta,
+                "cached": bool(meta.get("cached") and document_meta.get("cached"))}
     return {"types": [{"id": key, "label": label} for key, label in TYPES.items()],
             "type": kind, "versions": versions, "artifact": selected,
             "title": selected["name"] if selected else "选择报告版本", "html": html, "toc": toc,
@@ -195,7 +264,7 @@ def compare(ctx, company, left, right):
         raise BadRequest("请选择两个不同版本")
     if first["type"] != second["type"] or first["type"] == "material" or not all(item["markdown"] for item in chosen):
         raise BadRequest("只能比较同公司、同类型的 Markdown 报告")
-    texts = [safe_join(resolved["base"], *Path(item["rel"]).parts).read_text(encoding="utf-8", errors="replace").splitlines() for item in chosen]
+    texts = [document(ctx, resolved["base"], item)[0]["text"].splitlines() for item in chosen]
     diff = "\n".join(difflib.unified_diff(*texts, fromfile="左版", tofile="右版", lineterm=""))
     return {"left": first, "right": second, "diff": diff, "notice": "以下仅为正文差异，不代表业务结论或新增投资判断。",
             "changes": [item for item in versions if item["type"] == "change"]}

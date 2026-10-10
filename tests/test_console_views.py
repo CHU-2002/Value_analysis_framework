@@ -1,3 +1,4 @@
+# 覆盖需求：REQ-009.3（AC-3.4报告统一数据层缓存）、REQ-015.3（版本与Markdown派生缓存）
 # 覆盖需求：REQ-012（父需求 AC-6 数据新鲜度可见、AC-7 图表口径正确且可读、AC-8 表格可用、
 # AC-10 面向用户的错误）、REQ-012.3（视图质量与口径修正）—— AC-3.1 趋势图不混口径、可切换
 # 口径并标明单位与累计/单期、AC-3.2 按容器宽度与 DPR 绘制、标签/图例不截断、缺失值有标注、
@@ -44,6 +45,7 @@ from webui.plugins import companies as companies_plugin
 from webui.plugins import data_page as data_page_plugin
 from webui.plugins import home as home_plugin
 from webui.plugins import run_history as run_history_plugin
+from webui.plugins import report_reader as report_reader_plugin
 from webui.render import panels as panel_render
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -121,6 +123,7 @@ def make_app(tmp_path: Path):
     for module in (collect_plugin, commands_plugin, companies_plugin, charts_plugin,
                    run_history_plugin, home_plugin, data_page_plugin, actions_plugin):
         module.contribute(registry)
+    report_reader_plugin.contribute(registry)
     registry.datastore = DataStore(config, spec_lookup=registry.dataset_spec)
     return config, registry
 
@@ -754,3 +757,90 @@ def test_markdown_panel_names_the_company_and_empty_tables_give_guidance(tmp_pat
         "rows": [{"company": "<script>alert(1)</script>"}],
     })
     assert "<script>" not in escaped and "&lt;script&gt;" in escaped
+
+
+def test_report_reader_caches_derivations_and_invalidates_fact_sources(tmp_path, monkeypatch):
+    """REQ-009.3 AC-3.4：重复浏览不重复解析；指针/历史/正文摘要及parser版本自动失效。"""
+    from dataclasses import replace
+    calls = {"catalog": 0, "document": 0}
+    original_catalog = report_reader_plugin.parse_catalog
+    original_render = report_reader_plugin.markdown_safe.render_document
+
+    def counted_catalog(sources, params):
+        calls["catalog"] += 1
+        return original_catalog(sources, params)
+
+    def counted_render(text):
+        calls["document"] += 1
+        return original_render(text)
+
+    monkeypatch.setattr(report_reader_plugin, "parse_catalog", counted_catalog)
+    monkeypatch.setattr(report_reader_plugin.markdown_safe, "render_document", counted_render)
+    _, registry = make_app(tmp_path)
+    base = company_dir(tmp_path)
+    run_dir = base / "runs" / "r1"
+    run_dir.mkdir(parents=True)
+    report = run_dir / "qualitative_report.md"
+    report.write_text("# 旧标题\n旧正文", encoding="utf-8")
+    (run_dir / "run.json").write_text(json.dumps({"primary_period": "2025FY", "status": "complete"}), encoding="utf-8")
+    (base / "latest.json").write_text(json.dumps({"run_id": "r1"}), encoding="utf-8")
+    path = "/api/v1/companies/600887.SH/report"
+    first = call_route(registry, "GET", path)["data"]
+    second = call_route(registry, "GET", path)["data"]
+    assert calls == {"catalog": 1, "document": 1}
+    assert first["meta"]["cached"] is False and second["meta"]["cached"] is True
+    assert second["meta"]["document"]["cached"] is True
+    assert second["html"] == first["html"] and second["artifact"]["period"] == "2025FY"
+
+    # 内容摘要，而不是mtime：相同长度且保留原mtime的正文也必须重新渲染。
+    import os
+    stamp = report.stat().st_mtime_ns
+    report.write_text("# 新标题\n新正文", encoding="utf-8")
+    os.utime(report, ns=(stamp, stamp))
+    changed = call_route(registry, "GET", path)["data"]
+    assert "新正文" in changed["html"] and calls == {"catalog": 2, "document": 2}
+    assert changed["meta"]["document"]["fingerprint"] != first["meta"]["document"]["fingerprint"]
+    (run_dir / "run.json").write_text(json.dumps({"primary_period": "2025H1", "status": "complete"}), encoding="utf-8")
+    changed = call_route(registry, "GET", path)["data"]
+    assert changed["artifact"]["period"] == "2025H1" and calls["catalog"] == 3
+    (base / "history.jsonl").write_text(json.dumps({"run_id": "r1", "primary_period": "2026H1"}) + "\n", encoding="utf-8")
+    changed = call_route(registry, "GET", path)["data"]
+    assert changed["artifact"]["period"] == "2026H1" and calls["catalog"] == 4
+    (base / "latest.json").write_text(json.dumps({"run_id": "missing"}), encoding="utf-8")
+    changed = call_route(registry, "GET", path)["data"]
+    assert changed["artifact"] is None and calls["catalog"] == 5
+    (base / "latest.json").write_text(json.dumps({"run_id": "r1"}), encoding="utf-8")
+    call_route(registry, "GET", path)  # 原输入可复用已落盘分片。
+    before = dict(calls)
+    original_lookup = registry.dataset_spec
+    registry.datastore._spec_lookup = lambda name: replace(original_lookup(name), parser_version=2) if name.startswith("report_reader.") else original_lookup(name)
+    upgraded = call_route(registry, "GET", path)["data"]
+    assert calls == {"catalog": before["catalog"] + 1, "document": before["document"] + 1}
+    assert upgraded["meta"]["parser_version"] == upgraded["meta"]["document"]["parser_version"] == 2
+
+
+def test_report_reader_cached_document_still_rejects_materials_and_foreign_paths(tmp_path, monkeypatch):
+    """缓存不扩宽版本jail；JSON/PDF不会被Markdown解析器消费，伪造id/路径仍拒绝。"""
+    from webui.core.errors import PathOutsideRoot
+    _, registry = make_app(tmp_path)
+    base = company_dir(tmp_path)
+    (base / "source.json").write_text('{"raw":"<script>"}', encoding="utf-8")
+    index = call_route(registry, "GET", "/api/v1/companies/600887.SH/artifacts")["data"]
+    source = next(item for item in index["artifacts"] if item["name"] == "source.json")
+    rendered = []
+    monkeypatch.setattr(report_reader_plugin.markdown_safe, "render_document", lambda text: rendered.append(text))
+    path = "/api/v1/companies/600887.SH/report"
+    result = call_route(registry, "GET", path, id=source["id"])["data"]
+    assert result["artifact"]["id"] == source["id"] and result["html"] == "" and not rendered
+    store = registry.datastore
+    with pytest.raises(BadRequest, match="源材料"):
+        store.get("report_reader.document", base=base, params={"base": str(base), "relative": "source.json", "id": source["id"]})
+    with pytest.raises(NotFound):
+        store.get("report_reader.document", base=base, params={"base": str(base), "relative": "qualitative_report.md", "id": source["id"]})
+    with pytest.raises(PathOutsideRoot):
+        store.get("report_reader.document", base=base, params={"base": str(base), "relative": "../../secret.md", "id": "fake"})
+    foreign = company_dir(tmp_path, name="000858_五粮液", ticker="000858.SZ", company="五粮液")
+    (base / "foreign.md").symlink_to(foreign / "qualitative_report.md")
+    with pytest.raises(PathOutsideRoot):
+        store.get("report_reader.document", base=base, params={"base": str(base), "relative": "foreign.md", "id": companies_plugin._artifact_id("foreign.md")})
+    assert not rendered
