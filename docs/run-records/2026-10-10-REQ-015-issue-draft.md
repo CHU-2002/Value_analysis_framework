@@ -1,3 +1,5 @@
+> 已发布：[Issue #118](https://github.com/CHU-2002/Value_analysis_framework/issues/118)，2026-10-10；下文是发布时的正文快照，需求仍为 proposed。
+
 ## 需求编号
 
 REQ-015（proposed，P1；尚未受理，不开始实现）
@@ -32,7 +34,7 @@ REQ-015（proposed，P1；尚未受理，不开始实现）
 
 - **AC-8**：一级入口与公司页签可点击、有选中态，键盘/刷新/前进后退一致；分组标题紧邻所属链接，不伪装导航；已选公司一键到图表/报告/数据，原始批次/迭代记录等既有能力仍可达。
 
-详细判据、界面布局及口径表已写入 docs/requirements/REQ-015-research-workspace-ux.md。
+完整判据与界面布局以[REQ-015 需求文档](https://github.com/CHU-2002/Value_analysis_framework/blob/main/docs/requirements/REQ-015-research-workspace-ux.md)为准；本 Issue 摘要不能覆盖该文档。
 
 ## 可选方案
 
@@ -50,8 +52,22 @@ REQ-015（proposed，P1；尚未受理，不开始实现）
 
 ## 补充信息
 
-owner 原话：“请你试用本项目，提一个需求优化本项目用户体验，提一个新的req。”追加意见明确要求修正左侧目录/不可点击标题、K线参考同花顺、PE历史百分位等统一日/月/季/年时间轴。已据此完善草案；accepted、具体 AC 定稿与外部 Issue 发布仍待 owner 决定。
+owner 原话：“请你试用本项目，提一个需求优化本项目用户体验，提一个新的req。”追加意见明确要求修正左侧目录/不可点击标题、K线参考同花顺、PE历史百分位等统一日/月/季/年时间轴。已据此完善草案；owner 已授权公开提交，并要求补建远端 Issue；本条保持 proposed，accepted 与具体 AC 定稿仍由 owner 决定。
 
 参考同花顺官方行情页 https://stockpage.10jqka.com.cn/HQ.html 的日/周/月 K 与复权入口；季/年由 owner 要求新增。现有数据契约不足以仅改前端实现完整长周期日 K/PE历史，需要正式历史序列与复权数据计划。
 
-走查记录拟入库 docs/run-records/2026-10-10-GUI-UX-review.md；所有取数/清单写入在 output/.live_ux_20261010 副本，原始 HOME 存档未写。没有实际提交模型生成任务，仅验证预检；不把模型全流程记为已测。
+走查记录已随 PR #117 合入 docs/run-records/2026-10-10-GUI-UX-review.md；所有取数/清单写入在 output/.live_ux_20261010 副本，原始 HOME 存档未写。没有实际提交模型生成任务，仅验证预检；不把模型全流程记为已测。
+
+## 交付跟踪
+
+- [ ] REQ-015.5 公司研究导航与页面布局
+- [ ] REQ-015.1 标准 K线与估值联动时间轴
+- [ ] REQ-015.2 可选择 agent 与模型的报告生成
+- [ ] REQ-015.3 报告阅读与版本比较
+- [ ] REQ-015.4 采集过程与结果解释
+- [ ] 按父需求 AC 独立验收完整研究路径
+
+提案文档已通过 [PR #117](https://github.com/CHU-2002/Value_analysis_framework/pull/117) 合入；
+[GUI 走查及截图](https://github.com/CHU-2002/Value_analysis_framework/blob/main/docs/run-records/2026-10-10-GUI-UX-review.md)记录当前痛点，尚未实现新能力。
+Refs #75：报告预检 P0 回归按 REQ-013 T13 追踪；导航分组渲染修正登记 REQ-012 M4。
+本 Issue 在逐条验收通过后关闭，提案文档合入不等同于需求完成。

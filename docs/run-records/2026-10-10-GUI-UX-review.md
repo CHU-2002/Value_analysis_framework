@@ -164,3 +164,7 @@ PE历史百分位等具备和 K线一致的日/月/季/年时间轴。此节区�
 为同名 owner、有 ADMIN 权限。owner 随后明确授权将全部18个文件（含10张截图及其中的
 报告内容）公开上传；重新推送成功，提案登记 [PR #117](https://github.com/CHU-2002/Value_analysis_framework/pull/117)。owner 另授权 CI全绿后
 admin 合入。未上传 output沙箱/凭据，未创建独立需求Issue、未推进 accepted/verified。
+
+2026-10-10 后续纠正：owner 指出远端看不到需求 Issue。此前只提交了提案 PR，现补建
+[REQ-015 Issue #118](https://github.com/CHU-2002/Value_analysis_framework/issues/118)，并同步需求文件/台账/正文快照。上述“未创建独立 Issue”
+为 PR #117 提交时的历史事实；本次发布不推进 accepted/verified，不更改旧 AC。

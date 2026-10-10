@@ -6,7 +6,7 @@ priority: P1
 owner: CHU-2002
 created: 2026-10-10
 updated: 2026-10-10
-issue: TBD
+issue: "#118"
 design: TBD
 milestone: TBD
 pr: TBD
@@ -307,7 +307,7 @@ AC 的蜡烛、量价分区、均线、读数和时间操作，不宣称逐像�
 | 项 | 内容 |
 |---|---|
 | 调查证据 | `docs/run-records/2026-10-10-GUI-UX-review.md` 及同页截图 |
-| Issue | TBD；独立 Issue 尚未创建，本地正文见 `docs/run-records/2026-10-10-REQ-015-issue-draft.md` |
+| Issue | [#118](https://github.com/CHU-2002/Value_analysis_framework/issues/118)；五个子需求随本 Issue 跟踪，正文快照见 `docs/run-records/2026-10-10-REQ-015-issue-draft.md` |
 | 提案登记 PR | [#117](https://github.com/CHU-2002/Value_analysis_framework/pull/117)；owner 已授权公开提交全部18个文件（含10张截图）；不代表受理或实现 |
 | 设计 | TBD；受理后确定导航、历史序列/复权/分位、执行配置、阅读器、结果解释契约 |
 | 实现 / 测试 | TBD；尚未开始实现，不声明测试覆盖本需求 |
@@ -333,3 +333,6 @@ AC 的蜡烛、量价分区、均线、读数和时间操作，不宣称逐像�
 上一版 `.1` 的“年度全范围”默认改为日 K/近1年；年度/半年/单季财务口径、精确读数、
 数值表、导出、独立轴与缺数解释保留并移入新的明确判据。新增导航是研究工作区层级设计，
 现有把组标题和链接分两遍追加的渲染问题仍归 REQ-012 M4。
+
+- **远端需求登记（2026-10-10）**：owner 指出缺少远端 Issue 后补建 [#118](https://github.com/CHU-2002/Value_analysis_framework/issues/118)，
+  同步需求 front matter 与台账。状态仍为 proposed；发布/提案合入不代表 accepted 或实现完成。
