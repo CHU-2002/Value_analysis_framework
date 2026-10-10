@@ -155,7 +155,15 @@ export async function render(container, panel, payload) {
     if (["top10_holders", "pledge_stat", "repurchase", "dividend"].includes(dataset)) return "股东治理与分红";
     return "财报/公司基本信息";
   }
-  await loadBatches();
-  if (company || scope.value === "watchlist") await check();
-  const timer = setInterval(() => { if (!root.isConnected) clearInterval(timer); else void loadBatches(); }, 1800);
+  // mountPanel appends the card after render returns. Begin initial reads on
+  // the next frame, when connection guards distinguish mounted from detached.
+  requestAnimationFrame(() => {
+    if (!root.isConnected) return;
+    void loadBatches();
+    if (company || scope.value === "watchlist") void check();
+    const timer = setInterval(() => {
+      if (!root.isConnected) clearInterval(timer);
+      else void loadBatches();
+    }, 1800);
+  });
 }

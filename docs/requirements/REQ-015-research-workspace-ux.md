@@ -309,7 +309,7 @@ AC 的蜡烛、量价分区、均线、读数和时间操作，不宣称逐像�
 | 调查证据 | `docs/run-records/2026-10-10-GUI-UX-review.md` 及同页截图 |
 | Issue | [#118](https://github.com/CHU-2002/Value_analysis_framework/issues/118)；五个子需求随本 Issue 跟踪，正文快照见 `docs/run-records/2026-10-10-REQ-015-issue-draft.md` |
 | 提案登记 PR | [#117](https://github.com/CHU-2002/Value_analysis_framework/pull/117)；owner 已授权公开提交全部18个文件（含10张截图）；不代表受理或实现 |
-| 设计 | `docs/RESEARCH_WORKSPACE_PLAN.md`；通用导航扩展已单列 owner 决策，审批未完成 |
+| 设计 | `docs/RESEARCH_WORKSPACE_PLAN.md`；通用导航扩展已由 owner 于2026-10-10明确批准，独立QA复核中 |
 | 实现 / 测试 | `research_timeline.py` / `agent_action.py` / `report_reader.py` / `research_data.py` / `research.py`；`test_webui_views.py`、`test_agent_action.py`、`test_console_views.py`、`test_console_data_page.py`、`test_console_context.py`；独立验收尚未收口 |
 | 文档 | 同步 `ledger.md` 与需求 README 索引；交付时更新用户使用说明 |
 
@@ -341,6 +341,7 @@ AC 的蜡烛、量价分区、均线、读数和时间操作，不宣称逐像�
   本次不修改验收标准。accepted → in-progress，实现分支 `codex/req015-workspace`。
 - 实施依赖：先修 REQ-013 T13 预检上下文回归，再实现选择器；与五片同批复核。
 - 设计与边界见 `docs/RESEARCH_WORKSPACE_PLAN.md`，门禁、注册点、安全与真实存档授权边界不变。
+- 2026-10-10 owner 审阅该设计后明确批准通用 `NavItem placement/actions` 与 shell 导航演进；另明确授权本批代码和文档推送到既有远端 `CHU-2002/Value_analysis_framework`、创建交付 PR，并在独立验收与 `ci-success` 全绿后按常设授权合并。
 
 
 ## 实施中问题登记（2026-10-10）
@@ -348,9 +349,13 @@ AC 的蜡烛、量价分区、均线、读数和时间操作，不宣称逐像�
 | 任务 | 发现与依据 | 处理与状态 |
 |---|---|---|
 | T1 · 统一派生缓存 | 独立QA发现新时间轴、原始利润表fallback和reader版本/正文直接派生，重复请求绕过REQ-009.3 AC-3.4 | 修复中：原始仓只读revision投影到output内源快照，再经DatasetSpec/parser/DataStore；报告元数据与正文同层缓存。不扩大output jail，不改AC |
-| T2 · 核心扩展边界 | 独立QA发现NavItem通用placement/actions和shell改变冻结扩展面，REQ-015约束要求owner决策 | 设计已具体可审阅，owner批准待答；未修改注册点/门禁/旧AC，独立QA另复核外部插件 |
+| T2 · 核心扩展边界 | 独立QA发现NavItem通用placement/actions和shell改变冻结扩展面，REQ-015约束要求owner决策 | owner于2026-10-10答复「批准这次通用框架演进」；六类注册点/门禁/旧AC不变，独立QA另复核外部插件 |
 | T3 · 集成回归 | 全量局部回归发现chart kind复制canvas绘制、现有损坏数据包被伪装正常空状态 | 已修复待独立复核：导出组合移至chart_core，已有文件解析缺节继续诊断；原断言保留，88相关测试通过 |
 | T4 · 确认后未采集 | 开发浏览器点击确认后观察到实际请求0、无诊断；原连接跨线程是候选原因，观察不足以断言根因 | 已改每工作线程独立SQLite连接并finally关闭，86数据层/页面测试通过；真实确认→请求→落盘复验待执行，未用临时补丁替代产品修复 |
+| T10 · 财务导出元信息 | 开发核对发现PNG来源JSON只截取150字，获取时点可能截断；TSV只含数值无当前公司/范围/口径 | 导出统一显式公司/显示期次/指标/单位/数据期次/获取时点/派生时点/源版本；公共PNG组合按实际宽度换行，不更改业务数值；待独立导出复验 |
+| T9 · 跨年复用伪完备 | 独立真实采集60目标预估36请求却仅3请求/57复用；开发最小复现：2015单年缓存服务2016全年时_window_covers=True且_replay返回0行，窗口右端/中间空洞未核对；日期窗口也被排除param_key，分片可能覆盖旧年 | 已委派数据层修复同源完整区间判定和合法空响应边界；保留真实批次作为失败证据，修后需真实补缺口及真实日期覆盖复验，不由统计60/60推定十年完整 |
+| T8 · 初次挂载丢弃结果 | 独立GUI实跑发现collection首次await check因未挂DOM丢计划，agent带job刷新follow首循环提前退出，分别阻断AC-4.1与AC-2.4；失败截图/observations由独立QA保留 | 两种kind的初次读取/恢复推迟至挂载后首帧，保留卸载和版本守卫；运行中分析不中止，不改核心mount接口；待同一GUI流程失败→通过复验 |
+| T7 · 远端交付授权 | 自动审批拒绝git push到现有origin，理由为本批代码/文档外传目的地未具体授权 | owner于2026-10-10答复「授权推送、创建PR和门禁通过后合并」，明确目的地CHU-2002/Value_analysis_framework；据此继续本批交付，独立验收与ci-success全绿后才合并 |
 | T6 · 既有海外公司上下文 | 缓存集成检查发现bare AAPL和BRK.B.US不匹配时间轴ticker正则，会将既有合法公司页降级 | 沿用统一数据层normalize/market规则；无本地OHLC正常解释，非A股不伪提供A股历史采集计划；行为测试覆盖HK/US |
 | T5 · 默认期次 | 2026-10-10默认目标包含尚未结束20261231，数据页解释未来期但默认计划本身有误 | 归REQ-011维护：按已披露年度窗口选择20251231等，明确未来期禁止执行；边界日期用例通过，原AC不变 |
 

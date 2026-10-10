@@ -308,14 +308,27 @@ export { renderChart as default };
 export function composeChartImage(canvases, headings = []) {
   const output = document.createElement("canvas");
   output.width = Math.max(320, ...canvases.map(canvas => canvas.width));
-  const headerHeight = 30 + 30 * headings.length;
+  const measure = output.getContext("2d");
+  measure.font = "16px sans-serif";
+  const lines = [];
+  headings.forEach(text => {
+    let line = "";
+    for (const character of text) {
+      if (line && measure.measureText(line + character).width > output.width - 24) {
+        lines.push(line);
+        line = character;
+      } else line += character;
+    }
+    lines.push(line);
+  });
+  const headerHeight = 30 + 30 * lines.length;
   output.height = headerHeight + canvases.reduce((sum, canvas) => sum + canvas.height, 0);
   const context = output.getContext("2d");
   context.fillStyle = "white";
   context.fillRect(0, 0, output.width, output.height);
   context.fillStyle = "#333";
   context.font = "16px sans-serif";
-  headings.forEach((text, index) => context.fillText(text, 12, 22 + 30 * index));
+  lines.forEach((text, index) => context.fillText(text, 12, 22 + 30 * index));
   let top = headerHeight;
   canvases.forEach(canvas => { context.drawImage(canvas, 0, top); top += canvas.height; });
   return output;

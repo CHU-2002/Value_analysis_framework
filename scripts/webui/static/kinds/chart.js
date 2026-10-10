@@ -5,7 +5,18 @@ import {
   composeChartImage, downloadPng, renderChart, seriesToTsv,
 } from "/kinds/chart_core.js";
 
+function exportHeadings(data, current) {
+  const dates = (data.sources || []).map(source => source.fetched_at).filter(Boolean).sort();
+  return [
+    `公司=${data.company || "未知"}；财务口径=${data.basis_labels?.[data.basis] || data.basis || "年度"}；单位=${data.unit || "未知"}`,
+    `显示期次=${current.labels[0] || "无"}至${current.labels.at(-1) || "无"}；指标=${current.series.map(series => series.name).join(" / ") || "全部隐藏"}`,
+    `数据期次=${current.labels.at(-1) || "未知"}；获取时点=${dates.length ? dates[0] + "至" + dates.at(-1) : "未知"}；派生生成=${data.meta?.generated_at || "未知"}`,
+    `来源=${(data.meta?.sources || []).join(" / ") || "本地原始仓"}；源版本=${data.meta?.raw_revision || JSON.stringify(data.meta?.source_digests || {})}`,
+  ];
+}
+
 function toolbar(container, panel, data, chart, onBasisChange) {
+  const getCurrent = () => chart.current || data;
   const options = (panel.options && panel.options.chart && panel.options.chart.toolbar) || {};
   const bar = document.createElement("div");
   bar.className = "chart-toolbar";
@@ -57,10 +68,9 @@ function toolbar(container, panel, data, chart, onBasisChange) {
     png.dataset.chartExport = "png";
     png.textContent = "导出图片";
     png.onclick = () => {
-      const chart = {canvas: composeChartImage([...container.querySelectorAll("canvas")], [
-        `${data.company || "未知公司"} · 财务${data.basis || "annual"} · ${data.unit || ""}`,
-        `显示期次与指标见各图，来源数据时点见期次；${JSON.stringify(data.meta || {}).slice(0, 150)}`,
-      ])};
+      const current = getCurrent();
+      const chartExport = {canvas: composeChartImage([...container.querySelectorAll("canvas")], exportHeadings(data, current))};
+      const chart = chartExport;
       downloadPng(chart.canvas, `${data.company || "company"}-${panel.id}-${data.basis || "annual"}`);
     };
     const tsv = document.createElement("button");
@@ -69,7 +79,7 @@ function toolbar(container, panel, data, chart, onBasisChange) {
     tsv.textContent = "复制数据";
     tsv.onclick = async () => {
       try {
-        await navigator.clipboard.writeText(seriesToTsv(chart.current ? chart.current.labels : data.labels || [], chart.current ? chart.current.series : data.series || []));
+        await navigator.clipboard.writeText(exportHeadings(data, getCurrent()).join("\n") + "\n" + seriesToTsv(getCurrent().labels || [], getCurrent().series || []));
         tsv.textContent = "已复制";
       } catch (_) {
         tsv.textContent = "请手动复制";
@@ -139,7 +149,7 @@ export async function render(container, panel, data) {
   }
   (data.series || []).forEach((series,index)=>{ const label=document.createElement("label");const box=document.createElement("input");box.type="checkbox";box.checked=true;box.onchange=()=>{box.checked?visible.add(index):visible.delete(index);update();};label.append(box,series.name);options.append(label); });
   begin.onchange=end.onchange=update;
-  exportData.onclick=()=>{ const quote=x=>`"${String(x ?? "").replaceAll('"','""')}"`;const metadata=`公司=${data.company || "未知"};财务口径=${data.basis};期间=${current.labels[0] || "无"}至${current.labels.at(-1) || "无"};单位=${data.unit};指标=${current.series.map(s=>s.name).join("/")};来源=${JSON.stringify(data.meta || {})}`;const rows=[metadata,["期次",...current.series.map(s=>s.name)].map(quote).join(","),...current.labels.map((label,i)=>[label,...current.series.map(s=>s.values[i])].map(quote).join(","))];const link=document.createElement("a");const url=URL.createObjectURL(new Blob(["\uFEFF"+rows.join("\r\n")],{type:"text/csv;charset=utf-8"}));link.href=url;link.download=`${data.company || "company"}-${data.basis || "annual"}-financial.csv`;link.click();setTimeout(()=>URL.revokeObjectURL(url),0); };
+  exportData.onclick=()=>{ const quote=x=>`"${String(x ?? "").replaceAll('"','""')}"`;const metadata=exportHeadings(data, current).join(" ; ");const rows=[metadata,["期次",...current.series.map(s=>s.name)].map(quote).join(","),...current.labels.map((label,i)=>[label,...current.series.map(s=>s.values[i])].map(quote).join(","))];const link=document.createElement("a");const url=URL.createObjectURL(new Blob(["\uFEFF"+rows.join("\r\n")],{type:"text/csv;charset=utf-8"}));link.href=url;link.download=`${data.company || "company"}-${data.basis || "annual"}-financial.csv`;link.click();setTimeout(()=>URL.revokeObjectURL(url),0); };
   options.append(exportData); container.append(options, tableDetails); update();
   if (data.source_note) {const source=document.createElement("p");source.className="panel-note";source.textContent=data.source_note;container.append(source);}
   if (data.empty_hint) {
