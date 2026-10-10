@@ -10,6 +10,7 @@ from __future__ import annotations
 import sys
 import os
 import shlex
+import json
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -22,7 +23,7 @@ except ImportError:
 
 from ..config import REPO_ROOT
 from ..core import envelope
-from ..core.models import CommandSpec, NavItem, PanelSpec
+from ..core.models import CommandSpec, NavItem, PanelSpec, Param
 from ..core.errors import InvalidParam, UnknownCommand, WebUIError
 from ..core.security import redact, safe_join
 from .companies import _artifact_id
@@ -79,14 +80,15 @@ def display_params() -> tuple:
 
 def command_specs(config=None) -> list:
     """3 个 `CommandSpec`：每个把 `--action <值>` 固定进 argv，参数表来自扫描。"""
-    params = display_params()
+    params = (*display_params(), Param("backend", type="enum", choices=("codex", "claude")),
+              Param("model", type="string"))
     root = Path(config.output_root) if config else REPO_ROOT / "output"
     cli_value = os.environ.get("AGENT_CLI") or agent_action.DEFAULT_CLI
     return [
         CommandSpec(
             id=command_id,
             argv=(sys.executable, str(SCRIPT), "--action", action,
-                  "--output-root", str(root.resolve()), "--cli", cli_value),
+                  "--output-root", str(root.resolve()), "--require-report"),
             title=title,
             group=GROUP,
             params=params,
@@ -104,10 +106,12 @@ def command_specs(config=None) -> list:
 
 def _validate(params, *, action, root, cli):
     try:
-        ticker, _, _ = agent_action.preflight(action, params.get("ticker", ""), root, cli)
+        backend = params.get("backend")
+        ticker, _, _ = agent_action.preflight(action, params.get("ticker", ""), root,
+                                             None if backend else cli, backend, params.get("model"))
     except (ValueError, FileNotFoundError) as exc:
         raise InvalidParam(str(exc)) from exc
-    return {"ticker": ticker}
+    return {"ticker": ticker, **{k: params[k] for k in ("backend", "model") if params.get(k)}}
 
 
 def _exclusive_key(params, *, root):
@@ -117,21 +121,49 @@ def _exclusive_key(params, *, root):
     return str(safe_join(root, directories[0].name))
 
 
+def _context_ticker(ctx):
+    explicit = ctx.query.get("ticker")
+    if explicit:
+        return explicit
+    value = ctx.query.get("company") or ""
+    if not value:
+        return ""
+    from .companies import companies_dataset
+    entries = companies_dataset(ctx)[0]["companies"]
+    item = next((i for i in entries if value in (i.get("ticker"), i.get("dir"))), None)
+    return (item or {}).get("ticker", value)
+
+
+def _agent_catalog():
+    from agent_models import catalog, default_model
+    items = []
+    for entry in catalog():
+        installed = bool(agent_action.resolve_cli(entry["executable"]))
+        items.append({**entry, "installed": installed,
+                      "installation": "已确认" if installed else "不可用",
+                      "installation_evidence": "PATH 可执行文件存在" if installed else "请在终端安装并登录后刷新",
+                      "login": "未验证", "login_evidence": "预检不发起分析或联网验证；运行时由CLI确认登录态",
+                      "default": default_model(entry["id"])})
+    return items
+
+
 def _preflight(ctx, **_):
     command = ctx.query.get("command")
     action = next((a for cid, a, _, _ in ACTIONS if cid == command), None)
     if action is None:
         raise UnknownCommand("没有这个报告动作。")
-    unknown = set(ctx.query) - {"command", "ticker"}
+    unknown = set(ctx.query) - {"command", "ticker", "company", "backend", "model", "id", "run", "type", "job"}
     if unknown:
-        raise InvalidParam("报告动作只接受股票代码。")
+        raise InvalidParam("报告动作只接受股票代码和目录内的执行配置。")
     result = {"ready": False, "command_line": "", "reason": "",
               "notice": "会消耗模型额度，可能需要较长时间。"}
     try:
         ticker, _, argv = agent_action.preflight(
-            action, ctx.query.get("ticker", ""), ctx.config.output_root,
+            action, _context_ticker(ctx), ctx.config.output_root,
+            backend=ctx.query.get("backend"), model=ctx.query.get("model"),
         )
-        result.update(ready=True, ticker=ticker,
+        result.update(ready=True, ticker=ticker, agent=ctx.query.get("backend") or "CLI 配置",
+                      model=ctx.query.get("model") or "default", configuration=_agent_catalog(),
                       command_line=redact(shlex.join(argv), ctx.secrets))
     except FileNotFoundError:
         result["reason"] = "本机找不到可执行的 Codex（或配置的 agent CLI）。请先在终端安装并登录，再刷新页面。"
@@ -146,6 +178,13 @@ def _artifacts(ctx, job_id, **_):
         raise InvalidParam("这个任务不是生成报告任务。")
     root = Path(ctx.config.output_root)
     dirs = agent_action.find_company_dirs(root, job["params"].get("ticker", ""))
+    audit = {}
+    for line in job.get("log", []):
+        if str(line).startswith("AGENT_AUDIT "):
+            try:
+                audit = json.loads(line[len("AGENT_AUDIT "):])
+            except ValueError:
+                continue
     links = []
     execution_started_at = job.get("outputs", {}).get("execution_started_at")
     if (len(dirs) == 1 and execution_started_at
@@ -162,7 +201,12 @@ def _artifacts(ctx, job_id, **_):
                 stamp = path.stat().st_mtime
             except (OSError, ValueError, WebUIError):
                 continue
-            if not start <= stamp <= end:
+            # The wrapper records content changes: preserved mtimes remain visible,
+            # while another producer's touched reports are excluded by this audit.
+            if audit and path.suffix == ".md":
+                if relative not in audit.get("reports", []):
+                    continue
+            elif not start <= stamp <= end:
                 continue
             company = dirs[0].name
             if path.suffix == ".md" and ("report" in path.name or "报告" in path.name):
@@ -173,12 +217,21 @@ def _artifacts(ctx, job_id, **_):
                               "href": "#runs?" + urlencode({"company": company,
                                                            "run": path.parent.name}),
                               "path": str(path.parent.relative_to(base))})
-    return envelope.ok({"links": links, "message": "" if links else "本次没有找到新产物"})
+    requested = {"agent": job["params"].get("backend", "CLI 配置"),
+                 "model": job["params"].get("model", "default")}
+    action = next(action for cid, action, _, _ in ACTIONS if cid == job["command"])
+    report_paths = [link["path"] for link in links if link["href"].startswith("#report?")]
+    produced = bool(agent_action._action_reports(action, report_paths))
+    return envelope.ok({"links": links, "audit": audit, "requested": requested,
+                        "actual_model": audit.get("actual_model", "未知"),
+                        "outcome": "running" if job["status"] in ("running", "queued") else
+                                   ("produced" if produced else "missing"),
+                        "message": "" if produced else "报告未产出：本次没有找到声明的报告；不会自动重跑。"})
 
 
 def _catalog_payload(ctx) -> dict:
     specs = command_specs(ctx.config)
-    return {"count": len(specs), "commands": [{**spec.to_json(), "preflight_endpoint": "/api/v1/agent/preflight",
+    return {"agents": _agent_catalog(), "company": _context_ticker(ctx), "count": len(specs), "commands": [{**spec.to_json(), "preflight_endpoint": "/api/v1/agent/preflight",
                        "artifacts_endpoint": "/api/v1/agent/jobs/{job_id}/artifacts",
                        "field_labels": {"ticker": "股票代码"},
                        "placeholder": "600887.SH / 00700.HK / AAPL"}
@@ -192,7 +245,7 @@ def _list_actions(ctx, **_):
 
 def _catalog_panel(ctx, **_):
     """面板 provider：与上面那条路由同一份数据（服务端渲染与测试用）。"""
-    return {"commands": _catalog_payload(ctx)["commands"]}
+    return _catalog_payload(ctx)
 
 
 def contribute(registry):
@@ -203,19 +256,19 @@ def contribute(registry):
     registry.route("GET", "/api/v1/agent/jobs/{job_id}/artifacts", _artifacts, name="agent artifacts")
     registry.panel(PanelSpec(
         id="agent.actions",
-        kind="form",
+        kind="agent-form",
         title="生成报告",
         render="client",
         endpoint=ENDPOINT,
         provider=_catalog_panel,
         size="full",
         description=(
-            "选一个动作、填股票代码，确认后由本机的 agent CLI 生成报告；"
+            "沿用当前公司，选择动作、agent 与模型；预检后显式确认生成。"
             "会消耗模型额度、可能耗时较长。"
         ),
     ))
     registry.nav(NavItem(
-        id="agent",
+        id="agent", placement="action",
         title="生成报告",
         group="分析",
         order=60,
