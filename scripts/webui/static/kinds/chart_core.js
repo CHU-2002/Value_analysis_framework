@@ -135,6 +135,14 @@ export function drawSeries(ctx, options) {
       started = true;
     });
     ctx.stroke();
+    // A lone observation (including one between gaps) has no line segment.
+    // Draw its value so valid data cannot look like an empty chart/export.
+    values.forEach((value, index) => {
+      if (!isNumber(value) || isNumber(values[index - 1]) || isNumber(values[index + 1])) return;
+      ctx.beginPath();
+      ctx.arc(x(index), y(value), 3, 0, Math.PI * 2);
+      ctx.fill();
+    });
     // 缺失值标一个空心点：让「断开」看起来是**有意的**，而不是数据没加载。
     values.forEach((value, index) => {
       if (value === null || value === undefined) return;

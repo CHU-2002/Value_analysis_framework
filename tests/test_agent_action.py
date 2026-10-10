@@ -510,6 +510,7 @@ def test_jobs_normalize_deduplicate_cancel_and_preserve_redacted_audit(tmp_path,
     second = second_runner.submit("agent_update_analysis", {"ticker": "600887"})
     wait_for(lambda: second_runner.get(second["id"])["status"] == "failed")
     wait_for(lambda: (second_runner.history_dir / (second["id"] + ".json")).exists())
+    wait_for(lambda: json.loads((second_runner.history_dir / (second["id"] + ".json")).read_text())["status"] == "failed")
     detail = second_runner.get(second["id"])
     history = (second_runner.history_dir / (second["id"] + ".json")).read_text()
     assert detail["exit_code"] == 7
