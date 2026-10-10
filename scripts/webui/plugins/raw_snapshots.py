@@ -9,7 +9,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import sqlite3
 import tempfile
 import threading
@@ -70,8 +69,14 @@ def ensure_raw_snapshot(config, company, datasets):
     stable metadata. Reading rows and metadata in one read transaction prevents a
     concurrent archive update from assigning old metadata to new raw content.
     """
-    if not re.fullmatch(r"[A-Za-z0-9]+\.(?:SH|SZ|BJ|HK|US)", str(company or "")):
-        raise BadRequest("原始源快照需要合法公司代码")
+    from datalayer.universe import market_of, normalize_ticker
+    from datalayer.errors import UniverseError
+    try:
+        if normalize_ticker(company) != company:
+            raise BadRequest("原始源快照需要规范公司代码")
+        market_of(company)
+    except UniverseError as exc:
+        raise BadRequest("原始源快照需要合法公司代码") from exc
     datasets = tuple(sorted(set(datasets)))
     if not datasets or not set(datasets) <= DATASETS:
         raise BadRequest("原始源快照请求了未知数据组")

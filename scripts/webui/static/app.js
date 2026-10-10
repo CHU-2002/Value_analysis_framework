@@ -6,6 +6,9 @@
 //   2. 「当前公司」是**全局上下文**：URL 的 `company=` 优先，其次 localStorage；
 //      切换公司只改 hash，不重新加载页面；
 //   3. 声明了 `requires` 的页面在缺上下文时显示**可读空状态**，而不是让面板各自报错。
+import { render as renderAgentForm } from "/kinds/agent_form.js";
+import { render as renderReport } from "/kinds/report.js";
+import { render as renderCollection } from "/kinds/collection.js";
 import { render as renderActions } from "/kinds/actions.js";
 import { render as renderChart } from "/kinds/chart.js";
 import { render as renderFallback } from "/kinds/fallback.js";
@@ -19,6 +22,9 @@ export function registerPanelKind(kind, renderer) {
 }
 
 // 客户端渲染的 kind（服务端渲染的 kind 直接给 html 片段，不需要前端渲染器）
+registerPanelKind("agent-form", renderAgentForm);
+registerPanelKind("report", renderReport);
+registerPanelKind("collection", renderCollection);
 registerPanelKind("chart", renderChart);
 registerPanelKind("fallback", renderFallback);
 registerPanelKind("form", renderForm);
@@ -41,17 +47,13 @@ function parseHash() {
 }
 
 function applySelection(query) {
-  // 规则：**URL 显式给了 company 就以 URL 为准**（刷新/前进后退/复制链接都一致）；
-  // 没给就保留当前上下文（它是全局的，切换页面不该把它丢掉——实测踩到：点侧栏
-  // 回工作台后公司变回「（未选择）」，公司级动作全部变成禁用）。
-  // 「冷开公司级页面」由 `mountPanel` 的 `requires` 空状态负责，与这里无关。
   const params = new URLSearchParams(query);
-  const company = params.get("company");
-  if (company) {
-    selection.company = company;
-    rememberCompany(company);
-  }
-  for (const [key, value] of params.entries()) selection[key] = value;
+  const previousCompany = selection.company;
+  for (const key of Object.keys(selection)) delete selection[key];
+  const company = params.has("company") ? params.get("company") : previousCompany;
+  if (company) { selection.company = company; rememberCompany(company); }
+  else if (params.has("company")) forgetCompany();
+  for (const [key, value] of params.entries()) if (value) selection[key] = value;
 }
 
 function rememberCompany(ticker) {
@@ -71,7 +73,7 @@ function rememberedCompany() {
 function setHash(pageId, params) {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params || {})) {
-    if (value !== "" && value !== null && value !== undefined) query.set(key, value);
+    if ((value !== "" || key === "company") && value !== null && value !== undefined) query.set(key, value);
   }
   const text = query.toString();
   window.location.hash = text ? `${pageId}?${text}` : pageId;
@@ -247,9 +249,14 @@ function needsContextCard(empty) {
   return box;
 }
 
+let pageRevision = 0;
+let navItems = [];
 async function openPage(pageId) {
+  const revision = ++pageRevision;
+  document.body.classList.remove("report-focus");
   banner("");
   const { data: page, warnings } = await api(`/api/v1/pages/${encodeURIComponent(pageId)}`);
+  if (revision !== pageRevision) return;
   pageNeedsCompany = (page.requires || []).includes("selection.company");
   document.getElementById("page-title").textContent = page.title;
   document.getElementById("page-desc").textContent = page.description || "";
@@ -269,11 +276,19 @@ async function openPage(pageId) {
     // 缺上下文是**正常空状态**：不渲染面板、不发面板请求，也就不可能出降级卡（关掉 E2）。
     container.append(needsContextCard(emptyState));
   } else {
-    for (const panel of page.panels) container.append(await mountPanel(panel));
+    for (const panel of page.panels) {
+      const card = await mountPanel(panel);
+      if (revision !== pageRevision) return;
+      container.append(card);
+    }
   }
   updateBreadcrumb(page);
-  for (const link of document.querySelectorAll("#nav a")) {
+  renderContextNav(pageId);
+  renderPageActions(page);
+  for (const link of document.querySelectorAll("#nav a, #context-nav a")) {
     link.classList.toggle("active", link.dataset.page === pageId);
+    if (link.dataset.page === pageId) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
   }
 }
 
@@ -292,7 +307,7 @@ function updateBreadcrumb(page) {
 
 function navLink(item) {
   const link = document.createElement("a");
-  link.href = `#${item.id}`;
+  link.href = `#${item.id}` + (selection.company ? `?${new URLSearchParams({company:selection.company})}` : "");
   link.dataset.page = item.id;
   link.textContent = item.title;
   if ((item.requires || []).length) link.dataset.requires = item.requires.join(",");
@@ -305,7 +320,7 @@ function navLink(item) {
 
 // 点进一个页面时带哪些参数：公司级页面带当前公司，其余不带（AC-1：不需要经过某个页面的链接）。
 function selectionFor(item) {
-  if ((item.requires || []).includes("selection.company") && selection.company) {
+  if (selection.company) {
     return { company: selection.company };
   }
   return {};
@@ -320,6 +335,53 @@ function renderNav(items, container, depth = 0) {
   }
 }
 
+function allNav(items) { return items.flatMap(item => [item, ...allNav(item.children || [])]); }
+
+function renderSidebar(items, nav) {
+  nav.replaceChildren();
+  const primary = items.filter(i => i.placement === "primary");
+  renderNav(primary, nav);
+  const rest = items.filter(i => !["primary", "context", "action"].includes(i.placement));
+  if (rest.length) {
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = "高级工具与既有页面";
+    details.append(summary);
+    const groups = new Map();
+    for (const item of rest) {
+      const group = item.group || "其他";
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group).push(item);
+    }
+    for (const [group, groupItems] of groups) {
+      const heading = document.createElement("div"); heading.className = "nav-group";
+      heading.textContent = group; details.append(heading);
+      renderNav(groupItems, details);
+    }
+    nav.append(details);
+  }
+}
+
+function renderContextNav(pageId) {
+  const target = document.getElementById("context-nav");
+  target.replaceChildren();
+  const context = navItems.filter(i => i.placement === "context");
+  const active = allNav(navItems).find(i => i.id === pageId);
+  target.hidden = !active || !["context", "action"].includes(active.placement);
+  if (target.hidden) return;
+  for (const item of context) target.append(navLink(item));
+}
+
+function renderPageActions(page) {
+  const target = document.getElementById("page-actions");target.replaceChildren();
+  const item = allNav(navItems).find(i => i.id === page.id);
+  for (const action of item?.actions || []) {
+    const button = document.createElement("button");button.type="button";button.textContent=action.title;
+    button.onclick=()=>setHash(action.page, selection.company ? {company:selection.company}:{});
+    target.append(button);
+  }
+}
+
 async function fillCompanySelector() {
   const select = document.getElementById("company-select");
   if (!select) return;
@@ -330,7 +392,8 @@ async function fillCompanySelector() {
   for (const item of companies) {
     options.push({ value: item.ticker || item.dir, label: item.display_name || item.name });
   }
-  const current = selection.company || remembered || "";
+  const explicit = new URLSearchParams(parseHash().query).has("company");
+  const current = selection.company || (explicit ? "" : remembered) || "";
   select.disabled = false;
   select.innerHTML = "";
   for (const option of options) {
@@ -394,7 +457,7 @@ function wireCompanySelector() {
     // 渲染统一交给 hashchange 那一条路径——这里不要再自己调一次 openPage，
     // 否则同一页会被渲染两次（第二次还会带上还没生效的旧上下文）。
     const page = parseHash().pageId || defaultPage;
-    setHash(page, { ...selection, company: value });
+    setHash(page, { company: value });
     if (parseHash().pageId === page && (window.location.hash || "").includes("company=")) {
       // hash 完全没变（例如从「未选择」切到「未选择」）：hashchange 不会触发，手动兜一次。
       reload();
@@ -434,23 +497,13 @@ async function boot() {
     defaultPage = data.default_page || (items[0] && items[0].id) || "home";
     const nav = document.getElementById("nav");
     nav.innerHTML = "";
-    const groups = new Map();
-    for (const item of items) {
-      const group = item.group || "其他";
-      if (!groups.has(group)) {
-        const title = document.createElement("div");
-        title.className = "nav-group";
-        title.textContent = group;
-        nav.append(title);
-        groups.set(group, []);
-      }
-      groups.get(group).push(item);
-    }
-    for (const [, groupItems] of groups) renderNav(groupItems, nav);
+    navItems = items;
+    renderSidebar(items, nav);
     if (!items.length) {
       nav.textContent = "还没有注册任何页面。";
       return;
     }
+    applySelection(parseHash().query);
     wireCompanySelector();
     try {
       await fillCompanySelector();
@@ -459,7 +512,7 @@ async function boot() {
       banner(problemText(error), "warn");
     }
     const requested = parseHash().pageId;
-    const known = items.some((item) => item.id === requested);
+    const known = allNav(items).some((item) => item.id === requested);
     if (!requested || !known) {
       // 未知页面 → 落到工作台并提示（而不是悄悄落到第一个业务面板）。
       if (requested) banner("没有这一页，已转到工作台。", "warn");
@@ -472,11 +525,12 @@ async function boot() {
       pageNeedsCompany = false;
       applySelection(next.query);
       updateCurrentCompanyLabel();
-      openPage(next.pageId).catch((error) => banner(problemText(error), "error"));
+      renderSidebar(navItems, document.getElementById("nav"));
+      openPage(next.pageId).catch((error) => { if (parseHash().pageId === next.pageId) banner(problemText(error), "error"); });
     });
     pageNeedsCompany = false;
     applySelection(parseHash().query);
-    const first = items.some((item) => item.id === parseHash().pageId)
+    const first = allNav(items).some((item) => item.id === parseHash().pageId)
       ? parseHash().pageId
       : defaultPage;
     await openPage(first);

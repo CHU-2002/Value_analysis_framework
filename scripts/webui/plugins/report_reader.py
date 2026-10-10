@@ -220,7 +220,7 @@ def contribute(registry):
     parsers.register_parser("report_reader.document", parse_document, replace=True)
     for name, version in (("report_reader.catalog", CATALOG_VERSION),
                           ("report_reader.document", DOCUMENT_VERSION)):
-        if name not in registry.datasets():
+        if name not in {spec["name"] for spec in registry.datasets()}:
             registry.dataset(DatasetSpec(name=name, sources=SOURCES, parser=name,
                                          parser_version=version, hash_strategy="sha256"))
 

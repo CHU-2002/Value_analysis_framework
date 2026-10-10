@@ -307,7 +307,8 @@ def contribute(registry):
         description="「拉取」会联网并消耗配额、需要确认；「从原始仓重建」完全离线、不花钱。",
     ))
     registry.nav(NavItem(
-        id="data", title="数据获取", group="数据", order=10,
+        id="data", title="数据获取", group="数据", order=35, placement="context",
+        actions=({"title":"采集批次与原始存档", "page":"collect"},),
         panels=("data.research", "data.actions", "data.universe", "data.gaps", "data.store"),
         description="清单 / 缺口 / 仓规模，以及「拉取」与「离线重建」两个动作。",
     ))

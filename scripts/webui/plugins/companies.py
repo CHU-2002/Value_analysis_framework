@@ -490,6 +490,8 @@ def _report(ctx, ticker=None, **_):
 
 
 def contribute(registry):
+    from . import report_reader
+    report_reader.contribute(registry)
     register_parsers()
     # `parser_version` 从 1 升到 2（`REQ-012.1`）：解析结果多了 `label` / `display_name`
     # 两个字段，显示名的兜底规则也变了（没有 `record.json` 的老产物按 `<代码>_<简称>`
@@ -528,12 +530,13 @@ def contribute(registry):
     ))
     # `REQ-012.1` 的 IA：公司级页面收进「公司」组，并声明**上下文依赖**
     # （`requires` 只是字符串，前端 shell 拿 selection 比对后决定「渲染」还是「先选公司」）。
-    registry.nav(NavItem(id="report", title="报告", group="公司", order=30,
+    registry.nav(NavItem(id="report", title="报告", placement="context",
+                         actions=({"title":"生成报告", "page":"agent"}, {"title":"迭代记录", "page":"runs"}), group="公司", order=30,
                          panels=("report.view", "companies.artifacts"),
                          requires=("selection.company",),
                          context_resolver=report_context_resolvable,
                          description="阅读这家公司的分析报告与产物；未选公司时给你选公司的入口。"))
-    registry.nav(NavItem(id="companies", title="公司列表（全部）", group="数据", order=15,
+    registry.nav(NavItem(id="companies", title="公司列表（全部）", placement="primary", group="数据", order=15,
                          panels=("companies.list",),
                          description="已经分析过的公司；点公司名进入它的图表页。"))
     registry.route("GET", "/api/v1/companies", _list_companies, name="company list")

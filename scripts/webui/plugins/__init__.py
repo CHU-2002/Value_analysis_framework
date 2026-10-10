@@ -23,7 +23,7 @@ from ..core.errors import RegistrationConflict
 BUILTIN: tuple = (
     "collect", "commands", "companies", "charts", "run_history", "agent_report",
     # REQ-012
-    "actions", "home", "data_page",
+    "actions", "home", "data_page", "research",
 )
 
 

@@ -81,8 +81,6 @@ def make_app(tmp_path: Path):
     registry.config = config
     for module in (companies_plugin, charts_plugin, run_history_plugin):
         module.contribute(registry)
-    from webui.plugins.research_timeline import register_research_datasets
-    register_research_datasets(registry)
     registry.datastore = DataStore(config, spec_lookup=registry.dataset_spec)
     return config, registry
 
@@ -747,3 +745,14 @@ def test_failed_atomic_snapshot_does_not_publish_partial_or_touch_previous_revis
     assert (base / "raw.json").read_bytes() == previous
     assert list(ctx.config.output_root.glob(".research_sources/**/raw.json")) == [base / "raw.json"]
     assert not list(ctx.config.output_root.glob(".research_sources/**/*.tmp"))
+
+
+def test_research_other_existing_markets_remain_readable_without_a_share_pull_plan(tmp_path):
+    from webui.plugins.research_timeline import cached_timeline
+    ctx = _raw_cache_context(tmp_path)
+    for company in ("00700.HK", "AAPL", "BRK.B.US"):
+        data, _ = cached_timeline(ctx, company)
+        assert data["company"] == company and data["points"] == []
+        assert "尚不可用" in data["source_note"]
+        assert "chart_metrics" not in data["update_href"]
+        assert "company=" in data["update_href"]

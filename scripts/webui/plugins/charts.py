@@ -36,7 +36,7 @@ from ..core.models import DatasetSpec, NavItem, PanelSpec, Param
 from ..datastore import parsers
 from ..datastore.parsers import markdown_tables
 from .companies import company_base, context_resolvable
-from .research_timeline import financial_income, load_timeline, read_records
+from .research_timeline import cached_financial_income, load_timeline, register_research_datasets
 
 _METRIC_ORDER = ("ROE (%)", "毛利率 (%)", "净利率 (%)", "资产负债率 (%)")
 MONTH_SECTION = "年度行情汇总"
@@ -298,22 +298,20 @@ def filter_basis(data: dict, basis: str) -> dict:
 
 def _chart_panel(dataset: str):
     def provider(ctx, company=None, basis=None, **_):
+        if dataset == "charts.revenue_profit" and company:
+            income, income_meta = cached_financial_income(ctx, company)
+            if income["available"]:
+                return {**filter_basis(income, basis or DEFAULT_BASIS), "meta": income_meta, "company": company}
         try:
             base = company_base(ctx, company)
             data, meta = ctx.registry.datastore.get(dataset, base=base, params={})
         except (ArtifactMissing, NotFound):
-            if dataset == "charts.revenue_profit" and company and "." in company:
-                income, sources = read_records(ctx.config.archive_root, company, "income")
-                if income:
-                    payload = financial_income(income)
-                    return {**filter_basis(payload, basis or DEFAULT_BASIS), "meta": {"sources": sources}, "company": company}
+            # A missing pack is a normal empty state; a present but malformed pack
+            # must retain its per-panel diagnostic rather than hide a regression.
+            if "base" in locals() and (base / "data_pack_market.md").is_file():
+                raise
             return {"labels": [], "series": [], "unit": "%" if dataset == "charts.metrics" else "百万元",
                     "empty_hint": "尚无财务数据包；请在数据页更新数据并离线重建。", "company": company}
-        if dataset == "charts.revenue_profit" and company and "." in company:
-            income, sources = read_records(ctx.config.archive_root, company, "income")
-            if income:
-                data = financial_income(income)
-                meta = {"sources": sources}
         if basis:
             data = filter_basis(data, basis)
         return {**data, "meta": meta, "company": company}
@@ -346,6 +344,7 @@ def _chart_context(ctx, value):
 
 
 def contribute(registry):
+    register_research_datasets(registry)
     register_parsers()
     for name in CHART_DATASETS:
         # `parser_version` 3：REQ-015.1 修正累计季度的单季换算。
@@ -397,7 +396,8 @@ def contribute(registry):
         description="来自 §3 合并利润表。年度累计 / 半年累计 / 单季分开画，不混在一根轴上。",
     ))
     registry.nav(NavItem(
-        id="charts", title="图表", group="公司", order=20,
+        id="charts", title="行情与估值", placement="context",
+        actions=({"title":"更新数据", "page":"data"}, {"title":"生成报告", "page":"agent"}), group="公司", order=20,
         panels=("charts.timeline", "charts.metrics", "charts.revenue_profit", "charts.annual_price"),
         requires=("selection.company",),
         context_resolver=_chart_context,

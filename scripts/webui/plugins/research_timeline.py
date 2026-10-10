@@ -200,15 +200,21 @@ def timeline_payload(rows, *, company, cycle="day", window="5", adjustment="none
 
 
 def _canonical_company(ctx, company):
-    if re.fullmatch(r"[A-Za-z0-9]+\.(?:SH|SZ|BJ|HK|US)", str(company or "")):
-        return company
-    from .companies import company_base
-    base = company_base(ctx, company)
-    match = re.match(r"(\d{6})", base.name)
-    if not match:
-        raise BadRequest("请先选择有股票代码的公司")
-    code = match.group(1)
-    return code + (".SH" if code.startswith("6") else ".SZ")
+    from datalayer.universe import market_of, normalize_ticker
+    from datalayer.errors import UniverseError
+    try:
+        ticker = normalize_ticker(company)
+        market_of(ticker)
+        return ticker
+    except UniverseError:
+        from .companies import resolve_company
+        resolved = resolve_company(ctx, company)
+        try:
+            ticker = normalize_ticker(resolved["ticker"])
+            market_of(ticker)
+            return ticker
+        except UniverseError as exc:
+            raise BadRequest("请先选择有股票代码的公司") from exc
 
 
 def _snapshot_payload(sources):
@@ -231,9 +237,13 @@ def parse_timeline_snapshot(sources, params):
         calendar_rows = datasets["trade_cal"]["rows"]
     settings = {key: params[key] for key in ("cycle", "window", "adjustment", "range", "start", "end")}
     settings["as_of"] = date_value(params["as_of"])
-    return timeline_payload(daily_rows(datasets["daily"]["rows"], datasets["daily_basic"]["rows"],
+    data = timeline_payload(daily_rows(datasets["daily"]["rows"], datasets["daily_basic"]["rows"],
                             datasets["adj_factor"]["rows"]), company=company, sources=source_versions,
                             calendar_rows=calendar_rows, suspension_rows=datasets["suspend_d"]["rows"], **settings)
+    if not company.endswith((".SH", ".SZ")):
+        data["update_href"] = "#data?" + urlencode({"company": company})
+        data["source_note"] = "当前市场的历史 OHLC/估值补齐计划尚不可用；仅显示已有本地观察，不自动联网。"
+    return data
 
 
 def parse_income_snapshot(sources, params):

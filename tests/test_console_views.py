@@ -123,7 +123,6 @@ def make_app(tmp_path: Path):
     for module in (collect_plugin, commands_plugin, companies_plugin, charts_plugin,
                    run_history_plugin, home_plugin, data_page_plugin, actions_plugin):
         module.contribute(registry)
-    report_reader_plugin.contribute(registry)
     registry.datastore = DataStore(config, spec_lookup=registry.dataset_spec)
     return config, registry
 

@@ -2,7 +2,7 @@
 // 这里只做「按声明分发 + 工具栏」，绘制质量全部落在 chart_core（AC-7：一处修好、所有图受益）。
 import { api, selection, setHash } from "/app.js";
 import {
-  downloadPng, renderChart, seriesToTsv,
+  composeChartImage, downloadPng, renderChart, seriesToTsv,
 } from "/kinds/chart_core.js";
 
 function toolbar(container, panel, data, chart, onBasisChange) {
@@ -57,11 +57,11 @@ function toolbar(container, panel, data, chart, onBasisChange) {
     png.dataset.chartExport = "png";
     png.textContent = "导出图片";
     png.onclick = () => {
-      const canvases = [...container.querySelectorAll("canvas")];
-      const output = document.createElement("canvas");
-      output.width = Math.max(320, ...canvases.map(c => c.width));
-      output.height = 90 + canvases.reduce((sum, c) => sum + c.height, 0);
-      const ctx = output.getContext("2d"); ctx.fillStyle = "white"; ctx.fillRect(0, 0, output.width, output.height);ctx.fillStyle = "#333";ctx.font = "16px sans-serif";ctx.fillText(`${data.company || "未知公司"} · 财务${data.basis || "annual"} · ${data.unit || ""}`, 12, 22);ctx.fillText(`显示期次与指标见各图，来源数据时点见期次；${JSON.stringify(data.meta || {}).slice(0, 150)}`, 12, 52);let top = 90;canvases.forEach(c => {ctx.drawImage(c, 0, top); top += c.height;});downloadPng(output, `${data.company || "company"}-${panel.id}-${data.basis || "annual"}`);
+      const chart = {canvas: composeChartImage([...container.querySelectorAll("canvas")], [
+        `${data.company || "未知公司"} · 财务${data.basis || "annual"} · ${data.unit || ""}`,
+        `显示期次与指标见各图，来源数据时点见期次；${JSON.stringify(data.meta || {}).slice(0, 150)}`,
+      ])};
+      downloadPng(chart.canvas, `${data.company || "company"}-${panel.id}-${data.basis || "annual"}`);
     };
     const tsv = document.createElement("button");
     tsv.type = "button";
