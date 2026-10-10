@@ -21,7 +21,6 @@ from ..core.errors import ArtifactMissing, BadRequest, NotFound, WebUIError
 from ..core.models import DatasetSpec, NavItem, PanelSpec, Param
 from ..core.security import safe_join
 from ..datastore import parsers
-from ..render import markdown_safe
 
 # 判定「这是一个公司目录」的依据：至少含其中一个产物。刻意不用「output/ 下所有目录」——
 # `handoff/`、`portfolio_*/` 也在 output/ 下，它们不是公司。
@@ -65,7 +64,9 @@ def _group_of(name: str) -> str:
         if any(pattern in lowered for pattern in patterns):
             return group
     if "价值分析报告" in name:
-        return "定性报告"
+        return "价值分析"
+    if "value_reports/" in name:
+        return "价值分析"
     return "其他"
 
 
@@ -185,7 +186,7 @@ def parse_artifacts(sources: list, params: dict) -> dict:
                 "id": _artifact_id(relative),
                 "rel": relative,
                 "name": path.name,
-                "group": _group_of(path.name),
+                "group": "价值分析" if relative.startswith("value_reports/") and path.name == "report.md" else _group_of(path.name),
                 "size": info.st_size,
                 "mtime": info.st_mtime,
                 "markdown": path.suffix.lower() in _MARKDOWN_SUFFIXES,
@@ -366,20 +367,6 @@ def artifacts_dataset(ctx, base: Path) -> tuple:
     )
 
 
-def _default_artifact(artifacts: list) -> dict:
-    for wanted in ("qualitative_report.md",):
-        for artifact in artifacts:
-            if artifact["name"] == wanted:
-                return artifact
-    for artifact in artifacts:
-        if "价值分析报告" in artifact["name"]:
-            return artifact
-    for artifact in artifacts:
-        if artifact["markdown"]:
-            return artifact
-    return {}
-
-
 # --------------------------------------------------------------- 面板与路由
 
 
@@ -417,8 +404,17 @@ _COMPANY_COLUMNS = [
 
 
 def _artifacts_panel(ctx, company=None, **_):
-    base = company_base(ctx, company)
-    data, meta = artifacts_dataset(ctx, base)
+    try:
+        base = company_base(ctx, company)
+    except NotFound:
+        if not report_context_resolvable(ctx, company):
+            raise
+        return {"columns": [{"key": "name", "title": "产物"}], "rows": [],
+                "guide": "尚无本地产物。先到数据页采集，再生成报告。", "meta": {"empty": True}}
+    try:
+        data, meta = artifacts_dataset(ctx, base)
+    except ArtifactMissing:
+        data, meta = {"artifacts": []}, {"empty": True}
     rows = [
         {
             "name": artifact["name"],
@@ -441,8 +437,8 @@ def _artifacts_panel(ctx, company=None, **_):
     }
 
 
-def _report_panel(ctx, company=None, id=None, run=None, **_):
-    return _report_payload(ctx, company, id, run)
+def _report_panel(ctx, company=None, id=None, run=None, type=None, **_):
+    return _report_payload(ctx, company, id, run, type)
 
 
 def _list_companies(ctx, **_):
@@ -464,52 +460,33 @@ def _list_artifacts(ctx, ticker=None, **_):
                         **data}, meta=meta)
 
 
-def _report_payload(ctx, company, artifact_id, run_id=None) -> dict:
-    resolved = resolve_company(ctx, company)
-    base = resolved["base"]
-    data, meta = artifacts_dataset(ctx, base)
-    chosen = None
-    if artifact_id:
-        chosen = next(
-            (item for item in data["artifacts"] if item["id"] == artifact_id), None
-        )
-        if chosen is None:
-            raise NotFound(
-                f"产物 id {artifact_id!r} 不在索引里",
-                hint="id 取自产物索引；不接受路径参数。",
-            )
-    elif run_id:
-        # 从迭代时间线点过来：优先看这一次 run 自己的报告（AC-4 的按 run 切换）。
-        wanted = f"runs/{run_id}/qualitative_report.md"
-        chosen = next((item for item in data["artifacts"] if item["rel"] == wanted), None)
-    if not chosen:
-        chosen = _default_artifact(data["artifacts"])
-        if not chosen:
-            raise ArtifactMissing(f"{company} 还没有可阅读的报告")
-    if not chosen["markdown"]:
-        raise BadRequest(
-            f"{chosen['name']} 不是 Markdown，面板不渲染",
-            hint="PDF/JSON 请直接打开文件；面板只内联渲染 Markdown。",
-        )
-    path = safe_join(base, *Path(chosen["rel"]).parts)
-    text = path.read_text(encoding="utf-8", errors="replace")
-    return {
-        "artifact": chosen,
-        "title": chosen["name"],
-        "html": markdown_safe.render(text),
-        # 当前公司跟着报告一起下发：页面标题/面包屑据此显示「现在看的是哪家公司」（AC-1）。
-        "company": {
-            key: value for key, value in resolved.items()
-            if key in ("dir", "ticker", "display_name", "primary_period", "last_run")
-        },
-        "meta": meta,
-    }
+def _report_payload(ctx, company, artifact_id, run_id=None, kind=None) -> dict:
+    from .report_reader import payload
+    return payload(ctx, company, artifact_id, run_id, kind)
+
+
+def report_context_resolvable(ctx, value):
+    # 自选清单里的公司尚无产物，是正常空状态。
+    if context_resolvable(ctx, value):
+        return True
+    return any(str(item.get("ticker") or "").upper() == str(value).upper()
+               for item in companies_dataset(ctx)[0]["companies"])
+
+
+def _report_compare(ctx, ticker=None, **_):
+    from .report_reader import compare
+    return envelope.ok(compare(ctx, ticker, ctx.query.get("left"), ctx.query.get("right")))
+
+
+def _report_content(ctx, ticker=None, **_):
+    from .report_reader import content
+    return envelope.ok(content(ctx, ticker, ctx.query.get("id")))
 
 
 def _report(ctx, ticker=None, **_):
     # `id` 是查询参数（不是路径段）：只接受索引里的 id，不接受路径。
     company = ticker or ctx.query.get("company") or ctx.query.get("ticker")
-    return envelope.ok(_report_payload(ctx, company, ctx.query.get("id")))
+    return envelope.ok(_report_payload(ctx, company, ctx.query.get("id"), ctx.query.get("run"), ctx.query.get("type")))
 
 
 def contribute(registry):
@@ -523,8 +500,8 @@ def contribute(registry):
         parser_version=2, schema_version="1.0",
     ))
     registry.dataset(DatasetSpec(
-        name="companies.artifacts", sources=("*", "runs/*/*"), parser="companies.artifacts",
-        parser_version=2, schema_version="1.0",
+        name="companies.artifacts", sources=("*", "runs/*/*", "value_reports/*/*/*", "value_reports/*/*/artifacts/*"), parser="companies.artifacts",
+        parser_version=3, schema_version="1.0",
     ))
     registry.panel(PanelSpec(
         id="companies.list", kind="table", title="公司", provider=_list_panel, size="full",
@@ -539,12 +516,13 @@ def contribute(registry):
         description="按类型分组列出本地产物；点产物名在面板内阅读。",
     ))
     registry.panel(PanelSpec(
-        id="report.view", kind="markdown", title="报告阅读",
+        id="report.view", kind="report", render="client", title="报告阅读",
         provider=_report_panel, size="full",
         params=(
             Param("company", type="company", source="selection.company"),
             Param("id", type="string", source="selection.artifact"),
             Param("run", type="run", source="selection.run"),
+            Param("type", type="string", source="selection.type"),
         ),
         description="Markdown 先转义再渲染；报告里的原始 HTML 不生效。",
     ))
@@ -553,7 +531,7 @@ def contribute(registry):
     registry.nav(NavItem(id="report", title="报告", group="公司", order=30,
                          panels=("report.view", "companies.artifacts"),
                          requires=("selection.company",),
-                         context_resolver=context_resolvable,
+                         context_resolver=report_context_resolvable,
                          description="阅读这家公司的分析报告与产物；未选公司时给你选公司的入口。"))
     registry.nav(NavItem(id="companies", title="公司列表（全部）", group="数据", order=15,
                          panels=("companies.list",),
@@ -563,6 +541,8 @@ def contribute(registry):
     registry.route("GET", "/api/v1/companies/{ticker}/artifacts", _list_artifacts,
                    name="company artifacts")
     registry.route("GET", "/api/v1/companies/{ticker}/report", _report, name="company report")
+    registry.route("GET", "/api/v1/companies/{ticker}/report/compare", _report_compare, name="report comparison")
+    registry.route("GET", "/api/v1/companies/{ticker}/report/content", _report_content, name="report download")
 
 
 __all__ = [

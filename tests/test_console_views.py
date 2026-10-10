@@ -727,9 +727,11 @@ def test_markdown_panel_names_the_company_and_empty_tables_give_guidance(tmp_pat
     company_dir(tmp_path)
 
     report = panel_payload(registry, "report.view", company="600887.SH")
-    html = report["html"]
-    assert '<p class="panel-company">公司：600887 伊利股份</p>' in html
-    assert html.index("公司：600887 伊利股份") < html.index("营收微增"), "公司名在正文之前"
+    assert report["kind"] == "report" and report["render"] == "client"
+    assert report["data"]["company"]["display_name"] == "600887 伊利股份"
+    # UI 从安全数据契约渲染；无指针时提供可选历史，不能猜默认报告。
+    assert report["data"]["artifact"] is None
+    assert any(item["name"] == "qualitative_report.md" for item in report["data"]["versions"])
     # 同一家公司：报告接口与渲染出来的 HTML 用同一个显示名。
     assert call_route(registry, "GET", "/api/v1/companies/600887.SH/report")["data"][
         "company"]["display_name"] == "600887 伊利股份"

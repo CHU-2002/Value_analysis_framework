@@ -1,3 +1,4 @@
+# 覆盖需求：REQ-015.3（AC-3.1～3.4：正式指针、目录、安全材料、同公司版本比较）
 # 覆盖需求：REQ-009.2（报告浏览、图表与迭代台账视图）—— AC-2.1 公司列表、
 # AC-2.2 产物索引与路径 jail、AC-2.3 报告安全渲染、AC-2.4 图表序列与缓存、
 # AC-2.5 迭代台账时间线
@@ -196,7 +197,7 @@ def test_report_renders_markdown_and_escapes_injection(tmp_path):
         item["id"] for item in index["artifacts"] if item["name"] == "qualitative_report.md"
     )
     data = call_route(registry, "GET", "/api/v1/companies/111111_甲/report", id=report_id)["data"]
-    assert "<h1>标题</h1>" in data["html"]
+    assert '<h1 id="report-heading-1">标题</h1>' in data["html"]
     assert "<table>" in data["html"] and "<strong>" not in data["html"]
     # B1 回归（独立验收阻断项）：表格**表体**必须逐单元格渲染，而不是把整行当字符串逐字符拆。
     assert "<td>ROE</td><td>20</td>" in data["html"]
@@ -206,15 +207,16 @@ def test_report_renders_markdown_and_escapes_injection(tmp_path):
     assert "点我" in data["html"]
 
     default = call_route(registry, "GET", "/api/v1/companies/111111_甲/report")["data"]
-    assert default["title"] == "qualitative_report.md"   # 不给 id 时给默认报告
+    assert default["artifact"] is None and "正式发布指针" in default["notice"]
+    assert any(item["id"] == report_id for item in default["versions"])
 
     with pytest.raises(NotFound):
         call_route(registry, "GET", "/api/v1/companies/111111_甲/report", id="deadbeef0000")
     pdf_id = next(
         item["id"] for item in index["artifacts"] if item["name"].endswith(".pdf")
     )
-    with pytest.raises(BadRequest):
-        call_route(registry, "GET", "/api/v1/companies/111111_甲/report", id=pdf_id)
+    material = call_route(registry, "GET", "/api/v1/companies/111111_甲/report", id=pdf_id)["data"]
+    assert material["artifact"]["markdown"] is False and material["html"] == ""
 
 
 # --------------------------------------------------------------- AC-2.4 图表与缓存
@@ -309,7 +311,7 @@ def test_runs_timeline_is_reverse_ordered_and_marks_the_current_run(tmp_path):
     report_page = call_route(
         registry, "GET", "/api/v1/pages/report", company="111111_甲", run=entries[0]["run_id"]
     )["data"]["panels"]
-    report_html = next(panel["html"] for panel in report_page if panel["id"] == "report.view")
+    report_html = next(panel["data"]["html"] for panel in report_page if panel["id"] == "report.view")
     assert "历史 run 的报告" in report_html
 
     company_dir(tmp_path, "222222_乙")
@@ -322,3 +324,142 @@ def test_runs_timeline_is_reverse_ordered_and_marks_the_current_run(tmp_path):
     broken = call_route(registry, "GET", "/api/v1/companies/111111_甲/runs")
     assert any("损坏" in warning for warning in broken["warnings"])
     assert len(broken["data"]["runs"]) == 1
+
+
+# --------------------------------------------------------------- REQ-015.3
+
+def _write_json(path, data):
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def _reader_versions(tmp_path):
+    _, registry = make_app(tmp_path)
+    base = company_dir(tmp_path)
+    for run, period, body in (("old", "2025FY", "# 重复\n旧正文\n# 重复\n"),
+                              ("current", "2026H1", "# 重复\n新正文\n# 重复\n")):
+        directory = base / "runs" / run
+        directory.mkdir(parents=True)
+        (directory / "qualitative_report.md").write_text(body, encoding="utf-8")
+        (directory / "change_report.md").write_text("# 变化\n业务结论来自既有报告", encoding="utf-8")
+        _write_json(directory / "run.json", {"run_id": run, "primary_period": period,
+                                             "created_at": "2026-01-01" if run == "old" else "2026-06-01",
+                                             "status": "complete", "as_of": "2026-05-31"})
+    _write_json(base / "latest.json", {"run_id": "current", "primary_period": "2026H1"})
+    return registry, base
+
+
+def test_reader_default_follows_ledger_and_metadata_not_filename_or_mtime(tmp_path):
+    """AC-3.1：正式run指针权威，历史元信息可辨识，顶层新文件不能冒充正式版。"""
+    registry, base = _reader_versions(tmp_path)
+    (base / "qualitative_report.md").write_text("# 新mtime但非正式", encoding="utf-8")
+    result = call_route(registry, "GET", "/api/v1/companies/111111_甲/report")["data"]
+    assert result["artifact"]["rel"] == "runs/current/qualitative_report.md"
+    assert result["artifact"]["period"] == "2026H1"
+    assert result["artifact"]["source"] == "run current"
+    old = next(item for item in result["versions"] if item["rel"] == "runs/old/qualitative_report.md")
+    assert old["period"] == "2025FY" and old["generated_at"] == "2026-01-01"
+    assert old["label"] != result["artifact"]["label"]
+    legacy = next(item for item in result["versions"] if item["rel"] == "qualitative_report.md")
+    assert legacy["generated_at"] == legacy["period"] == legacy["source"] == "未知"
+    _write_json(base / "latest.json", {"run_id": "missing"})
+    result = call_route(registry, "GET", "/api/v1/companies/111111_甲/report")["data"]
+    assert result["artifact"] is None and "未猜测最新版" in result["notice"]
+    assert len([item for item in result["versions"] if item["type"] == "business"]) == 3
+
+
+def test_reader_value_pointer_digest_classification_and_staleness(tmp_path):
+    """AC-3.1 / REQ-009 M1：价值版本正确分类，摘要不匹配不可当正式报告。"""
+    import hashlib
+    registry, base = _reader_versions(tmp_path)
+    directory = base / "value_reports" / "old" / "sha12"
+    directory.mkdir(parents=True)
+    report = directory / "report.md"
+    report.write_text("# 已发布价值报告", encoding="utf-8")
+    _write_json(directory / "manifest.json", {"source_run": "old", "primary_period": "2025FY", "published_at": "2026-02-01"})
+    pointer = {"report": str(report), "source_run": "old", "primary_period": "2025FY", "report_sha256": hashlib.sha256(report.read_bytes()).hexdigest()}
+    _write_json(base / "value_report.json", pointer)
+    (base / "甲价值分析报告.md").write_text("# 老报告", encoding="utf-8")
+    result = call_route(registry, "GET", "/api/v1/companies/111111_甲/report", type="value")["data"]
+    assert result["artifact"]["rel"].startswith("value_reports/")
+    assert result["artifact"]["status"] == "过期"
+    assert all(item["group"] == "价值分析" for item in result["versions"] if item["type"] == "value")
+    report.write_text("# 被更改", encoding="utf-8")
+    result = call_route(registry, "GET", "/api/v1/companies/111111_甲/report", type="value")["data"]
+    assert result["artifact"] is None and "正式发布指针" in result["notice"]
+
+
+def test_reader_real_toc_handles_duplicates_and_json_is_folded(tmp_path):
+    """AC-3.2：唯一锚点与目录同趟解析；代码围栏伪标题排除，JSON折叠且安全。"""
+    from webui.render.markdown_safe import render_document
+    html, toc = render_document('# A\n## A\n```json\n{"x":"<script>"}\n# 不是标题\n```\n# A')
+    assert [item["id"] for item in toc] == ["report-heading-1", "report-heading-2", "report-heading-3"]
+    assert [item["title"] for item in toc] == ["A", "A", "A"]
+    assert all(f'id="{item["id"]}"' in html for item in toc)
+    assert '<details class="report-json">' in html and '<details class="report-json" open' not in html
+    assert "&lt;script&gt;" in html and "<script>" not in html
+
+
+def test_reader_comparison_same_type_and_company_and_no_investment_conclusion(tmp_path):
+    """AC-3.3：明确正文差异、两版期次/数据时点及已有变化报告；跨公司/类型拒绝。"""
+    registry, _ = _reader_versions(tmp_path)
+    result = call_route(registry, "GET", "/api/v1/companies/111111_甲/report")["data"]
+    current = result["artifact"]
+    old = next(item for item in result["versions"] if item["rel"] == "runs/old/qualitative_report.md")
+    diff = call_route(registry, "GET", "/api/v1/companies/111111_甲/report/compare", left=old["id"], right=current["id"])["data"]
+    assert "-旧正文" in diff["diff"] and "+新正文" in diff["diff"]
+    assert diff["left"]["period"] == "2025FY" and diff["right"]["data_as_of"] == "2026-05-31"
+    assert "不代表业务结论" in diff["notice"] and diff["changes"]
+    wrong_type = next(item for item in result["versions"] if item["type"] == "change")
+    with pytest.raises(BadRequest):
+        call_route(registry, "GET", "/api/v1/companies/111111_甲/report/compare", left=old["id"], right=wrong_type["id"])
+    company_dir(tmp_path, "222222_乙")
+    with pytest.raises(NotFound):
+        call_route(registry, "GET", "/api/v1/companies/222222_乙/report/compare", left=old["id"], right=current["id"])
+
+
+def test_reader_material_and_download_bind_selected_version_and_keep_jail(tmp_path):
+    """AC-3.4：非Markdown正常载荷；版本id可刷新且下载匹配；不可读任意文件。"""
+    import base64
+    registry, base = _reader_versions(tmp_path)
+    (base / "source.pdf").write_bytes(b"%PDF-1.7 fixture")
+    (base / "source.json").write_text('{"value":1}', encoding="utf-8")
+    index = call_route(registry, "GET", "/api/v1/companies/111111_甲/artifacts")["data"]
+    for name, expected in (("source.pdf", b"%PDF-1.7 fixture"), ("source.json", b'{"value":1}')):
+        identifier = next(item["id"] for item in index["artifacts"] if item["name"] == name)
+        data = call_route(registry, "GET", "/api/v1/companies/111111_甲/report", id=identifier)["data"]
+        assert data["artifact"]["id"] == identifier and data["html"] == "" and data["type"] == "material"
+        content = call_route(registry, "GET", "/api/v1/companies/111111_甲/report/content", id=identifier)["data"]
+        assert base64.b64decode(content["base64"]) == expected and content["openable"] is True
+    with pytest.raises(NotFound):
+        call_route(registry, "GET", "/api/v1/companies/111111_甲/report/content", id="../../.env")
+    secret = tmp_path / "secret.pdf"
+    secret.write_bytes(b"private")
+    (base / "escaped.pdf").symlink_to(secret)
+    # 数据集入口或下载入口必须拒绝/排除越界符号链接。
+    with pytest.raises(PathOutsideRoot):
+        call_route(registry, "GET", "/api/v1/companies/111111_甲/report/content", id=companies_plugin._artifact_id("escaped.pdf"))
+
+
+def test_reader_no_reports_is_normal_state_and_unknown_type_rejected(tmp_path):
+    _, registry = make_app(tmp_path)
+    company_dir(tmp_path)
+    result = call_route(registry, "GET", "/api/v1/pages/report", company="111111_甲")
+    assert result["ok"] and not result["warnings"]
+    view = next(item for item in result["data"]["panels"] if item["id"] == "report.view")
+    assert view["kind"] == "report" and view["data"]["artifact"] is None
+    with pytest.raises(BadRequest):
+        call_route(registry, "GET", "/api/v1/companies/111111_甲/report", type="invalid")
+
+
+def test_reader_watchlist_company_without_directory_remains_normal(tmp_path):
+    """AC-3.1/3.4：已知但未采集的公司不降级为找不到；空版本与采集入口准确。"""
+    from datalayer.store import DataStore as ArchiveStore
+    from datalayer.universe import Universe
+    config, registry = make_app(tmp_path)
+    Universe(ArchiveStore(config.archive_root)).add("600887.SH", display_name="伊利股份")
+    result = call_route(registry, "GET", "/api/v1/pages/report", company="600887.SH")
+    assert not result["warnings"] and result["data"].get("empty_state") is None
+    view = next(item for item in result["data"]["panels"] if item["id"] == "report.view")
+    assert view["data"]["artifact"] is None and view["data"]["versions"] == []
+    assert view["data"]["company"]["ticker"] == "600887.SH"
+    assert not (config.output_root / "600887_伊利股份").exists()
