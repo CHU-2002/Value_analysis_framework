@@ -122,7 +122,7 @@ export async function render(container, panel, payload) {
         box.append(node("h4", `${batch.status_label} · 已完成目标 ${batch.completed}/${batch.total} · 成功 ${batch.success}/${batch.total}`));
         const current = batch.current || {};
         if (current.dataset && batch.status === "running") box.append(node("p", `当前公司：${current.company_ticker || current.ticker || "市场公共数据"}；当前业务组：${groupFor(current.dataset)}`));
-        box.append(node("p", `实际请求 ${batch.actual_requests} 次；缓存复用 ${batch.reused} 个目标；新增成功 ${batch.new}；合法空响应 ${batch.empty}；失败 ${batch.failures}；未完成 ${batch.uncompleted}。`));
+        box.append(node("p", `实际请求 ${batch.actual_requests ?? "未知（旧批次未记录）"} 次；缓存复用 ${batch.reused} 个目标；新增成功 ${batch.new}；合法空响应 ${batch.empty}；失败 ${batch.failures}；未完成 ${batch.uncompleted}。`));
         box.append(node("p", batch.notice, "panel-note"));
         box.append(table(batch.rows, [["company", "公司"], ["group", "业务组"], ["state_label", "结果"], ["fetched_at", "数据获取时点"], ["impact", "分析影响"], ["next_step", "下一步"]]));
         if (["running", "pending"].includes(batch.status)) box.append(button("暂停采集", async () => {

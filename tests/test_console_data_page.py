@@ -666,6 +666,7 @@ def test_research_partial_and_paused_batch_have_specific_remediation(tmp_path):
         target_key(targets[1]): {**targets[1], "result": "rate_limited"}}, "usage": {"archive_hits": 0}}
     result = explain_batch(store, batch)
     assert result["can_resume"] and result["failures"] == 2 and result["uncompleted"] == 1
+    assert result["actual_requests"] is None  # 旧批次的逻辑目标次数不能冒充实际远程请求。
     assert [row["state_label"] for row in result["rows"]] == ["无权限", "限频", "未尝试"]
     assert "账号" in result["rows"][0]["next_step"] and "配额" in result["rows"][1]["next_step"]
     batch.update(status="running", owner_pid=99999999)

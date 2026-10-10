@@ -252,7 +252,7 @@ class PullBatch:
             "status": "pending", "completed": {}, "created_at": self.clock().isoformat(),
             "estimate": estimate_size,
             "progress": {"completed": 0, "total": len(self.targets)},
-            "usage": {"new_requests": 0, "archive_hits": 0},
+            "usage": {"new_requests": 0, "archive_hits": 0, "actual_requests": 0},
         }
         if batch.get("profile") != self.profile:
             raise UsageError("恢复批次的配额档案与原批次不一致")
@@ -290,6 +290,8 @@ class PullBatch:
         batch.update(status="running", owner_pid=os.getpid(),
                      heartbeat_at=self.clock().isoformat())
         batch.setdefault("usage", {"new_requests": 0, "archive_hits": 0})
+        if "actual_requests" not in batch["usage"] and batch.get("completed"):
+            batch["usage"]["actual_requests_incomplete"] = True
         # 档位标签与配额档案要落到**每条记录**上（`AC-3` 的「档位标签」+ `REQ-009.4` 的
         # `AC-4.7` 语义）：独立复核 B4 抓到 `--tier-label` 是个死选项——批次收了它却从不
         # 传给取数门面，于是仓里的 `tier_label` / `quota_profile` 永远是空。

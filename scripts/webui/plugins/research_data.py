@@ -217,7 +217,8 @@ def explain_batch(store, batch):
             "current": progress.get("current") or {}, "completed": len(completed), "total": len(rows),
             "success": counts["ok"] + counts["empty"], "failures": failure,
             "uncompleted": counts["unattempted"], "empty": counts["empty"],
-            "actual_requests": usage.get("actual_requests", usage.get("new_requests", 0)), "reused": usage.get("archive_hits", 0),
+            "actual_requests": None if usage.get("actual_requests_incomplete") else usage.get("actual_requests"),
+            "reused": usage.get("archive_hits", 0),
             "new": max(0, len(completed) - int(usage.get("archive_hits", 0)) - failure),
             "rows": rows, "can_resume": status in ("paused", "partial", "failed"),
             "notice": "仅统计本批次目标。合法空响应没有数值；图表可离线刷新，报告仍需显式重建/生成。耗时未知。"}
@@ -257,7 +258,7 @@ class CollectionRunner:
                 existing = {"batch_id": batch_id, "profile": planned["inputs"]["tier"], "targets": targets,
                             "status": "pending", "completed": {}, "created_at": now,
                             "progress": {"completed": 0, "total": len(targets), "inputs": planned["inputs"]},
-                            "usage": {"new_requests": 0, "archive_hits": 0}}
+                            "usage": {"new_requests": 0, "archive_hits": 0, "actual_requests": 0}}
                 store.append_batch(existing)
             pause = threading.Event()
             thread = threading.Thread(target=self._run, args=(store, existing, token, pause), daemon=True)
