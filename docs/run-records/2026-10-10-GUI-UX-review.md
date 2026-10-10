@@ -156,3 +156,11 @@ PE历史百分位等具备和 K线一致的日/月/季/年时间轴。此节区�
 退出 **0**；**1903 passed / 3 skipped / 76.61%**，追溯18 passed，scope48文件/1906用例，
 回归门禁通过。31个 AC编号无重复、5个子需求与台账一致、文档本地链接存在；
 `git diff --check`通过。仅更新需求/调查文档，未新增测试或改变门槛。
+
+## 远端提交授权与追踪
+
+2026-10-10 首次 `git push` 被自动审批拒绝，理由为 GUI截图/报告证据可能含非公开信息且
+远端未验证；只读核对 origin 为公开仓库 `CHU-2002/Value_analysis_framework`，当前账号
+为同名 owner、有 ADMIN 权限。owner 随后明确授权将全部18个文件（含10张截图及其中的
+报告内容）公开上传；重新推送成功，提案登记 [PR #117](https://github.com/CHU-2002/Value_analysis_framework/pull/117)。owner 另授权 CI全绿后
+admin 合入。未上传 output沙箱/凭据，未创建独立需求Issue、未推进 accepted/verified。

@@ -307,7 +307,8 @@ AC 的蜡烛、量价分区、均线、读数和时间操作，不宣称逐像�
 | 项 | 内容 |
 |---|---|
 | 调查证据 | `docs/run-records/2026-10-10-GUI-UX-review.md` 及同页截图 |
-| Issue | TBD；本地 Issue 正文见 `docs/run-records/2026-10-10-REQ-015-issue-draft.md`，发布被自动审批阻止，待 owner 明确授权 |
+| Issue | TBD；独立 Issue 尚未创建，本地正文见 `docs/run-records/2026-10-10-REQ-015-issue-draft.md` |
+| 提案登记 PR | [#117](https://github.com/CHU-2002/Value_analysis_framework/pull/117)；owner 已授权公开提交全部18个文件（含10张截图）；不代表受理或实现 |
 | 设计 | TBD；受理后确定导航、历史序列/复权/分位、执行配置、阅读器、结果解释契约 |
 | 实现 / 测试 | TBD；尚未开始实现，不声明测试覆盖本需求 |
 | 文档 | 同步 `ledger.md` 与需求 README 索引；交付时更新用户使用说明 |

@@ -22,7 +22,7 @@
 | [REQ-012](REQ-012-console-v2.md) | 控制台 2.0（公司上下文 + 任务式交互 + 视图质量） | `verified` | P1 | #74 | #92, #95, #96, #97, #98, #99, #100, #101, #104, #106, #109 | `tests/test_console_context.py` `tests/test_console_actions.py` `tests/test_console_views.py` `tests/test_console_data_page.py` |
 | [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `in-progress` | P1 | #75 | #77, #114, #115, #116 | `tests/test_agent_action.py` |
 | [REQ-014](REQ-014-watchlist-maintenance-ui.md) | 控制台里的自选股清单维护（添加 / 从既有产物导入 / 移除） | `verified` | P1 | #102 | #112, #113 | `tests/test_watchlist_ui.py` |
-| [REQ-015](REQ-015-research-workspace-ux.md) | 公司研究工作区（研究导航 + K线与估值时间轴 + 可选生成 + 报告阅读 + 采集解释） | `proposed` | P1 | TBD（外部发布待批准） | TBD | 尚未实现；五片均为 proposed |
+| [REQ-015](REQ-015-research-workspace-ux.md) | 公司研究工作区（研究导航 + K线与估值时间轴 + 可选生成 + 报告阅读 + 采集解释） | `proposed` | P1 | TBD（独立 Issue 尚未创建） | TBD（提案登记 [#117](https://github.com/CHU-2002/Value_analysis_framework/pull/117)） | 尚未实现；五片均为 proposed |
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
 
@@ -132,3 +132,7 @@
   历史实现 PR与独立验收报告保留；修复与重新验收未完成，旧 AC不变。
 - 原需求维护：REQ-009 M1报告分类；REQ-012 M1空仓无缺口文案/M2完备度分母解释/M3未知状态/M4导航分组标题与链接脱离。
   本次只登记，不虚报修复；真实采集2次请求全部在沙箱，不写真实 HOME存档。
+
+- 2026-10-10 owner 明确授权将全部18个文件（含截图及其中的报告内容）公开提交到既有 origin，
+  提案登记 [PR #117](https://github.com/CHU-2002/Value_analysis_framework/pull/117)；并授权 CI 全绿后 admin 合入。REQ-015 及五片仍为 proposed，
+  提案 PR 不充当实现 PR；REQ-013 T13 仍未修复。
