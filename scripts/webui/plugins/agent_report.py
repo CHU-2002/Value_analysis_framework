@@ -221,12 +221,14 @@ def _artifacts(ctx, job_id, **_):
                  "model": job["params"].get("model", "default")}
     action = next(action for cid, action, _, _ in ACTIONS if cid == job["command"])
     report_paths = [link["path"] for link in links if link["href"].startswith("#report?")]
-    produced = bool(agent_action._action_reports(action, report_paths))
+    missing = agent_action._missing_reports(action, report_paths)
+    produced = not missing
     return envelope.ok({"links": links, "audit": audit, "requested": requested,
                         "actual_model": audit.get("actual_model", "未知"),
                         "outcome": "running" if job["status"] in ("running", "queued") else
                                    ("produced" if produced else "missing"),
-                        "message": "" if produced else "报告未产出：本次没有找到声明的报告；不会自动重跑。"})
+                        "missing_reports": missing,
+                        "message": "" if produced else "报告未产出：缺少本次声明产物：" + "、".join(missing) + "；不会自动重跑。"})
 
 
 def _catalog_payload(ctx) -> dict:

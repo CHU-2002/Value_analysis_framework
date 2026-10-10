@@ -435,6 +435,13 @@ def test_reader_material_and_download_bind_selected_version_and_keep_jail(tmp_pa
         assert base64.b64decode(content["base64"]) == expected and content["openable"] is True
     with pytest.raises(NotFound):
         call_route(registry, "GET", "/api/v1/companies/111111_甲/report/content", id="../../.env")
+    from webui.core.context import RequestContext
+    from webui.plugins import report_reader
+    token = "mock_secret_1234567890"
+    (base / "credential.md").write_text("known credential " + token, encoding="utf-8")
+    ctx = RequestContext(method="GET", path="/", config=registry.config, registry=registry, secrets=(token,))
+    with pytest.raises(BadRequest, match="包含已知凭据"):
+        report_reader.content(ctx, "111111_甲", companies_plugin._artifact_id("credential.md"))
     secret = tmp_path / "secret.pdf"
     secret.write_bytes(b"private")
     (base / "escaped.pdf").symlink_to(secret)
@@ -564,6 +571,19 @@ def test_research_calendar_separates_suspension_and_missing_and_empty_range():
                                calendar_rows=[{"cal_date":"20260103","is_open":0}, {"cal_date":"20260106","is_open":1}, {"cal_date":"20260107","is_open":1}],
                                suspension_rows=[{"trade_date":"20260106","suspend_type":"S"}])
     assert payload["gaps"] == [{"date":"2026-01-06","reason":"停牌"},{"date":"2026-01-07","reason":"缺少行情（未确认停牌）"}]
+    from datetime import date
+    from webui.plugins.research_timeline import daily_rows
+    prices = [{"trade_date": "20260129", "open": 10, "high": 10, "low": 10, "close": 10, "vol": 1}]
+    values = [{"trade_date": "20260129", "pe_ttm": 10, "pb": 1}, {"trade_date": "20260130", "pe_ttm": 20, "pb": 2}]
+    calendar = [{"cal_date": day, "is_open": 1} for day in ("20260129", "20260130", "20260202")]
+    settings = dict(company="600887.SH", cycle="month", range="all", window="all", as_of=date(2026, 2, 1), calendar_rows=calendar)
+    last = timeline_payload(daily_rows(prices, values, []), **settings)["points"][-1]
+    assert last["end"] == "2026-01-30" and last["pe_ttm"] == 20 and last["pe_ttm_rank"] == 50
+    assert last["close"] is None and last["ohlc_reason"]
+    missing = timeline_payload(daily_rows(prices, values[:1], []), **settings)["points"][-1]
+    assert missing["end"] == "2026-01-30" and missing["pe_ttm"] is None and missing["pe_ttm_rank"] is None
+    suspended = timeline_payload(daily_rows(prices, values[:1], []), suspension_rows=[{"trade_date": "20260130", "suspend_type": "S"}], **settings)["points"][-1]
+    assert suspended["end"] == "2026-01-29" and suspended["close"] == 10
     empty = timeline_payload(_research_rows(), company="600887.SH", range="custom", start="20190101", end="20191231")
     assert empty["points"] == [] and empty["empty_hint"] == "此范围无交易数据"
 
@@ -707,9 +727,9 @@ def test_research_cache_parameters_parser_version_and_observation_day_each_inval
         assert not meta["cached"] and meta["source_snapshot_cached"]
     _, repeated = cached_timeline(ctx, "600887.SH", as_of="20260106", cycle="week")
     assert repeated["cached"]
-    ctx.registry.datastore = DataStore(ctx.config, spec_lookup=lambda name: replace(ctx.registry.dataset_spec(name), parser_version=2))
+    ctx.registry.datastore = DataStore(ctx.config, spec_lookup=lambda name: replace(ctx.registry.dataset_spec(name), parser_version=ctx.registry.dataset_spec(name).parser_version + 1))
     _, upgraded = cached_timeline(ctx, "600887.SH", as_of="20260106", cycle="week")
-    assert not upgraded["cached"] and upgraded["parser_version"] == 2
+    assert not upgraded["cached"] and upgraded["parser_version"] == ctx.registry.dataset_spec("charts.research_timeline").parser_version + 1
     assert upgraded["raw_revision"] == repeated["raw_revision"]
 
 

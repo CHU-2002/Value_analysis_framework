@@ -9,7 +9,7 @@ from pathlib import Path
 
 from ..core.errors import ArtifactMissing, BadRequest, NotFound, WebUIError
 from ..core.models import DatasetSpec
-from ..core.security import safe_join
+from ..core.security import redact, safe_join
 from ..datastore import parsers
 from ..render import markdown_safe
 
@@ -276,6 +276,12 @@ def content(ctx, company, artifact_id):
     if item is None:
         raise NotFound("此下载版本不属于当前公司")
     path = safe_join(resolved["base"], *Path(item["rel"]).parts)
+    raw = path.read_bytes()
+    # Base64 encoding bypasses the shared JSON response redactor. Reject a
+    # credential-bearing source rather than silently rewriting its bytes.
+    text = raw.decode("utf-8", errors="replace")
+    if redact(text, ctx.secrets) != text:
+        raise BadRequest("此材料包含已知凭据，不能打开或下载；请先修正源材料。")
     # HTML/SVG 等可执行材料只给 attachment Blob，PDF 可用原生浏览器打开。
     return {"name": item["name"], "content_type": item["content_type"], "openable": path.suffix.lower() in (".pdf", ".json", ".md", ".markdown", ".txt"),
-            "base64": base64.b64encode(path.read_bytes()).decode("ascii")}
+            "base64": base64.b64encode(raw).decode("ascii")}

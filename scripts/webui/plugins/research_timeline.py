@@ -72,9 +72,9 @@ def daily_rows(prices, valuations, factors):
         return {date_value(r.get("trade_date")): r for r in rows if date_value(r.get("trade_date"))}
     prices, valuations, factors = keyed(prices), keyed(valuations), keyed(factors)
     rows = []
-    for day, price in sorted(prices.items()):
-        val = valuations.get(day, {})
-        rows.append({"date": day.isoformat(),
+    for day in sorted(prices.keys() | valuations.keys()):
+        price, val = prices.get(day, {}), valuations.get(day, {})
+        rows.append({"date": day.isoformat(), "price_available": bool(price),
                      **{key: number(price.get(key)) for key in ("open", "high", "low", "close", "vol")},
                      "pe_ttm": number(val.get("pe_ttm")), "pb": number(val.get("pb")),
                      "adj_factor": number(factors.get(day, {}).get("adj_factor")),
@@ -160,6 +160,25 @@ def aggregate(rows, cycle="day", adjustment="none", as_of=None):
 
 
 def timeline_payload(rows, *, company, cycle="day", window="5", adjustment="none", range="1", start="", end="", sources=None, as_of=None, calendar_rows=None, suspension_rows=None):
+    observed = rows
+    rows = [dict(row) for row in rows]
+    suspended = {date_value(r.get("trade_date")) for r in suspension_rows or [] if r.get("suspend_type", "S") == "S"}
+    price_days = {row["date"] for row in rows if row.get("price_available", any(row.get(k) is not None for k in ("open", "high", "low", "close")))}
+    if rows and calendar_rows:
+        # Calendar evidence can establish a missing final trading day. Keep
+        # valuation-only days and never borrow the preceding day's estimate.
+        known = {row["date"] for row in rows}
+        first = date_value(rows[0]["date"])
+        final = date_value(end) if range == "custom" else period_bounds(date_value(rows[-1]["date"]), cycle)[1]
+        final = min(final or date_value(rows[-1]["date"]), as_of or date.today())
+        for calendar_day in calendar_rows:
+            day = date_value(calendar_day.get("cal_date"))
+            if day and first <= day <= final and number(calendar_day.get("is_open")) == 1 and day not in suspended and day.isoformat() not in known:
+                rows.append({"date": day.isoformat(), "price_available": False,
+                             **{key: None for key in ("open", "high", "low", "close", "vol", "pe_ttm", "pb", "adj_factor")},
+                             "source": {"calendar": calendar_day.get("source")}})
+                known.add(day.isoformat())
+        rows.sort(key=lambda row: row["date"])
     ranked = rank_daily(rows, window)
     points, can_adjust = aggregate(ranked, cycle, adjustment, as_of)
     last = date_value(rows[-1]["date"]) if rows else (as_of or date.today())
@@ -173,8 +192,6 @@ def timeline_payload(rows, *, company, cycle="day", window="5", adjustment="none
             raise BadRequest("请提供有效自定义起止日期")
     # Periods are built on full history before clipping: range never alters OHLC/ranking/MA.
     visible = [p for p in points if lower <= date_value(p["end"]) <= upper]
-    price_days = {row["date"] for row in rows}
-    suspended = {date_value(r.get("trade_date")) for r in suspension_rows or [] if r.get("suspend_type", "S") == "S"}
     gaps = []
     for row in calendar_rows or []:
         day = date_value(row.get("cal_date"))
@@ -190,7 +207,7 @@ def timeline_payload(rows, *, company, cycle="day", window="5", adjustment="none
                          "start": requested_start.isoformat(), "end": upper.isoformat()},
             "can_adjust": can_adjust, "sources": sources or [], "gaps": gaps,
             "coverage": {"start": rows[0]["date"] if rows else None, "end": rows[-1]["date"] if rows else None,
-                         "daily_samples": len(rows), "requested_start": requested_start.isoformat(),
+                         "daily_samples": sum(row.get("price_available", any(row.get(k) is not None for k in ("open", "high", "low", "close"))) for row in observed), "requested_start": requested_start.isoformat(),
                          "incomplete": not rows or date_value(rows[0]["date"]) > requested_start,
                          "calendar_available": bool(calendar_rows)},
             "update_href": "#data?" + urlencode({"company": company, "chart_start": acquisition_start.strftime("%Y%m%d"),
@@ -261,7 +278,7 @@ def register_research_datasets(registry):
     from ..datastore import parsers
     for name, parser in zip(RESEARCH_DATASETS, (parse_timeline_snapshot, parse_income_snapshot)):
         parsers.register_parser(name, parser, replace=True)
-        registry.dataset(DatasetSpec(name=name, sources=("raw.json",), parser=name, parser_version=1))
+        registry.dataset(DatasetSpec(name=name, sources=("raw.json",), parser=name, parser_version=2 if name == "charts.research_timeline" else 1))
 
 
 def cached_timeline(ctx, company, **settings):

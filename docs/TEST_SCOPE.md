@@ -15,7 +15,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | 项 | 当前 | 上限 | 使用率 |
 |----|------|------|--------|
 | 测试文件数 | 48 | 52 | 92% |
-| 收集到的用例数 | 1950 | 2000 | 98% |
+| 收集到的用例数 | 1954 | 2000 | 98% |
 
 （用例数含 `parametrize` 展开，由 `pytest --collect-only` 统计；函数数见下表末列，仅作参考。）
 
@@ -29,13 +29,13 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_change_report.py` | REQ-004, REQ-006.1 | `unit` | — | 21 |
 | `tests/test_comparable_periods.py` | REQ-002 | `unit` | — | 39 |
 | `tests/test_config.py` | 基线 | `unit` | `scripts/config.py` | 43 |
-| `tests/test_console_actions.py` | REQ-009.1, REQ-012, REQ-012.2 | `unit` | — | 32 |
+| `tests/test_console_actions.py` | REQ-009.1, REQ-012, REQ-012.2, REQ-015 | `unit` | — | 32 |
 | `tests/test_console_context.py` | REQ-009, REQ-009.2, REQ-012, REQ-012.1, REQ-015, REQ-015.5 | `unit` | — | 20 |
 | `tests/test_console_data_page.py` | REQ-012, REQ-012.4, REQ-014, REQ-015.4 | `unit` | — | 27 |
 | `tests/test_console_views.py` | REQ-009, REQ-009.3, REQ-012, REQ-012.3, REQ-015.3 | `unit` | — | 17 |
 | `tests/test_coordinator.py` | 基线 | `unit` | — | 9 |
 | `tests/test_data_pull.py` | REQ-009.4, REQ-011, REQ-011.2, REQ-015.4 | `unit` | — | 25 |
-| `tests/test_data_store.py` | REQ-011, REQ-011.1 | `unit` | — | 28 |
+| `tests/test_data_store.py` | REQ-011, REQ-011.1, REQ-015.1, REQ-015.4 | `unit` | — | 32 |
 | `tests/test_derived_metrics.py` | 基线 | `unit` | — | 83 |
 | `tests/test_discover_report.py` | REQ-001, REQ-006.1 | `unit` | `scripts/discover_report.py` | 62 |
 | `tests/test_download_report.py` | REQ-001 | `unit` | `scripts/download_report.py` | 85 |

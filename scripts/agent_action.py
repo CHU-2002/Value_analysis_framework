@@ -312,6 +312,13 @@ def _action_reports(action, names):
     return [n for n in names if "qualitative_report" in n or "business_analysis" in n or "商业" in n or "定性" in n]
 
 
+def _missing_reports(action, names):
+    missing = [] if _action_reports(action, names) else ["价值分析报告" if action == "value-analysis" else "商业质量报告"]
+    if action == "update-analysis" and not any("change_report" in name or "变化报告" in name for name in names):
+        missing.append("变化报告")
+    return missing
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -359,13 +366,13 @@ def main(argv=None) -> int:
                     audit.update(actual_model=actual, actual_source="CLI 本次 thread 运行记录（只读）")
             after = _report_hashes(company_dir)
             fresh = [name for name, digest in after.items() if before.get(name) != digest]
-            audit.update(exit_code=code, reports=fresh, finished_at=datetime.now(timezone.utc).isoformat())
+            audit.update(exit_code=code, reports=fresh, missing_reports=_missing_reports(args.action, fresh), finished_at=datetime.now(timezone.utc).isoformat())
             audit_root = Path(args.output_root) / ".agent_audit"
             audit_root.mkdir(parents=True, exist_ok=True)
             (audit_root / (audit["id"] + ".json")).write_text(json.dumps(audit, ensure_ascii=False), encoding="utf-8")
             print("AGENT_AUDIT " + json.dumps(audit, ensure_ascii=False), flush=True)
-            if args.require_report and code == 0 and not _action_reports(args.action, fresh):
-                print("报告未产出：CLI 退出 0，但没有新增或更新本动作声明的报告。不会自动重跑。", flush=True)
+            if args.require_report and code == 0 and audit["missing_reports"]:
+                print("报告未产出：CLI 退出 0，但缺少本次声明产物：" + "、".join(audit["missing_reports"]) + "。不会自动重跑。", flush=True)
                 return 6
     except subprocess.TimeoutExpired:
         print(

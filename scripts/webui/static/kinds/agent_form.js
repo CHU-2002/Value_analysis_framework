@@ -53,10 +53,13 @@ export async function render(container, panel, data) {
     const command=actions.find(a=>a.id===action.value),a=agents.find(a=>a.id===agent.value);
     const message=`公司 ${ticker.value}\n动作 ${command.title}\nAgent ${a.title}\n模型 ${model.value==='default'?'沿用CLI默认：'+(a.default.model || '默认模型未知')+'；'+a.default.source:model.value}\n${warning}\n将联网、消耗模型额度；预计产出本公司${command.title}，增量动作还会产出变化报告。\n确认开始？`;
     if(!window.confirm(message))return;pending=true;submit.disabled=true;
-    try{const params={ticker:ticker.value,backend:agent.value,model:model.value};const job=(await api('/api/v1/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:command.id,params})})).data;
+    const params={ticker:ticker.value,backend:agent.value,model:model.value};
+    const submittedCompany=selection.company || params.ticker;
+    try{const job=(await api('/api/v1/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:command.id,params})})).data;
       // Keep the submitted company and job in a sharable URL. A later company change clears this job.
-      setHash('agent',{company:selection.company || ticker.value,job:job.id});await follow(job.id);
-    }catch(e){result.append(node('p',e.message));}finally{pending=false;void check();}
+      if(!box.isConnected || (selection.company && selection.company!==submittedCompany))return;
+      setHash('agent',{company:submittedCompany,job:job.id});await follow(job.id);
+    }catch(e){if(box.isConnected)result.append(node('p',e.message));}finally{pending=false;if(box.isConnected)void check();}
   };
   // render returns before mountPanel attaches this card. Keep detach guards,
   // but start preflight/resume after the first frame of its mounted lifetime.

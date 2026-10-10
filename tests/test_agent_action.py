@@ -65,7 +65,8 @@ if os.environ.get("FAKE_CLI_ARTIFACTS"):
     run.mkdir(parents=True, exist_ok=True)
     (run / "run.json").write_text('{"run_id":"new-run"}')
     (run / "qualitative_report.md").write_text("# updated report")
-    (run / "change_report_2026H1.md").write_text("# changed")
+    if not os.environ.get("FAKE_CLI_NO_CHANGE"):
+        (run / "change_report_2026H1.md").write_text("# changed")
 sys.stdout.write("fake-cli-stdout\\n")
 sys.stdout.flush()
 sys.stderr.write("fake-cli-stderr\\n")
@@ -604,6 +605,15 @@ def test_selected_model_reaches_each_fake_cli_once_and_is_audited(tmp_path, back
     assert audit["requested_model"] == model and audit["requested_agent"] == backend
     assert audit["actual_model"] == "未知" and audit["reports"]
     assert not (tmp_path / "config.toml").exists()
+    partial_root = tmp_path / "partial"
+    partial_base = make_company_dir(partial_root)
+    partial, _ = run_script(partial_root, "--action", "update-analysis", "--ticker", "600887",
+                            "--backend", backend, "--model", model, "--cli", make_fake_cli(partial_root),
+                            "--output-root", partial_root, "--require-report",
+                            env={"FAKE_CLI_ARTIFACTS": str(partial_base), "FAKE_CLI_NO_CHANGE": "1"})
+    assert partial.returncode == 6 and "变化报告" in partial.stdout and "不会自动重跑" in partial.stdout
+    partial_audit = json.loads(next((partial_root / ".agent_audit").glob("*.json")).read_text())
+    assert partial_audit["exit_code"] == 0 and partial_audit["missing_reports"] == ["变化报告"]
 
 
 def test_invalid_agent_model_combinations_never_launch(tmp_path, monkeypatch):
