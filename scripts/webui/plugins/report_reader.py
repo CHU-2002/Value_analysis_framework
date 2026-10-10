@@ -79,7 +79,8 @@ def _official(base, artifacts, latest, value):
     result = {}
     for kind in ("business", "change"):
         key = "report" if kind == "business" else "change_report"
-        raw = (latest.get("artifacts") or {}).get(key)
+        bindings = latest.get("artifacts")
+        raw = bindings.get(key) if isinstance(bindings, dict) else None
         rel = _bound_rel(base, raw)
         if not rel and latest.get("run_id"):
             filename = "qualitative_report.md" if kind == "business" else "change_report.md"
@@ -137,7 +138,8 @@ def catalog(ctx, company):
         elif kind == "value" and row.get("report_sha256") and hashlib.sha256(safe_join(base, *parts).read_bytes()).hexdigest() != row["report_sha256"]:
             status = "不可用"
         elif official.get(kind) == item["id"]:
-            stale = bool((record.get("downstream") or {}).get("stale")) if kind == "value" else False
+            downstream = record.get("downstream")
+            stale = bool(downstream.get("stale")) if kind == "value" and isinstance(downstream, dict) else False
             if kind == "value" and latest.get("run_id") and value.get("source_run") != latest.get("run_id"):
                 stale = True
             status = "不可用" if row.get("status") in ("failed", "partial") else ("过期" if stale else "有效")

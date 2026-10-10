@@ -365,6 +365,9 @@ def test_reader_default_follows_ledger_and_metadata_not_filename_or_mtime(tmp_pa
     result = call_route(registry, "GET", "/api/v1/companies/111111_甲/report")["data"]
     assert result["artifact"] is None and "未猜测最新版" in result["notice"]
     assert len([item for item in result["versions"] if item["type"] == "business"]) == 3
+    _write_json(base / "latest.json", {"artifacts": ["broken pointer"]})
+    result = call_route(registry, "GET", "/api/v1/companies/111111_甲/report")["data"]
+    assert result["artifact"] is None and result["versions"]
 
 
 def test_reader_value_pointer_digest_classification_and_staleness(tmp_path):
