@@ -20,8 +20,9 @@
 | [REQ-010](REQ-010-latest-valuation-publication.md) | 最新价值分析报告发布与历史版本保留 | `verified` | P1 | #61 | #78, #79, #80, #81 | `tests/test_latest_valuation_publication.py` |
 | [REQ-011](REQ-011-unified-data-acquisition.md) | 一次性全量数据获取与统一原始数据仓 | `verified` | P1 | #73 | #83 | `tests/test_data_store.py` `tests/test_data_pull.py` `tests/test_offline_rebuild.py` |
 | [REQ-012](REQ-012-console-v2.md) | 控制台 2.0（公司上下文 + 任务式交互 + 视图质量） | `verified` | P1 | #74 | #92, #95, #96, #97, #98, #99, #100, #101, #104, #106, #109 | `tests/test_console_context.py` `tests/test_console_actions.py` `tests/test_console_views.py` `tests/test_console_data_page.py` |
-| [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `verified` | P1 | #75 | #77, #114, #115, #116 | `tests/test_agent_action.py` |
+| [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `in-progress` | P1 | #75 | #77, #114, #115, #116 | `tests/test_agent_action.py` |
 | [REQ-014](REQ-014-watchlist-maintenance-ui.md) | 控制台里的自选股清单维护（添加 / 从既有产物导入 / 移除） | `verified` | P1 | #102 | #112, #113 | `tests/test_watchlist_ui.py` |
+| [REQ-015](REQ-015-research-workspace-ux.md) | 公司研究工作区（研究导航 + K线与估值时间轴 + 可选生成 + 报告阅读 + 采集解释） | `proposed` | P1 | TBD（外部发布待批准） | TBD | 尚未实现；五片均为 proposed |
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
 
@@ -51,12 +52,18 @@
 | [REQ-012.4](REQ-012-console-v2.md) | REQ-012 | 数据页（依赖 REQ-011） | `verified` | #92, #104, #109 | `tests/test_console_data_page.py` |
 | [REQ-013.1](REQ-013-agent-cli-report.md) | REQ-013 | 包装脚本与动作白名单 | `verified` | #77, #114, #115, #116 | `tests/test_agent_action.py` |
 | [REQ-013.2](REQ-013-agent-cli-report.md) | REQ-013 | 最小界面（一键页） | `verified` | #77, #114, #115, #116 | `tests/test_agent_action.py` |
-| [REQ-013.3](REQ-013-agent-cli-report.md) | REQ-013 | 提交前预检、完整命令行与产出链接 | `verified` | #114, #115, #116 | `tests/test_agent_action.py` |
+| [REQ-013.3](REQ-013-agent-cli-report.md) | REQ-013 | 提交前预检、完整命令行与产出链接 | `in-progress` | #114, #115, #116 | `tests/test_agent_action.py` |
+| [REQ-015.1](REQ-015-research-workspace-ux.md) | REQ-015 | 标准 K 线与估值联动时间轴 | `proposed` | TBD | TBD（尚未实现） |
+| [REQ-015.2](REQ-015-research-workspace-ux.md) | REQ-015 | 可选择 agent 与模型的报告生成 | `proposed` | TBD | TBD（尚未实现） |
+| [REQ-015.3](REQ-015-research-workspace-ux.md) | REQ-015 | 报告阅读与版本比较 | `proposed` | TBD | TBD（尚未实现） |
+| [REQ-015.4](REQ-015-research-workspace-ux.md) | REQ-015 | 采集过程与结果解释 | `proposed` | TBD | TBD（尚未实现） |
+| [REQ-015.5](REQ-015-research-workspace-ux.md) | REQ-015 | 公司研究导航与页面布局 | `proposed` | TBD | TBD（尚未实现） |
 
 > **编号按登记顺序，交付按「交付顺序」**：`REQ-009` 的交付顺序为
 > **`REQ-009.3`（框架，先）→ `REQ-009.4`（采集与长期存档）→ `REQ-009.1`（按键执行器）→ `REQ-009.2`（视图）**，
 > 理由见该需求条目的「## 子需求」小结与 [`docs/GUI_CONSOLE_PLAN.md`](../GUI_CONSOLE_PLAN.md) §14。
-> 其余父需求的子需求仍是「编号顺序 = 交付顺序」。
+> 其余父需求除 REQ-015 外仍是「编号顺序 = 交付顺序」。
+> **REQ-015 提案建议**：先修既有预检/分组问题，`.5`导航骨架 → `.1`K线/估值图 → `.2`/`.3`生成阅读 → `.4`数据解释；受理后定排期。
 > **`REQ-011` / `REQ-012` 的交付顺序**：`REQ-011.1` → `REQ-011.2` → `REQ-011.3`（数据层先立）；
 > `REQ-012.1`~`.3` 与 `REQ-011` 互不阻塞、可并行，`REQ-012.4`（数据页）必须等 `REQ-011.1`/`.2` 交付。
 >
@@ -115,3 +122,13 @@
 | **`REQ-009` 里 `.3` 子需求的验收轮次写作「三轮」，与它自己的报告不符**：`.3` 报告有「第四轮（基线 `1ef5cda`）逐条复核」小节，`:145-146` 也提到第四轮；而需求条 `:155-156` 与 `:530` 的 `.3` 分句仍写「三轮」 | 2026-09-30 校正**父需求**轮次（三轮→五轮，见 `REQ-009:530` / `:623`）时顺带发现 | **未改**（属历史描述文本；要改需逐处核对 `.3` 报告的全部轮次）。父需求的计数已校正；这里只登记，留待下一次碰 `REQ-009` 时一并处理 |
 
 | `scripts/gui_agent_walkthrough.py` 的覆盖率豁免登记 | REQ-013 T4 真实浏览器走查 | 单次证据工具只在有本机浏览器/控制台时运行，CI 全 mock 不覆盖浏览器；以截图 + observations 和能抓住 #77 已知三项缺口的前后对照验证，保持原覆盖率门槛不变 |
+
+
+## 2026-10-10 GUI 体验调查登记
+
+- 新提案 REQ-015 及 .1～.5：仅 `proposed`，尚未受理；Issue 外部发布被自动审批拒绝，
+  草案与截图见 `docs/run-records/2026-10-10-GUI-UX-review.md`。
+- REQ-013 T13：全局公司上下文使合法报告预检失败，父需求与 .3 同步回退 `in-progress`。
+  历史实现 PR与独立验收报告保留；修复与重新验收未完成，旧 AC不变。
+- 原需求维护：REQ-009 M1报告分类；REQ-012 M1空仓无缺口文案/M2完备度分母解释/M3未知状态/M4导航分组标题与链接脱离。
+  本次只登记，不虚报修复；真实采集2次请求全部在沙箱，不写真实 HOME存档。
