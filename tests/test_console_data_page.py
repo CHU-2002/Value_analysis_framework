@@ -709,7 +709,8 @@ def test_research_confirmed_collection_runs_and_is_readable_after_server_restart
     submitted = call_route(registry, "POST", "/api/v1/research-data/run", {
         "inputs": inputs, "digest": plan["digest"], "confirmed": True})["data"]
     registry.collection_runner.active[submitted["batch_id"]][0].join(timeout=10)
-    assert len(calls) == 1
+    from datalayer.store import DataStore
+    assert len(calls) == 1, DataStore(config.archive_root).load_batch(submitted["batch_id"])
     _, restarted = make_app(tmp_path)
     batches = call_route(restarted, "GET", "/api/v1/research-data/batches", company=TICKER)["data"]["batches"]
     assert batches[0]["status"] == "done" and batches[0]["actual_requests"] == 1

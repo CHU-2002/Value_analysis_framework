@@ -267,6 +267,10 @@ class CollectionRunner:
         return explain_batch(store, store.load_batch(batch_id))
 
     def _run(self, store, batch, token, pause):
+        # The HTTP thread reads its connection while the worker writes snapshots.
+        # Give the worker its own SQLite connection; never share one transaction
+        # across the request and collection threads.
+        store = DataStore(store.root)
         try:
             from tushare_collector import TushareClient
 
@@ -282,6 +286,8 @@ class CollectionRunner:
             store.append_batch(latest)
             if self.ctx.log:
                 self.ctx.log(f"collection {batch['batch_id']} failed: {type(exc).__name__}")
+        finally:
+            store.close()
 
     def pause(self, batch_id):
         with self.lock:
