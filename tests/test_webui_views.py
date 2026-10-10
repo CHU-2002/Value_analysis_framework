@@ -466,3 +466,161 @@ def test_reader_watchlist_company_without_directory_remains_normal(tmp_path):
     assert view["data"]["artifact"] is None and view["data"]["versions"] == []
     assert view["data"]["company"]["ticker"] == "600887.SH"
     assert not (config.output_root / "600887_伊利股份").exists()
+# 覆盖需求：REQ-015.1 —— AC-1.1～AC-1.7；边界数据与离线只读契约。
+def _research_rows():
+    from webui.plugins.research_timeline import daily_rows
+    days = ["20151231", "20160104", "20160331", "20160401", "20251231", "20260102", "20260105"]
+    prices = [{"trade_date": day, "open": 10+i, "high": 14+i, "low": 8+i,
+               "close": 12+i, "vol": 100+i} for i, day in enumerate(days)]
+    valuations = [{"trade_date": day, "pe_ttm": value, "pb": value}
+                  for day, value in zip(days, [10, 10, -1, None, 20, 30, 15])]
+    factors = [{"trade_date": day, "adj_factor": 1 if i < 4 else 2} for i, day in enumerate(days)]
+    return daily_rows(prices, valuations, factors)
+
+
+def test_research_periods_are_natural_ohlc_with_no_holiday_zeros():
+    from datetime import date
+    from webui.plugins.research_timeline import aggregate, rank_daily
+    rows = rank_daily(_research_rows())
+    expected_sizes = {"day": 7, "week": 5, "month": 6, "quarter": 5, "year": 4}
+    for cycle, size in expected_sizes.items():
+        points, can_adjust = aggregate(rows, cycle, as_of=date(2026, 1, 5))
+        assert len(points) == size and can_adjust
+        assert points[-1]["ongoing"]
+        assert sum(point["vol"] for point in points) == 721
+        assert all(point["trading_days"] > 0 for point in points)
+    annual, _ = aggregate(rows, "year", as_of=date(2026, 1, 5))
+    assert annual[1]["start"] == "2016-01-04" and annual[1]["end"] == "2016-04-01"
+    assert [annual[1][key] for key in ("open", "high", "low", "close", "vol")] == [11, 17, 9, 15, 306]
+    assert annual[-1]["pe_ttm"] == 15  # period-end observation, never mean
+    assert annual[1]["pe_ttm"] is None  # no earlier observation fallback
+
+
+def test_research_daily_ranking_ties_invalid_values_and_future_invariance():
+    from webui.plugins.research_timeline import rank_daily
+    rows = _research_rows()
+    ranked = rank_daily(rows, "all")
+    assert [row["pe_ttm_rank"] for row in ranked] == [0, 0, None, None, 200/3, 75, 40]
+    assert ranked[2]["pe_ttm_rank_info"]["reason"] == "非正值不参加排名"
+    assert ranked[3]["pe_ttm_rank_info"]["reason"] == "缺少当日指标"
+    assert ranked[-1]["pe_ttm_rank_info"]["samples"] == 5
+    assert rank_daily(rows[:-1], "all") == ranked[:-1]
+    assert rank_daily(rows, "3")[-1]["pe_ttm_rank_info"]["samples"] == 3
+    assert rank_daily(rows, "5")[-1]["pe_ttm_rank_info"]["start"] == "2025-12-31"
+    assert not rank_daily(rows, "5")[-1]["pe_ttm_rank_info"]["incomplete"]
+
+
+def test_research_adjustment_and_range_do_not_change_daily_valuation_ranks():
+    from webui.plugins.research_timeline import timeline_payload
+    rows = _research_rows()
+    payloads = [timeline_payload(rows, company="600887.SH", range="all", adjustment=adj) for adj in ("none", "forward", "backward")]
+    assert payloads[1]["points"][0]["open"] == 5
+    assert payloads[2]["points"][-1]["open"] == 32
+    assert [[p["vol"] for p in d["points"]] for d in payloads] == [[100,101,102,103,104,105,106]] * 3
+    assert [[p["pe_ttm_rank"] for p in d["points"]] for d in payloads][0] == [[p["pe_ttm_rank"] for p in d["points"]] for d in payloads][1]
+    clipped = timeline_payload(rows, company="600887.SH", range="custom", start="20260102", end="20260105")
+    assert [p["date"] for p in clipped["points"]] == ["2026-01-02", "2026-01-05"]
+    assert clipped["points"][-1]["pe_ttm_rank"] == payloads[0]["points"][-1]["pe_ttm_rank"]
+    monthly = timeline_payload(rows, company="600887.SH", cycle="month", range="all")
+    assert monthly["points"][-1]["pe_ttm_rank"] == payloads[0]["points"][-1]["pe_ttm_rank"]
+    assert "chart_start=20101231" in payloads[0]["update_href"]
+
+
+def test_research_missing_ohlc_factors_and_invalid_controls_have_explicit_feedback():
+    from webui.plugins.research_timeline import aggregate, timeline_payload
+    rows = _research_rows()
+    rows[-1]["open"] = None
+    points, _ = aggregate(rows, "month")
+    assert points[-1]["close"] is None
+    assert "不能生成" in points[-1]["ohlc_reason"]
+    rows[-1]["adj_factor"] = None
+    assert not aggregate(rows)[1]
+    with pytest.raises(WebUIError, match="复权依据"):
+        aggregate(rows, adjustment="forward")
+    for setting in ({"cycle": "bad"}, {"window": "future"}, {"range": "custom", "start": "20261231", "end": "20260101"}):
+        with pytest.raises(WebUIError):
+            timeline_payload(rows, company="600887.SH", **setting)
+    empty = timeline_payload([], company="600887.SH")
+    assert empty["points"] == [] and "不能生成" in empty["empty_hint"]
+    assert empty["coverage"]["incomplete"] and "#data?company=600887.SH" in empty["update_href"]
+
+
+def test_research_ma_uses_current_candle_count_and_never_fills_short_history():
+    from datetime import date, timedelta
+    from webui.plugins.research_timeline import aggregate, daily_rows
+    start = date(2026, 1, 1)
+    prices = [{"trade_date": (start+timedelta(days=i)).isoformat(), "open": i+1, "high": i+2,
+               "low": i, "close": i+1, "vol": 1} for i in range(65)]
+    points, _ = aggregate(daily_rows(prices, [], []))
+    assert points[3]["ma5"] is None and points[4]["ma5"] == 3
+    assert points[59]["ma60"] == 30.5
+    monthly, _ = aggregate(daily_rows(prices, [], []), "month")
+    assert all(p["ma5"] is None for p in monthly)
+
+
+def test_research_calendar_separates_suspension_and_missing_and_empty_range():
+    from webui.plugins.research_timeline import timeline_payload
+    payload = timeline_payload(_research_rows(), company="600887.SH", range="custom", start="20260102", end="20260107",
+                               calendar_rows=[{"cal_date":"20260103","is_open":0}, {"cal_date":"20260106","is_open":1}, {"cal_date":"20260107","is_open":1}],
+                               suspension_rows=[{"trade_date":"20260106","suspend_type":"S"}])
+    assert payload["gaps"] == [{"date":"2026-01-06","reason":"停牌"},{"date":"2026-01-07","reason":"缺少行情（未确认停牌）"}]
+    empty = timeline_payload(_research_rows(), company="600887.SH", range="custom", start="20190101", end="20191231")
+    assert empty["points"] == [] and empty["empty_hint"] == "此范围无交易数据"
+
+
+def test_research_income_converts_cumulative_quarters_and_keeps_decade_history():
+    from webui.plugins.research_timeline import financial_income
+    rows = [{"end_date": f"{year}1231", "revenue": 100_000_000, "n_income_attr_p": 2_000_000}
+            for year in range(2015,2026)]
+    rows.extend([{"end_date":"20260331","revenue":30_000_000,"n_income_attr_p":1_000_000},
+                 {"end_date":"20260630","revenue":65_000_000,"n_income_attr_p":2_500_000},
+                 {"end_date":"20261231","revenue":120_000_000,"n_income_attr_p":4_000_000}])
+    financial = financial_income(rows)
+    assert len(financial["labels_by_basis"]["annual"]) == 12
+    quarter = charts_plugin.filter_basis(financial, "quarter")
+    assert quarter["series"][0]["values"][-3:] == [30,35,None]
+    assert quarter["series"][1]["values"][-3:] == [1,1.5,None]
+    assert financial["missing_reasons"]["2026-12-31:revenue"].startswith("缺少")
+    assert charts_plugin.filter_basis(financial,"half")["series"][0]["values"] == [65]
+
+
+def test_research_chart_route_is_offline_read_only_and_respects_source_revisions(tmp_path):
+    import sqlite3
+    from webui.plugins.research_timeline import read_records
+    config, registry = make_app(tmp_path)
+    # Empty read neither creates archive nor changes an existing output.
+    empty = call_route(registry, "GET", "/api/v1/research/charts", company="600887.SH")
+    assert empty["data"]["points"] == [] and not config.archive_root.exists()
+    config.archive_root.mkdir()
+    with sqlite3.connect(config.archive_root/"store.db") as connection:
+        connection.execute("CREATE TABLE raw_record (id INTEGER PRIMARY KEY,ticker TEXT,dataset TEXT,rows_json TEXT,fetched_at TEXT,content_sha256 TEXT,result TEXT,params_json TEXT)")
+        for index, value in enumerate([10,12]):
+            connection.execute("INSERT INTO raw_record VALUES (?,?,?,?,?,?,?,?)", (index,"600887.SH","daily",json.dumps([{"ts_code":"600887.SH","trade_date":"20260105","open":value,"high":15,"low":8,"close":14,"vol":50}]),f"2026-01-0{index+6}",f"hash{index}","ok","{}"))
+    observed = call_route(registry,"GET","/api/v1/research/charts",company="600887.SH",range="all")["data"]
+    assert observed["points"][0]["open"] == 12
+    assert observed["points"][0]["source"]["price"]["version"] == "hash1"
+    assert len(observed["sources"]) == 2
+    assert read_records(config.archive_root,"000001.SZ","daily") == ([],[])
+    assert not (config.archive_root/"manifest.jsonl").exists()
+
+
+def test_financial_pack_cumulative_quarters_are_not_mislabeled_as_single_quarters():
+    from webui.plugins.charts import parse_revenue_profit, parse_metrics, filter_basis
+    from tempfile import TemporaryDirectory
+    # More than a decade plus half-year and cumulative quarters; missing predecessor stays missing.
+    years = [str(year) for year in range(2025, 2014, -1)]
+    periods = ["2026Q3", "2026Q2", "2026Q1", "2026H1", *years]
+    values = [90, 65, 30, 65, *([100]*len(years))]
+    pack = "## 3. 合并利润表\n| 项目 | " + " | ".join(periods) + " |\n| --- |" + " --- |"*len(periods) + "\n"
+    for name, nums in [("营业收入",values),("归母净利润",[v/20 for v in values])]:
+        pack += "| " + name + " | " + " | ".join(map(str,nums)) + " |\n"
+    pack += "## 12. 关键财务指标\n| 指标 | 2026Q3 | 2026Q1 |\n| --- | --- | --- |\n| ROE (%) | 15 | 3 |\n"
+    with TemporaryDirectory() as directory:
+        path=Path(directory)/"data_pack_market.md";path.write_text(pack)
+        income=parse_revenue_profit([path],{})
+        assert len(income["labels_by_basis"]["annual"]) == 11
+        assert filter_basis(income,"quarter")["series"][0]["values"] == [30,35,25]
+        assert filter_basis(income,"half")["series"][0]["values"] == [65]
+        ratios=filter_basis(parse_metrics([path],{}),"quarter")
+        assert ratios["series"][0]["values"] == [3,None]
+        assert "累计财务比率" in ratios["missing_reasons"]["2026Q3"]

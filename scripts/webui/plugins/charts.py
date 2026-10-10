@@ -31,11 +31,12 @@ import re
 from pathlib import Path
 
 from ..core import envelope
-from ..core.errors import ArtifactMissing
+from ..core.errors import ArtifactMissing, NotFound
 from ..core.models import DatasetSpec, NavItem, PanelSpec, Param
 from ..datastore import parsers
 from ..datastore.parsers import markdown_tables
 from .companies import company_base, context_resolvable
+from .research_timeline import financial_income, load_timeline, read_records
 
 _METRIC_ORDER = ("ROE (%)", "毛利率 (%)", "净利率 (%)", "资产负债率 (%)")
 MONTH_SECTION = "年度行情汇总"
@@ -190,12 +191,21 @@ def parse_annual_price(sources: list, params: dict) -> dict:
 def parse_metrics(sources: list, params: dict) -> dict:
     """§12 关键财务指标：ROE / 毛利率 / 净利率 / 资产负债率（按期次升序、按口径分组）。"""
     records = _records(_read_first(sources), "12.")
-    return _basic_payload(
+    payload = _basic_payload(
         records,
         tuple((metric, metric) for metric in _METRIC_ORDER),
         _periods_newest_first(records),
         "%",
     )
+    payload["missing_reasons"] = {}
+    for item in payload["series"]:
+        if item["basis"] == "quarter":
+            for index, label in enumerate(payload["labels_by_basis"]["quarter"]):
+                if not str(label).upper().endswith("Q1"):
+                    item["values"][index] = None
+                    payload["missing_reasons"][str(label)] = "累计财务比率不能直接相减换成单季；缺少单季计算依据"
+    payload["source_note"] = "财报比率按报告期口径；Q1为首季，其他累计比率缺少单季计算依据时不画值。"
+    return payload
 
 
 def parse_revenue_profit(sources: list, params: dict) -> dict:
@@ -206,12 +216,33 @@ def parse_revenue_profit(sources: list, params: dict) -> dict:
     口径切换状态）由 `bases` / `series_by_basis` 直接可断言。
     """
     records = _records(_read_first(sources), "3.")
-    return _basic_payload(
+    payload = _basic_payload(
         records,
         (("营业收入", "营业收入"), ("归母净利润", "归母净利润")),
         _periods_newest_first(records),
         "百万元",
     )
+    label_key = records["columns"][0]["key"]
+    by_name = {str(row.get(label_key, "")): row for row in records["rows"]}
+    payload["missing_reasons"] = {}
+    for item in payload["series"]:
+        if item["basis"] != "quarter":
+            continue
+        original = by_name.get(item["name"].split("（")[0], {})
+        for index, period in enumerate(payload["labels_by_basis"]["quarter"]):
+            match = _PERIOD_RE.match(str(period))
+            suffix = match.group(2).upper() if match else ""
+            if suffix == "Q1":
+                continue
+            year = match.group(1)
+            prior = {"Q2": [year + "Q1"], "Q3": [year + "H1", year + "Q2"], "Q4": [year + "Q3"]}.get(suffix, [])
+            preceding = next((original[key] for key in prior if original.get(key) is not None), None)
+            value = original.get(period)
+            item["values"][index] = value - preceding if isinstance(value, (float, int)) and isinstance(preceding, (float, int)) else None
+            if item["values"][index] is None:
+                payload["missing_reasons"][str(period)] = "缺少上一季度累计值，不能换算单季"
+    payload["source_note"] = "利润表累计值按相邻季度差额换算单季；Q1无需换算。缺少依据留缺。"
+    return payload
 
 
 def register_parsers() -> None:
@@ -267,11 +298,25 @@ def filter_basis(data: dict, basis: str) -> dict:
 
 def _chart_panel(dataset: str):
     def provider(ctx, company=None, basis=None, **_):
-        base = company_base(ctx, company)
-        data, meta = ctx.registry.datastore.get(dataset, base=base, params={})
+        try:
+            base = company_base(ctx, company)
+            data, meta = ctx.registry.datastore.get(dataset, base=base, params={})
+        except (ArtifactMissing, NotFound):
+            if dataset == "charts.revenue_profit" and company and "." in company:
+                income, sources = read_records(ctx.config.archive_root, company, "income")
+                if income:
+                    payload = financial_income(income)
+                    return {**filter_basis(payload, basis or DEFAULT_BASIS), "meta": {"sources": sources}, "company": company}
+            return {"labels": [], "series": [], "unit": "%" if dataset == "charts.metrics" else "百万元",
+                    "empty_hint": "尚无财务数据包；请在数据页更新数据并离线重建。", "company": company}
+        if dataset == "charts.revenue_profit" and company and "." in company:
+            income, sources = read_records(ctx.config.archive_root, company, "income")
+            if income:
+                data = financial_income(income)
+                meta = {"sources": sources}
         if basis:
             data = filter_basis(data, basis)
-        return {**data, "meta": meta}
+        return {**data, "meta": meta, "company": company}
 
     return provider
 
@@ -281,15 +326,41 @@ def _charts_route(ctx, ticker=None, **_):
     return envelope.ok({"company": ticker or ctx.query.get("company"), "charts": charts}, meta=meta)
 
 
+def _timeline_panel(ctx, company=None, **_):
+    settings = {key: ctx.query.get(key, default) for key, default in
+                (("cycle", "day"), ("window", "5"), ("adjustment", "none"),
+                 ("range", "1"), ("start", ""), ("end", ""))}
+    return load_timeline(ctx, company or ctx.query.get("company"), **settings)
+
+
+def _timeline_route(ctx, **_):
+    return envelope.ok(_timeline_panel(ctx, company=ctx.query.get("company")))
+
+
+def _chart_context(ctx, value):
+    if context_resolvable(ctx, value):
+        return True
+    # Universe companies without derived output still have a normal empty research chart.
+    from .companies import companies_dataset
+    return any(item.get("ticker") == value for item in companies_dataset(ctx)[0]["companies"])
+
+
 def contribute(registry):
     register_parsers()
     for name in CHART_DATASETS:
-        # `parser_version` 从 1 升到 2：解析结果多了口径元数据（`REQ-012.3` 的 `AC-7`）。
+        # `parser_version` 3：REQ-015.1 修正累计季度的单季换算。
         # 数据层的缓存键含 parser_version，所以老缓存会自动失效——不升版本的话
         # 界面会继续拿到「没有口径元数据」的旧结果（实测：接口返回 basis=None）。
         registry.dataset(DatasetSpec(
-            name=name, sources=("data_pack_market.md",), parser=name, parser_version=2,
+            name=name, sources=("data_pack_market.md",), parser=name, parser_version=3,
         ))
+    registry.panel(PanelSpec(
+        id="charts.timeline", kind="chart", title="行情与估值时间轴",
+        provider=_timeline_panel,
+        params=(Param("company", type="company", source="selection.company"),),
+        description="真实 OHLC / 每日 PE 与 PB；离线查看，不自动补历史。",
+    ))
+    registry.route("GET", "/api/v1/research/charts", _timeline_route, name="research timeline")
     chart_options = {
         "chart": {
             "type": "line",
@@ -300,7 +371,7 @@ def contribute(registry):
         }
     }
     registry.panel(PanelSpec(
-        id="charts.annual_price", kind="chart", title="年度股价走势",
+        id="charts.annual_price", kind="chart", title="旧数据包年度行情汇总（非 K 线）",
         provider=_chart_panel("charts.annual_price"),
         params=(Param("company", type="company", source="selection.company"),),
         description="来自 data_pack_market.md §11 年度行情汇总；断网也能看。",
@@ -327,9 +398,9 @@ def contribute(registry):
     ))
     registry.nav(NavItem(
         id="charts", title="图表", group="公司", order=20,
-        panels=("charts.annual_price", "charts.metrics", "charts.revenue_profit"),
+        panels=("charts.timeline", "charts.metrics", "charts.revenue_profit", "charts.annual_price"),
         requires=("selection.company",),
-        context_resolver=context_resolvable,
+        context_resolver=_chart_context,
         description="看这家公司的趋势图；口径可切换，缺数据的地方断开而不是画成 0。",
     ))
     registry.route("GET", "/api/v1/companies/{ticker}/charts", _charts_route, name="company charts")
