@@ -277,7 +277,9 @@ def test_directory_code_derivation_matches_the_slash_command_convention(tmp_path
     """AC-2：`{directory_code}` = 只去掉最后的市场后缀（与 `.claude/commands/*.md` 一致）。"""
     assert agent_action.directory_code("600887.SH") == "600887"
     codex = agent_action.build_agent_argv("/bin/codex", "update-analysis", "600887.SH", "codex")
-    assert codex[:6] == ["/bin/codex", "exec", "--sandbox", "workspace-write", "--json", codex[-1]]
+    assert codex[:7] == ["/bin/codex", "exec", "--sandbox", "workspace-write", "--json",
+                         "--config", "sandbox_workspace_write.network_access=true"]
+    assert codex[-1].startswith("执行固定分析动作：")
     assert "/update-analysis 600887.SH" in codex[-1]
     assert ".claude/commands/update-analysis.md" in codex[-1]
     assert agent_action.resolve_backend("codex") == "codex"
@@ -467,6 +469,43 @@ def test_preflight_and_all_submission_paths_reject_before_launch(tmp_path, monke
             "--output-root", config.output_root, "--cli", fake)
         assert completed.returncode == agent_action.EXIT_BUSY
         assert not marker.exists()
+
+
+def test_value_analysis_freshness_blocker_prevents_confirmation_and_submit(tmp_path, monkeypatch):
+    """T24/AC-2.2: a stale framework is routed to update before spending model quota."""
+    fake = make_fake_cli(tmp_path)
+    monkeypatch.setenv("AGENT_CLI", str(fake))
+    config, registry = make_app(tmp_path)
+    company = make_company_dir(config.output_root)
+    def block_stale_value_analysis(action, ticker, company_dir):
+        if action == "value-analysis":
+            return "暂不能生成价值分析：分析框架已变化。请先执行‘更新分析报告’。"
+        return ""
+
+    monkeypatch.setattr(agent_plugin, "_value_analysis_freshness_blocker", block_stale_value_analysis)
+    preview = call_route(registry, "GET", "/api/v1/agent/preflight",
+                         command="agent_value_analysis", ticker="600887.SH")["data"]
+    assert not preview["ready"]
+    assert "先执行‘更新分析报告’" in preview["reason"]
+    assert not list(company.iterdir())
+
+    runner = JobRunner(config, spec_lookup=registry.command_spec,
+                       popen=lambda *a, **kw: pytest.fail("stale value analysis must not launch"))
+    with pytest.raises(InvalidParam, match="更新分析报告"):
+        runner.submit("agent_value_analysis", {"ticker": "600887.SH"})
+    assert runner.list_jobs() == []
+
+
+def test_value_analysis_allows_downstream_only_staleness(tmp_path, monkeypatch):
+    """T24 follows value-analysis.md: stale computed valuation alone is refreshable here."""
+    import analysis_status
+
+    monkeypatch.setattr(analysis_status, "evaluate_company", lambda *a, **kw: {
+        "state": "stale", "reasons": [{"code": "downstream_stale", "detail": "value only"}],
+    })
+    assert agent_plugin._value_analysis_freshness_blocker(
+        "value-analysis", "600887.SH", tmp_path,
+    ) == ""
 
 
 def test_jobs_normalize_deduplicate_cancel_and_preserve_redacted_audit(tmp_path, monkeypatch):

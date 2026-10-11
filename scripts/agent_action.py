@@ -82,7 +82,12 @@ def build_agent_argv(cli, action: str, ticker: str, backend="claude", company_di
                   "凭据只从环境变量读取，不得写入日志、报告或提交；"
                   "数据存档沿用 TURTLE_ARCHIVE_ROOT 环境变量。"
                   "报告实际执行情况、产出文件、耗时与消耗；遇到阻断明确说明，不得假报成功。")
-        options = ["--model", model] if model else []
+        # Data refresh in the fixed analysis commands needs outbound HTTP. Keep
+        # the workspace-write filesystem boundary and enable only its network
+        # switch for this explicitly confirmed analysis invocation.
+        options = ["--config", "sandbox_workspace_write.network_access=true"]
+        if model:
+            options += ["--model", model]
         if company_dir is not None:
             prompt += (f"公司目录固定为 {company_dir}；命令文档中的 output/公司目录统一替换为此目录，"
                        "不要访问另一份同代码公司的产物。")

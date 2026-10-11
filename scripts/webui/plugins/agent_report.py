@@ -107,11 +107,40 @@ def command_specs(config=None) -> list:
 def _validate(params, *, action, root, cli):
     try:
         backend = params.get("backend")
-        ticker, _, _ = agent_action.preflight(action, params.get("ticker", ""), root,
+        ticker, company_dir, _ = agent_action.preflight(action, params.get("ticker", ""), root,
                                              None if backend else cli, backend, params.get("model"))
+        blocker = _value_analysis_freshness_blocker(action, ticker, company_dir)
+        if blocker:
+            raise InvalidParam(blocker)
     except (ValueError, FileNotFoundError) as exc:
         raise InvalidParam(str(exc)) from exc
     return {"ticker": ticker, **{k: params[k] for k in ("backend", "model") if params.get(k)}}
+
+
+def _value_analysis_freshness_blocker(action, ticker, company_dir):
+    """Keep value analysis from launching when its command contract requires an update first."""
+    if action != "value-analysis":
+        return ""
+    try:
+        from analysis_status import evaluate_company
+    except ImportError:
+        from scripts.analysis_status import evaluate_company
+    status = evaluate_company(company_dir, ticker=ticker)
+    update_reasons = {
+        "new_report", "framework_changed", "schema_changed", "inputs_changed", "run_failed",
+    }
+    blocked = [item for item in status.get("reasons", []) if item.get("code") in update_reasons]
+    if not blocked:
+        return ""
+    labels = {
+        "new_report": "发现尚未分析的新财报",
+        "framework_changed": "分析框架已变化",
+        "schema_changed": "分析数据结构已变化",
+        "inputs_changed": "分析输入已变化",
+        "run_failed": "最新分析 run 未成功",
+    }
+    causes = "、".join(dict.fromkeys(labels[item["code"]] for item in blocked))
+    return f"暂不能生成价值分析：{causes}。请先执行“更新分析报告”，完成后再生成价值分析。"
 
 
 def _exclusive_key(params, *, root):
@@ -158,10 +187,14 @@ def _preflight(ctx, **_):
     result = {"ready": False, "command_line": "", "reason": "",
               "notice": "会消耗模型额度，可能需要较长时间。"}
     try:
-        ticker, _, argv = agent_action.preflight(
+        ticker, company_dir, argv = agent_action.preflight(
             action, _context_ticker(ctx), ctx.config.output_root,
             backend=ctx.query.get("backend"), model=ctx.query.get("model"),
         )
+        blocker = _value_analysis_freshness_blocker(action, ticker, company_dir)
+        if blocker:
+            result["reason"] = blocker
+            return envelope.ok(result)
         result.update(ready=True, ticker=ticker, agent=ctx.query.get("backend") or "CLI 配置",
                       model=ctx.query.get("model") or "default", configuration=_agent_catalog(),
                       command_line=redact(shlex.join(argv), ctx.secrets))
