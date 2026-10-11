@@ -655,4 +655,4 @@ NavItem可选placement/actions与shell通用区域方案登记REQ-015 T2，owner
 
 ### M3 · 报告列表混入内部文件（2026-10-11，待修复，P1）
 
-真实 GUI 查看伊利产物时显示 76 行（每页 50 行），普通产物表中混有 `d6_trigger.json`、`latest.json`、`record.json`、`run_manifest.json`、`qualitative_input.json`、`data_pack_market_current.md` 与章节解析文件等内部状态/输入；部分被归为“其他”。用户报告、源材料与仅供程序使用的内部文件应分层，普通报告列表不应展示后者；不删除磁盘原始产物。证据见[2026-10-11 GUI 走查](../run-records/2026-10-11-REQ-016-GUI-UX-review.md)。这属于既有报告浏览维护，不新开需求，也未修改旧 AC。
+真实 GUI 查看伊利产物时显示 76 行（每页 50 行），普通产物表中混有 `d6_trigger.json`、`latest.json`、`record.json`、`run_manifest.json`、`qualitative_input.json`、`data_pack_market_current.md` 与章节解析文件等内部状态/输入；部分被归为“其他”。用户报告、源材料与仅供程序使用的内部文件应分层，普通报告列表不应展示后者；不删除磁盘原始产物。证据见[2026-10-11 GUI 走查](../run-records/2026-10-11-REQ-016-GUI-UX-review.md)。这属于既有报告浏览维护，不新开需求，也未修改旧 AC。owner 于 2026-10-11 决定将此问题纳入 REQ-016 子需求 [REQ-016.1](REQ-016-a-share-universe-acquisition.md#req-0161-报告列表只展示面向用户的产物)，与 REQ-016 一并实现和跟踪。
