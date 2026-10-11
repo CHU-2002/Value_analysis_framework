@@ -80,7 +80,8 @@ def build_agent_argv(cli, action: str, ticker: str, backend="claude", company_di
                   "严格执行该文件引用的完整分析流程。只生成该公司分析产物，"
                   "不要修改程序、需求或测试。复用本机既有登录态与模型配置。"
                   "凭据只从环境变量读取，不得写入日志、报告或提交；"
-                  "数据存档沿用 TURTLE_ARCHIVE_ROOT 环境变量。"
+                  "数据存档使用 TURTLE_ARCHIVE_ROOT；若通过研究控制台启动且该变量未设置，"
+                  "使用 WEBUI_ARCHIVE_ROOT 指向的同一隔离存档，禁止回退到用户 HOME 默认存档。"
                   "报告实际执行情况、产出文件、耗时与消耗；遇到阻断明确说明，不得假报成功。")
         # Data refresh in the fixed analysis commands needs outbound HTTP. Keep
         # the workspace-write filesystem boundary and enable only its network

@@ -282,6 +282,8 @@ def test_directory_code_derivation_matches_the_slash_command_convention(tmp_path
     assert codex[-1].startswith("执行固定分析动作：")
     assert "/update-analysis 600887.SH" in codex[-1]
     assert ".claude/commands/update-analysis.md" in codex[-1]
+    assert "WEBUI_ARCHIVE_ROOT" in codex[-1]
+    assert "禁止回退到用户 HOME 默认存档" in codex[-1]
     assert agent_action.resolve_backend("codex") == "codex"
     assert agent_action.directory_code("00700.HK") == "00700"
     assert agent_action.directory_code("AAPL.US") == "AAPL"
