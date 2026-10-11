@@ -23,7 +23,7 @@ from .companies import resolve_company
 
 HISTORY_FIELDS = {
     "daily": "ts_code,trade_date,open,high,low,close,vol,amount",
-    "daily_basic": "ts_code,trade_date,pe_ttm,pb",
+    "daily_basic": "ts_code,trade_date,pe_ttm,pb,ps_ttm",
     "adj_factor": "ts_code,trade_date,adj_factor",
     "trade_cal": "exchange,cal_date,is_open,pretrade_date",
     "suspend_d": "ts_code,trade_date,suspend_timing,suspend_type",

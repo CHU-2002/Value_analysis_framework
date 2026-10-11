@@ -342,6 +342,11 @@ def companies_dataset(ctx) -> tuple:
             code = resolve_ticker(item.get("ticker") or item["dir"])
         except UniverseError:
             continue
+        # Legacy company folders often have no record.json or universe entry.
+        # Still give valid directory aliases a canonical ticker so research pages
+        # can resolve their market and load the right local timeline.
+        if not item.get("ticker"):
+            item["ticker"] = code
         known[code] = item
     try:
         entries = Universe(DataStore(ctx.config.archive_root)).entries()
@@ -531,7 +536,9 @@ def contribute(registry):
     # `REQ-012.1` 的 IA：公司级页面收进「公司」组，并声明**上下文依赖**
     # （`requires` 只是字符串，前端 shell 拿 selection 比对后决定「渲染」还是「先选公司」）。
     registry.nav(NavItem(id="report", title="报告", placement="context",
-                         actions=({"title":"生成报告", "page":"agent"}, {"title":"迭代记录", "page":"runs"}), group="公司", order=30,
+                         actions=({"title":"生成报告", "page":"agent"}, {"title":"迭代记录", "page":"runs"},
+                                  {"title":"生成买卖计划", "page":"commands",
+                                   "query":{"focus_action":"company.buy_sell_plan"}}), group="公司", order=30,
                          panels=("report.view", "companies.artifacts"),
                          requires=("selection.company",),
                          context_resolver=report_context_resolvable,

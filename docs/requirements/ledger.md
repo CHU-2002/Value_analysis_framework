@@ -22,7 +22,7 @@
 | [REQ-012](REQ-012-console-v2.md) | 控制台 2.0（公司上下文 + 任务式交互 + 视图质量） | `verified` | P1 | #74 | #92, #95, #96, #97, #98, #99, #100, #101, #104, #106, #109 | `tests/test_console_context.py` `tests/test_console_actions.py` `tests/test_console_views.py` `tests/test_console_data_page.py` |
 | [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `in-progress` | P1 | #75 | #77, #114, #115, #116 | `tests/test_agent_action.py` |
 | [REQ-014](REQ-014-watchlist-maintenance-ui.md) | 控制台里的自选股清单维护（添加 / 从既有产物导入 / 移除） | `verified` | P1 | #102 | #112, #113 | `tests/test_watchlist_ui.py` |
-| [REQ-015](REQ-015-research-workspace-ux.md) | 公司研究工作区（研究导航 + K线与估值时间轴 + 可选生成 + 报告阅读 + 采集解释） | `in-progress` | P1 | [#118](https://github.com/CHU-2002/Value_analysis_framework/issues/118) | TBD（提案登记 [#117](https://github.com/CHU-2002/Value_analysis_framework/pull/117)） | 实现中；五片按既定 AC 交付 |
+| [REQ-015](REQ-015-research-workspace-ux.md) | 公司研究工作区（研究导航 + K线与估值时间轴 + 可选生成 + 报告阅读 + 采集解释） | `in-progress` | P1 | [#118](https://github.com/CHU-2002/Value_analysis_framework/issues/118) | [#120](https://github.com/CHU-2002/Value_analysis_framework/pull/120)（草稿；提案 #117） | 实现中；五片按 owner 反馈扩展后的 AC 交付 |
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
 
@@ -53,11 +53,11 @@
 | [REQ-013.1](REQ-013-agent-cli-report.md) | REQ-013 | 包装脚本与动作白名单 | `verified` | #77, #114, #115, #116 | `tests/test_agent_action.py` |
 | [REQ-013.2](REQ-013-agent-cli-report.md) | REQ-013 | 最小界面（一键页） | `verified` | #77, #114, #115, #116 | `tests/test_agent_action.py` |
 | [REQ-013.3](REQ-013-agent-cli-report.md) | REQ-013 | 提交前预检、完整命令行与产出链接 | `in-progress` | #114, #115, #116 | `tests/test_agent_action.py` |
-| [REQ-015.1](REQ-015-research-workspace-ux.md) | REQ-015 | 标准 K 线与估值联动时间轴 | `in-progress` | TBD | `tests/test_webui_views.py` |
-| [REQ-015.2](REQ-015-research-workspace-ux.md) | REQ-015 | 可选择 agent 与模型的报告生成 | `in-progress` | TBD | `tests/test_agent_action.py` |
-| [REQ-015.3](REQ-015-research-workspace-ux.md) | REQ-015 | 报告阅读与版本比较 | `in-progress` | TBD | `tests/test_console_views.py` |
-| [REQ-015.4](REQ-015-research-workspace-ux.md) | REQ-015 | 采集过程与结果解释 | `in-progress` | TBD | `tests/test_console_data_page.py` |
-| [REQ-015.5](REQ-015-research-workspace-ux.md) | REQ-015 | 公司研究导航与页面布局 | `in-progress` | TBD | `tests/test_console_context.py` |
+| [REQ-015.1](REQ-015-research-workspace-ux.md) | REQ-015 | 标准 K 线与估值联动时间轴 | `in-progress` | #120（草稿） | `tests/test_webui_views.py` |
+| [REQ-015.2](REQ-015-research-workspace-ux.md) | REQ-015 | 可选择 agent 与模型的报告生成 | `in-progress` | #120（草稿） | `tests/test_agent_action.py` |
+| [REQ-015.3](REQ-015-research-workspace-ux.md) | REQ-015 | 报告阅读与版本比较 | `in-progress` | #120（草稿） | `tests/test_console_views.py` |
+| [REQ-015.4](REQ-015-research-workspace-ux.md) | REQ-015 | 采集过程与结果解释 | `in-progress` | #120（草稿） | `tests/test_console_data_page.py` |
+| [REQ-015.5](REQ-015-research-workspace-ux.md) | REQ-015 | 公司研究导航与页面布局 | `in-progress` | #120（草稿） | `tests/test_console_context.py` |
 
 > **编号按登记顺序，交付按「交付顺序」**：`REQ-009` 的交付顺序为
 > **`REQ-009.3`（框架，先）→ `REQ-009.4`（采集与长期存档）→ `REQ-009.1`（按键执行器）→ `REQ-009.2`（视图）**，
@@ -143,6 +143,9 @@
 - 2026-10-10 owner 指示「端到端交付req15」：受理 REQ-015 及 .1～.5 原判据，accepted → in-progress；无 AC 变更，见需求实施记录。
 
 - REQ-015实施发现登记T1统一派生缓存、T2导航边界owner决策、T3绘制与损坏数据包回归、T4确认后零请求观察、T5默认未来期；见需求任务表与原需求维护记录。均在收口前复核，不留在对话里。
+- 2026-10-11 owner 试用反馈要求买卖计划快捷入口、价值分析默认第一，以及 PE/PB/PS 源口径和滚动五年 P25/P75 估值线；按明确选择扩展 REQ-015 AC-1、AC-2、AC-4、AC-1.3～1.5、AC-3.1，并在同次更新需求和台账。PB 保持真实 PB 语义，不伪称 TTM。
+- REQ-015 实跑工具在同一浏览器会话跨 1440×900→1024×768 时偶发 CDP 滚轮超时，独立 1024 进程正常；登记 T21 并将视口走查改为分进程隔离，AC 判据保持不变。
+- 真实截图发现窄视口估值图例重叠，登记 T22；图例改为自适应短标签并给绘图区留出行高，日期标签增加间距。
 
 | `scripts/gui_research_walkthrough.py` 的证据工具覆盖率登记 | REQ-015独立QA真实浏览器前后对照 | 独立QA维护的浏览器证据驱动，CI无真实浏览器环境；全量cov仍计入该文件且阈值74%不变。仅记录实跑验证方式，不引入豁免规则 |
 

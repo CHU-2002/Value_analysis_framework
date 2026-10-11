@@ -312,6 +312,15 @@ def test_workbench_shows_a_display_name_even_without_a_record_file(tmp_path):
     assert "_" not in row["company"].split(" ")[0]
     listing = panel_data(registry, "companies.list")["rows"][0]["name"]
     assert listing == row["company"], "工作台与公司列表必须是同一个显示名"
+    company = call_route(registry, "GET", "/api/v1/companies")["data"]["companies"][0]
+    assert company["ticker"] == "000858.SZ"
+    assert panel_data(registry, "companies.list")["rows"][0]["href"] == "#charts?company=000858.SZ"
+    context = RequestContext(method="GET", path="/", query={"company": "000858_五粮液"},
+                            config=registry.config, registry=registry)
+    resolved = companies_plugin.resolve_company(context, "000858_五粮液")
+    assert resolved["ticker"] == "000858.SZ"
+    from webui.plugins.research_timeline import _canonical_company
+    assert _canonical_company(context, "000858_五粮液") == "000858.SZ"
 
 
 # --------------------------------------------------------------- AC-1 端点接受 ticker
@@ -576,10 +585,36 @@ def test_research_navigation_uses_existing_declarations_and_keeps_all_pages(tmp_
     for page in ("collect", "runs", "commands", "agent"):
         assert registry.page(page).panels
     assert registry.page("report").actions[0]["page"] == "agent"
+    plan_link = next(action for action in registry.page("report").actions
+                     if action["title"] == "生成买卖计划")
+    assert plan_link == {"title": "生成买卖计划", "page": "commands",
+                         "query": {"focus_action": "company.buy_sell_plan"}}
+    assert registry.page("research").actions[-1] == plan_link
+    plan = registry.job_type_spec("company.buy_sell_plan")
+    assert plan.danger and plan.effects["network"] and plan.effects["quota"]
+    assert plan.steps[0].command == "buy_sell_plan"
+    assert plan.steps[0].bind == {"code": "{ticker}", "output_dir": "{company_dir}"}
+    assert "不会提交交易订单" in plan.confirm["body"]
+    shell = (Path(__file__).resolve().parents[1] / "scripts/webui/static/app.js").read_text(encoding="utf-8")
+    action_panel = (Path(__file__).resolve().parents[1] / "scripts/webui/static/kinds/actions.js").read_text(encoding="utf-8")
+    assert "...(action.query || {})" in shell, "公司页快捷入口应保留聚焦意图与当前公司"
+    assert 'selection.focus_action' in action_panel and 'action-card-focused' in action_panel
     assert registry.page("data").actions[0]["page"] == "collect"
     external = NavItem(id="external.context",title="独立插件页",placement="context",actions=({"title":"下一步","page":"external.next"},))
     registry.nav(external)
     assert call_route(registry,"GET","/api/v1/nav")["data"]["items"][-1]["placement"] == "context"
+
+
+def test_buy_sell_plan_preflight_requires_a_token_and_frozen_value_basis(tmp_path, monkeypatch):
+    from webui.plugins import actions as actions_plugin
+    config, registry = make_app(tmp_path)
+    make_company(tmp_path)
+    monkeypatch.setattr(actions_plugin, "_has_token", lambda: False)
+    result = call_route(registry, "GET", "/api/v1/actions", company="600887.SH")["data"]
+    action = next(item for item in result["actions"] if item["id"] == "company.buy_sell_plan")
+    assert action["enabled"] is False
+    assert any("数据源凭据" in blocker for blocker in action["blockers"])
+    assert any("冻结的价值分析基准" in blocker for blocker in action["blockers"])
 
 
 def test_company_overview_has_scoped_links_and_normal_empty_selection(tmp_path):

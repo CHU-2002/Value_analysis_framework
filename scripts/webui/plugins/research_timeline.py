@@ -21,6 +21,7 @@ from ..core.errors import BadRequest
 CYCLES = ("day", "week", "month", "quarter", "year")
 WINDOWS = ("3", "5", "10", "all")
 ADJUSTMENTS = ("none", "forward", "backward")
+VALUATION_METRICS = ("pe_ttm", "pb", "ps_ttm")
 
 
 def number(value):
@@ -77,18 +78,33 @@ def daily_rows(prices, valuations, factors):
         rows.append({"date": day.isoformat(), "price_available": bool(price),
                      **{key: number(price.get(key)) for key in ("open", "high", "low", "close", "vol")},
                      "pe_ttm": number(val.get("pe_ttm")), "pb": number(val.get("pb")),
+                     "ps_ttm": number(val.get("ps_ttm")),
                      "adj_factor": number(factors.get(day, {}).get("adj_factor")),
                      "source": {"price": price.get("source"), "valuation": val.get("source"),
                                 "adjustment": factors.get(day, {}).get("source")}})
     return rows
 
 
+def _quantile(sorted_values, fraction):
+    """Linear interpolation between adjacent empirical order statistics."""
+    if not sorted_values:
+        return None
+    position = (len(sorted_values) - 1) * fraction
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return sorted_values[lower]
+    weight = position - lower
+    return sorted_values[lower] * (1 - weight) + sorted_values[upper] * weight
+
+
 def rank_daily(rows, window="5"):
     if window not in WINDOWS:
         raise BadRequest("无效分位统计窗口")
     result = [dict(row) for row in rows]
-    for metric in ("pe_ttm", "pb"):
+    for metric in VALUATION_METRICS:
         ordered, history = [], deque()
+        band_ordered, band_history = [], deque()
         for row in result:
             day = date_value(row["date"])
             boundary = years_before(day, int(window)) if window != "all" else date.min
@@ -105,6 +121,23 @@ def rank_daily(rows, window="5"):
                 "samples": len(ordered), "start": history[0][0].isoformat() if history else None,
                 "end": day.isoformat(), "incomplete": window != "all" and (not rows or date_value(rows[0]["date"]) > boundary),
                 "reason": "缺少当日指标" if value is None else ("非正值不参加排名" if not valid else ""),
+            }
+            band_boundary = years_before(day, 5)
+            while band_history and band_history[0][0] < band_boundary:
+                _, old = band_history.popleft()
+                band_ordered.pop(bisect.bisect_left(band_ordered, old))
+            if valid:
+                bisect.insort(band_ordered, value)
+                band_history.append((day, value))
+            enough = len(band_ordered) >= 2
+            row[metric + "_low"] = _quantile(band_ordered, .25) if enough else None
+            row[metric + "_high"] = _quantile(band_ordered, .75) if enough else None
+            row[metric + "_band_info"] = {
+                "samples": len(band_ordered),
+                "start": band_history[0][0].isoformat() if band_history else None,
+                "end": day.isoformat(),
+                "incomplete": not band_history or band_history[0][0] > band_boundary,
+                "reason": "有效样本不足" if not enough else "",
             }
     return result
 
@@ -175,7 +208,7 @@ def timeline_payload(rows, *, company, cycle="day", window="5", adjustment="none
             day = date_value(calendar_day.get("cal_date"))
             if day and first <= day <= final and number(calendar_day.get("is_open")) == 1 and day not in suspended and day.isoformat() not in known:
                 rows.append({"date": day.isoformat(), "price_available": False,
-                             **{key: None for key in ("open", "high", "low", "close", "vol", "pe_ttm", "pb", "adj_factor")},
+                             **{key: None for key in ("open", "high", "low", "close", "vol", *VALUATION_METRICS, "adj_factor")},
                              "source": {"calendar": calendar_day.get("source")}})
                 known.add(day.isoformat())
         rows.sort(key=lambda row: row["date"])
@@ -206,6 +239,8 @@ def timeline_payload(rows, *, company, cycle="day", window="5", adjustment="none
             "settings": {"cycle": cycle, "window": window, "adjustment": adjustment, "range": range,
                          "start": requested_start.isoformat(), "end": upper.isoformat()},
             "can_adjust": can_adjust, "sources": sources or [], "gaps": gaps,
+            "valuation_band": {"window_years": 5, "low_quantile": 25, "high_quantile": 75,
+                               "method": "linear interpolation of valid daily observations through each date"},
             "coverage": {"start": rows[0]["date"] if rows else None, "end": rows[-1]["date"] if rows else None,
                          "daily_samples": sum(row.get("price_available", any(row.get(k) is not None for k in ("open", "high", "low", "close"))) for row in observed), "requested_start": requested_start.isoformat(),
                          "incomplete": not rows or date_value(rows[0]["date"]) > requested_start,
@@ -278,7 +313,7 @@ def register_research_datasets(registry):
     from ..datastore import parsers
     for name, parser in zip(RESEARCH_DATASETS, (parse_timeline_snapshot, parse_income_snapshot)):
         parsers.register_parser(name, parser, replace=True)
-        registry.dataset(DatasetSpec(name=name, sources=("raw.json",), parser=name, parser_version=2 if name == "charts.research_timeline" else 1))
+        registry.dataset(DatasetSpec(name=name, sources=("raw.json",), parser=name, parser_version=3 if name == "charts.research_timeline" else 1))
 
 
 def cached_timeline(ctx, company, **settings):

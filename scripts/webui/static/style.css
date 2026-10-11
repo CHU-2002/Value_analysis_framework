@@ -144,6 +144,7 @@ th[data-sort-active="desc"]::after { content: " ↓"; color: var(--accent); }
 .action-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
 .action-card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: #fff; }
 .action-card[data-enabled="0"] { background: #fafafa; }
+.action-card-focused { outline: 2px solid var(--accent); outline-offset: 2px; }
 .action-title { margin: 0 0 4px; font-weight: 600; }
 .action-effects { margin: 6px 0; }
 .action-button { padding: 5px 12px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }

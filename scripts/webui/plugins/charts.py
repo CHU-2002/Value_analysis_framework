@@ -397,7 +397,9 @@ def contribute(registry):
     ))
     registry.nav(NavItem(
         id="charts", title="行情与估值", placement="context",
-        actions=({"title":"更新数据", "page":"data"}, {"title":"生成报告", "page":"agent"}), group="公司", order=20,
+        actions=({"title":"更新数据", "page":"data"}, {"title":"生成报告", "page":"agent"},
+                 {"title":"生成买卖计划", "page":"commands",
+                  "query":{"focus_action":"company.buy_sell_plan"}}), group="公司", order=20,
         panels=("charts.timeline", "charts.metrics", "charts.revenue_profit", "charts.annual_price"),
         requires=("selection.company",),
         context_resolver=_chart_context,

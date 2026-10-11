@@ -316,7 +316,9 @@ async function copyText(text, button) {
 
 export async function render(container, panel, data) {
   const payload = data || (await api(panel.endpoint || "/api/v1/actions")).data;
-  const actions = (payload && payload.actions) || [];
+  const actions = [...((payload && payload.actions) || [])];
+  const focusId = selection.focus_action || "";
+  if (focusId) actions.sort((left, right) => Number(right.id === focusId) - Number(left.id === focusId));
   const groups = new Map();
   for (const action of actions) {
     const group = action.group || "动作";
@@ -331,13 +333,26 @@ export async function render(container, panel, data) {
       groups.set(group, grid);
     }
     // 预检结果是**服务端**算的（AC-4）：刷新一次就是重新问一次服务端，前端不复算。
-    groups.get(group).append(actionCard(action, (completed) => reloadPanel(container, panel, completed)));
+    const card = actionCard(action, (completed) => reloadPanel(container, panel, completed));
+    if (action.id === focusId) {
+      card.dataset.actionFocused = "1";
+      card.classList.add("action-card-focused");
+    }
+    groups.get(group).append(card);
   }
   if (!actions.length) {
     const empty = document.createElement("p");
     empty.className = "panel-empty";
     empty.textContent = "还没有可用的动作。";
     container.append(empty);
+  }
+  if (focusId) {
+    const focused = container.querySelector(`[data-action-id="${CSS.escape(focusId)}"]`);
+    if (focused) setTimeout(() => {
+      if (!focused.isConnected) return;
+      focused.scrollIntoView({block:"center"});
+      focused.querySelector("[data-action-run]")?.focus({preventScroll:true});
+    }, 0);
   }
 }
 

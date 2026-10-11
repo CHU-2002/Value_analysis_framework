@@ -30,5 +30,7 @@ def contribute(registry):
     registry.nav(NavItem(id='research', title='概览', group='公司', order=19,
                         panels=('research.overview',), placement='context',
                         requires=('selection.company',), context_resolver=known_company,
-                        actions=({'title':'更新数据','page':'data'}, {'title':'生成报告','page':'agent'}),
+                        actions=({'title':'更新数据','page':'data'}, {'title':'生成报告','page':'agent'},
+                                 {'title':'生成买卖计划','page':'commands',
+                                  'query':{'focus_action':'company.buy_sell_plan'}}),
                         description='选一次公司，在图表、报告、数据与生成之间连续研究。'))

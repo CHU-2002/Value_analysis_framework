@@ -352,7 +352,7 @@ def test_reader_default_follows_ledger_and_metadata_not_filename_or_mtime(tmp_pa
     """AC-3.1：正式run指针权威，历史元信息可辨识，顶层新文件不能冒充正式版。"""
     registry, base = _reader_versions(tmp_path)
     (base / "qualitative_report.md").write_text("# 新mtime但非正式", encoding="utf-8")
-    result = call_route(registry, "GET", "/api/v1/companies/111111_甲/report")["data"]
+    result = call_route(registry, "GET", "/api/v1/companies/111111_甲/report", type="business")["data"]
     assert result["artifact"]["rel"] == "runs/current/qualitative_report.md"
     assert result["artifact"]["period"] == "2026H1"
     assert result["artifact"]["source"] == "run current"
@@ -362,11 +362,11 @@ def test_reader_default_follows_ledger_and_metadata_not_filename_or_mtime(tmp_pa
     legacy = next(item for item in result["versions"] if item["rel"] == "qualitative_report.md")
     assert legacy["generated_at"] == legacy["period"] == legacy["source"] == "未知"
     _write_json(base / "latest.json", {"run_id": "missing"})
-    result = call_route(registry, "GET", "/api/v1/companies/111111_甲/report")["data"]
+    result = call_route(registry, "GET", "/api/v1/companies/111111_甲/report", type="business")["data"]
     assert result["artifact"] is None and "未猜测最新版" in result["notice"]
     assert len([item for item in result["versions"] if item["type"] == "business"]) == 3
     _write_json(base / "latest.json", {"artifacts": ["broken pointer"]})
-    result = call_route(registry, "GET", "/api/v1/companies/111111_甲/report")["data"]
+    result = call_route(registry, "GET", "/api/v1/companies/111111_甲/report", type="business")["data"]
     assert result["artifact"] is None and result["versions"]
 
 
@@ -405,7 +405,7 @@ def test_reader_real_toc_handles_duplicates_and_json_is_folded(tmp_path):
 def test_reader_comparison_same_type_and_company_and_no_investment_conclusion(tmp_path):
     """AC-3.3：明确正文差异、两版期次/数据时点及已有变化报告；跨公司/类型拒绝。"""
     registry, _ = _reader_versions(tmp_path)
-    result = call_route(registry, "GET", "/api/v1/companies/111111_甲/report")["data"]
+    result = call_route(registry, "GET", "/api/v1/companies/111111_甲/report", type="business")["data"]
     current = result["artifact"]
     old = next(item for item in result["versions"] if item["rel"] == "runs/old/qualitative_report.md")
     diff = call_route(registry, "GET", "/api/v1/companies/111111_甲/report/compare", left=old["id"], right=current["id"])["data"]
@@ -479,7 +479,7 @@ def _research_rows():
     days = ["20151231", "20160104", "20160331", "20160401", "20251231", "20260102", "20260105"]
     prices = [{"trade_date": day, "open": 10+i, "high": 14+i, "low": 8+i,
                "close": 12+i, "vol": 100+i} for i, day in enumerate(days)]
-    valuations = [{"trade_date": day, "pe_ttm": value, "pb": value}
+    valuations = [{"trade_date": day, "pe_ttm": value, "pb": value, "ps_ttm": value / 10 if value and value > 0 else value}
                   for day, value in zip(days, [10, 10, -1, None, 20, 30, 15])]
     factors = [{"trade_date": day, "adj_factor": 1 if i < 4 else 2} for i, day in enumerate(days)]
     return daily_rows(prices, valuations, factors)
@@ -515,6 +515,37 @@ def test_research_daily_ranking_ties_invalid_values_and_future_invariance():
     assert rank_daily(rows, "3")[-1]["pe_ttm_rank_info"]["samples"] == 3
     assert rank_daily(rows, "5")[-1]["pe_ttm_rank_info"]["start"] == "2025-12-31"
     assert not rank_daily(rows, "5")[-1]["pe_ttm_rank_info"]["incomplete"]
+
+
+def test_research_ttm_price_sales_and_rolling_five_year_valuation_bands():
+    from webui.plugins.research_timeline import daily_rows, rank_daily
+    days = ["20220103", "20230103", "20240103", "20250103", "20260103"]
+    metrics = [10, 20, 30, 40, 50]
+    source = [{"trade_date": day, "pe_ttm": value, "pb": value / 10,
+               "ps_ttm": value / 100} for day, value in zip(days, metrics)]
+    rows = rank_daily(daily_rows([], source, []), "5")
+    last = rows[-1]
+    assert last["ps_ttm"] == .5 and last["ps_ttm_rank"] == 80
+    assert last["ps_ttm_low"] == .2 and last["ps_ttm_high"] == .4
+    assert last["ps_ttm_band_info"]["samples"] == 5
+    assert last["pe_ttm_low"] == 20 and last["pe_ttm_high"] == 40
+
+    # 2027 的新样本只改变自己的阈值；既有日期不受未来数据影响。
+    future = daily_rows([], [*source, {"trade_date": "20270104", "pe_ttm": 60,
+                                      "pb": 6, "ps_ttm": .6}], [])
+    with_future = rank_daily(future, "5")
+    assert with_future[-2] == last
+    assert with_future[-1]["pe_ttm_band_info"]["samples"] == 5
+
+
+def test_research_chart_and_data_plan_expose_ttm_sources_and_two_reference_lines():
+    from webui.plugins.research_data import HISTORY_FIELDS
+    source = (Path(__file__).resolve().parents[1] / "scripts/webui/static/kinds/research_chart.js").read_text(encoding="utf-8")
+    assert HISTORY_FIELDS["daily_basic"] == "ts_code,trade_date,pe_ttm,pb,ps_ttm"
+    for field in ("pe_ttm", "pb", "ps_ttm"):
+        assert f'"{field}"' in source
+        assert f'"{field}_low"' in source and f'"{field}_high"' in source
+    assert "低估线 P25" in source and "高估线 P75" in source
 
 
 def test_research_adjustment_and_range_do_not_change_daily_valuation_ranks():

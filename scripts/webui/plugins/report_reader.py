@@ -19,7 +19,7 @@ SOURCES = ("*", "runs/*/*", "value_reports/*/*/*", "value_reports/*/*/artifacts/
 CATALOG_VERSION = 1
 DOCUMENT_VERSION = 1
 
-TYPES = {"business": "商业质量", "value": "价值分析", "change": "变化报告", "material": "源材料"}
+TYPES = {"value": "价值分析", "business": "商业质量", "change": "变化报告", "material": "源材料"}
 
 
 def report_type(item):
@@ -236,7 +236,7 @@ def payload(ctx, company, artifact_id=None, run_id=None, kind=None):
     elif run_id:
         selected = next((item for item in versions if item["rel"] == f"runs/{run_id}/qualitative_report.md"), None)
         kind = "business"
-    kind = kind or "business"
+    kind = kind or "value"
     if kind not in TYPES:
         raise BadRequest("未知报告类型")
     if not selected and not artifact_id and not run_id:

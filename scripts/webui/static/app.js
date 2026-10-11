@@ -377,7 +377,10 @@ function renderPageActions(page) {
   const item = allNav(navItems).find(i => i.id === page.id);
   for (const action of item?.actions || []) {
     const button = document.createElement("button");button.type="button";button.textContent=action.title;
-    button.onclick=()=>setHash(action.page, selection.company ? {company:selection.company}:{});
+    button.onclick=()=>setHash(action.page, {
+      ...(action.query || {}),
+      ...(selection.company ? {company:selection.company} : {}),
+    });
     target.append(button);
   }
 }

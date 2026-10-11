@@ -1,4 +1,4 @@
-# 覆盖需求：REQ-009.3（AC-3.4报告统一数据层缓存）、REQ-015.3（版本与Markdown派生缓存）
+# 覆盖需求：REQ-009.3（AC-3.4报告统一数据层缓存）、REQ-015.3（AC-4报告首选价值分析、版本与Markdown派生缓存）
 # 覆盖需求：REQ-012（父需求 AC-6 数据新鲜度可见、AC-7 图表口径正确且可读、AC-8 表格可用、
 # AC-10 面向用户的错误）、REQ-012.3（视图质量与口径修正）—— AC-3.1 趋势图不混口径、可切换
 # 口径并标明单位与累计/单期、AC-3.2 按容器宽度与 DPR 绘制、标签/图例不截断、缺失值有标注、
@@ -784,8 +784,8 @@ def test_report_reader_caches_derivations_and_invalidates_fact_sources(tmp_path,
     (run_dir / "run.json").write_text(json.dumps({"primary_period": "2025FY", "status": "complete"}), encoding="utf-8")
     (base / "latest.json").write_text(json.dumps({"run_id": "r1"}), encoding="utf-8")
     path = "/api/v1/companies/600887.SH/report"
-    first = call_route(registry, "GET", path)["data"]
-    second = call_route(registry, "GET", path)["data"]
+    first = call_route(registry, "GET", path, type="business")["data"]
+    second = call_route(registry, "GET", path, type="business")["data"]
     assert calls == {"catalog": 1, "document": 1}
     assert first["meta"]["cached"] is False and second["meta"]["cached"] is True
     assert second["meta"]["document"]["cached"] is True
@@ -796,26 +796,37 @@ def test_report_reader_caches_derivations_and_invalidates_fact_sources(tmp_path,
     stamp = report.stat().st_mtime_ns
     report.write_text("# 新标题\n新正文", encoding="utf-8")
     os.utime(report, ns=(stamp, stamp))
-    changed = call_route(registry, "GET", path)["data"]
+    changed = call_route(registry, "GET", path, type="business")["data"]
     assert "新正文" in changed["html"] and calls == {"catalog": 2, "document": 2}
     assert changed["meta"]["document"]["fingerprint"] != first["meta"]["document"]["fingerprint"]
     (run_dir / "run.json").write_text(json.dumps({"primary_period": "2025H1", "status": "complete"}), encoding="utf-8")
-    changed = call_route(registry, "GET", path)["data"]
+    changed = call_route(registry, "GET", path, type="business")["data"]
     assert changed["artifact"]["period"] == "2025H1" and calls["catalog"] == 3
     (base / "history.jsonl").write_text(json.dumps({"run_id": "r1", "primary_period": "2026H1"}) + "\n", encoding="utf-8")
-    changed = call_route(registry, "GET", path)["data"]
+    changed = call_route(registry, "GET", path, type="business")["data"]
     assert changed["artifact"]["period"] == "2026H1" and calls["catalog"] == 4
     (base / "latest.json").write_text(json.dumps({"run_id": "missing"}), encoding="utf-8")
-    changed = call_route(registry, "GET", path)["data"]
+    changed = call_route(registry, "GET", path, type="business")["data"]
     assert changed["artifact"] is None and calls["catalog"] == 5
     (base / "latest.json").write_text(json.dumps({"run_id": "r1"}), encoding="utf-8")
-    call_route(registry, "GET", path)  # 原输入可复用已落盘分片。
+    call_route(registry, "GET", path, type="business")  # 原输入可复用已落盘分片。
     before = dict(calls)
     original_lookup = registry.dataset_spec
     registry.datastore._spec_lookup = lambda name: replace(original_lookup(name), parser_version=2) if name.startswith("report_reader.") else original_lookup(name)
-    upgraded = call_route(registry, "GET", path)["data"]
+    upgraded = call_route(registry, "GET", path, type="business")["data"]
     assert calls == {"catalog": before["catalog"] + 1, "document": before["document"] + 1}
     assert upgraded["meta"]["parser_version"] == upgraded["meta"]["document"]["parser_version"] == 2
+
+
+def test_report_reader_opens_value_analysis_first_by_default(tmp_path):
+    """REQ-015.3 AC-4：价值分析在默认类型和类型选择列表里都排第一。"""
+    _, registry = make_app(tmp_path)
+    company_dir(tmp_path)
+    payload = call_route(registry, "GET", "/api/v1/companies/600887.SH/report")["data"]
+    assert payload["type"] == "value"
+    assert payload["types"][0] == {"id": "value", "label": "价值分析"}
+    # 没有价值报告时清楚呈现空状态，不悄悄回退到次要的商业质量报告。
+    assert payload["artifact"] is None and "正式发布指针" in payload["notice"]
 
 
 def test_report_reader_cached_document_still_rejects_materials_and_foreign_paths(tmp_path, monkeypatch):
