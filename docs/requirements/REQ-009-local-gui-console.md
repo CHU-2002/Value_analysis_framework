@@ -647,9 +647,12 @@ make gui                                    # 控制台 127.0.0.1:8765（只监�
 复现截图见 [GUI 体验走查](../run-records/2026-10-10-GUI-UX-review.md)。
 列表前置、版本元信息、目录与比较是新增能力，另提 REQ-015.3；旧 AC 不修改。
 
-
 ### M2 · REQ-015派生缓存与通用导航演进复核（2026-10-10）
 
 独立QA指出新timeline/financial/reader未接统一派生缓存，登记REQ-015 T1修复，不以缓存指纹更新代替AC-3.4。
 NavItem可选placement/actions与shell通用区域方案登记REQ-015 T2，owner决策待答；六类注册点、jail、离线浏览、
 核心指纹完整文件清单与门禁阈值均保留，独立复核完成前不宣称通过既有扩展性判据。
+
+### M3 · 报告列表混入内部文件（2026-10-11，待修复，P1）
+
+真实 GUI 查看伊利产物时显示 76 行（每页 50 行），普通产物表中混有 `d6_trigger.json`、`latest.json`、`record.json`、`run_manifest.json`、`qualitative_input.json`、`data_pack_market_current.md` 与章节解析文件等内部状态/输入；部分被归为“其他”。用户报告、源材料与仅供程序使用的内部文件应分层，普通报告列表不应展示后者；不删除磁盘原始产物。证据见[2026-10-11 GUI 走查](../run-records/2026-10-11-REQ-016-GUI-UX-review.md)。这属于既有报告浏览维护，不新开需求，也未修改旧 AC。

@@ -22,7 +22,8 @@
 | [REQ-012](REQ-012-console-v2.md) | 控制台 2.0（公司上下文 + 任务式交互 + 视图质量） | `verified` | P1 | #74 | #92, #95, #96, #97, #98, #99, #100, #101, #104, #106, #109 | `tests/test_console_context.py` `tests/test_console_actions.py` `tests/test_console_views.py` `tests/test_console_data_page.py` |
 | [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `in-progress` | P1 | #75 | #77, #114, #115, #116 | `tests/test_agent_action.py` |
 | [REQ-014](REQ-014-watchlist-maintenance-ui.md) | 控制台里的自选股清单维护（添加 / 从既有产物导入 / 移除） | `verified` | P1 | #102 | #112, #113 | `tests/test_watchlist_ui.py` |
-| [REQ-015](REQ-015-research-workspace-ux.md) | 公司研究工作区（研究导航 + K线与估值时间轴 + 可选生成 + 报告阅读 + 采集解释） | `verified` | P1 | [#118](https://github.com/CHU-2002/Value_analysis_framework/issues/118) | [#120](https://github.com/CHU-2002/Value_analysis_framework/pull/120) | 独立验收报告通过；已由 PR #120 squash 合入（提交 `c201a73`） |
+| [REQ-015](REQ-015-research-workspace-ux.md) | 公司研究工作区（研究导航 + K线与估值时间轴 + 可选生成 + 报告阅读 + 采集解释） | `in-progress` | P1 | [#118](https://github.com/CHU-2002/Value_analysis_framework/issues/118) | #120 | 原 AC-1…4 / AC-4.1 已完成；2026-10-11 owner 批准修改 AC-4.1，等待新范围实现与复验 |
+| [REQ-016](REQ-016-a-share-universe-acquisition.md) | A股全市场数据采集 | `accepted` | P1 | TBD | TBD | TBD |
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
 
@@ -56,7 +57,7 @@
 | [REQ-015.1](REQ-015-research-workspace-ux.md) | REQ-015 | 标准 K 线与估值联动时间轴 | `verified` | #120 | `tests/test_webui_views.py` |
 | [REQ-015.2](REQ-015-research-workspace-ux.md) | REQ-015 | 可选择 agent 与模型的报告生成 | `verified` | #120 | `tests/test_agent_action.py` |
 | [REQ-015.3](REQ-015-research-workspace-ux.md) | REQ-015 | 报告阅读与版本比较 | `verified` | #120 | `tests/test_console_views.py` |
-| [REQ-015.4](REQ-015-research-workspace-ux.md) | REQ-015 | 采集过程与结果解释 | `verified` | #120 | `tests/test_console_data_page.py` |
+| [REQ-015.4](REQ-015-research-workspace-ux.md) | REQ-015 | 采集过程与结果解释 | `in-progress` | #120 | `tests/test_console_data_page.py`（按新 AC 待同步） |
 | [REQ-015.5](REQ-015-research-workspace-ux.md) | REQ-015 | 公司研究导航与页面布局 | `verified` | #120 | `tests/test_console_context.py` |
 
 > **编号按登记顺序，交付按「交付顺序」**：`REQ-009` 的交付顺序为
@@ -84,8 +85,10 @@
 | 里程碑 | 目标 | 包含需求 | 状态 |
 |--------|------|----------|------|
 | 定期报告增量更新 v1 | 从「单次全量分析」升级为「按最新期次增量更新 + 可追溯迭代台账」 | REQ-003 → REQ-004 → REQ-005 | REQ-001…005 全部 `verified`，里程碑达成 |
+| A股全市场采集 v1 | 支持按已维护公司或全部 A 股规划、确认和追踪数据采集 | REQ-016 | `accepted`，等待实现 |
 
 对应 GitHub Milestone：`periodic-update-v1`。
+REQ-016 对应 GitHub Milestone：[A股全市场采集 v1](https://github.com/CHU-2002/Value_analysis_framework/milestone/2)（`a-share-acquisition-v1`）。
 
 ## 已交付基线（不单独立项）
 
@@ -155,3 +158,6 @@
 | `scripts/gui_research_walkthrough.py` 的证据工具覆盖率登记 | REQ-015独立QA真实浏览器前后对照 | 独立QA维护的浏览器证据驱动，CI无真实浏览器环境；全量cov仍计入该文件且阈值74%不变。仅记录实跑验证方式，不引入豁免规则 |
 
 - REQ-015 T7：远端推送被自动审批拒绝（本批代码目的地授权不足），owner于2026-10-10明确授权本批推送至CHU-2002/Value_analysis_framework、创建PR、独立验收与CI全绿后合并；T2通用导航演进同时获批。本地门禁1947 passed、76.94%、48文件/1950用例，不将本地通过当成CI通过。
+
+- 2026-10-11 本地 GUI 产品/QA 走查登记 REQ-016「A股全市场数据采集」。owner 随后明确批准受理并修改 REQ-015.4 AC-4.1；REQ-015 与 .4 回退 `in-progress`，REQ-016 转为 `accepted`。已创建 [Issue #122](https://github.com/CHU-2002/Value_analysis_framework/issues/122) 和 [GitHub Milestone #2](https://github.com/CHU-2002/Value_analysis_framework/milestone/2)。
+- 同次走查将内部文件混入产物表登记为 REQ-009 M3，将伊利 H1 变化报告未突出商誉减值等重大候选归因登记为 REQ-004 M1；证据见 `docs/run-records/2026-10-11-REQ-016-GUI-UX-review.md`。

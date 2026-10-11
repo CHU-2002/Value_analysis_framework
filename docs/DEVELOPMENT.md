@@ -144,6 +144,19 @@ make gui                                        # 另一个终端
 - 使用 `Refs #18` 而不是 `Closes #18`，避免合并即关闭 Issue 而跳过验收；
 - 增删测试文件后重新生成 `docs/TEST_SCOPE.md`（`make scope-write`）。
 
+### GitHub 远端发布（本地 Git + gh）
+
+本仓库的历史成功交付（REQ-013、REQ-014、REQ-015）均由本机 Git 和 GitHub CLI 完成：先推送分支，再用 `gh` 创建/更新 PR、查看检查状态；不依赖浏览器上传代码。可复用步骤：
+
+```bash
+gh auth status
+git push -u origin <branch>
+gh pr create --base main --head <branch> --title "<title>" --body-file <body-file>
+gh pr checks <number>
+```
+
+本机 GitHub 凭据由 Git 配置的 `gh auth git-credential` / macOS `osxkeychain` 提供。只检查认证状态并调用 Git/gh，不读取、复制或写入 token；如果远端连接超时，保留本地提交并在连接恢复后重试同一 Git 命令，不改走浏览器提交，也不把凭据写进仓库、日志或 PR 正文。
+
 ## 9. 本地校验
 
 ```bash
