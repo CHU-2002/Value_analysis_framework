@@ -6,7 +6,7 @@ priority: P1
 owner: CHU-2002
 created: 2026-10-11
 updated: 2026-10-11
-issue: TBD
+issue: "#122"
 design: docs/DATA_LAYER_PLAN.md
 milestone: a-share-acquisition-v1
 pr: TBD

@@ -88,7 +88,7 @@
 | A股全市场采集 v1 | 支持按已维护公司或全部 A 股规划、确认和追踪数据采集 | REQ-016 | `accepted`，等待实现 |
 
 对应 GitHub Milestone：`periodic-update-v1`。
-REQ-016 对应 GitHub Milestone：`a-share-acquisition-v1`。
+REQ-016 对应 GitHub Milestone：[A股全市场采集 v1](https://github.com/CHU-2002/Value_analysis_framework/milestone/2)（`a-share-acquisition-v1`）。
 
 ## 已交付基线（不单独立项）
 
@@ -159,5 +159,5 @@ REQ-016 对应 GitHub Milestone：`a-share-acquisition-v1`。
 
 - REQ-015 T7：远端推送被自动审批拒绝（本批代码目的地授权不足），owner于2026-10-10明确授权本批推送至CHU-2002/Value_analysis_framework、创建PR、独立验收与CI全绿后合并；T2通用导航演进同时获批。本地门禁1947 passed、76.94%、48文件/1950用例，不将本地通过当成CI通过。
 
-- 2026-10-11 本地 GUI 产品/QA 走查登记 REQ-016「A股全市场数据采集」。owner 随后明确批准受理并修改 REQ-015.4 AC-4.1；REQ-015 与 .4 回退 `in-progress`，REQ-016 转为 `accepted`。Issue 编号待远端创建。
+- 2026-10-11 本地 GUI 产品/QA 走查登记 REQ-016「A股全市场数据采集」。owner 随后明确批准受理并修改 REQ-015.4 AC-4.1；REQ-015 与 .4 回退 `in-progress`，REQ-016 转为 `accepted`。已创建 [Issue #122](https://github.com/CHU-2002/Value_analysis_framework/issues/122) 和 [GitHub Milestone #2](https://github.com/CHU-2002/Value_analysis_framework/milestone/2)。
 - 同次走查将内部文件混入产物表登记为 REQ-009 M3，将伊利 H1 变化报告未突出商誉减值等重大候选归因登记为 REQ-004 M1；证据见 `docs/run-records/2026-10-11-REQ-016-GUI-UX-review.md`。
