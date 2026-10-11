@@ -167,5 +167,5 @@ REQ-016 对应 GitHub Milestone：[A股全市场采集 v1](https://github.com/CH
 - REQ-015 T7：远端推送被自动审批拒绝（本批代码目的地授权不足），owner于2026-10-10明确授权本批推送至CHU-2002/Value_analysis_framework、创建PR、独立验收与CI全绿后合并；T2通用导航演进同时获批。本地门禁1947 passed、76.94%、48文件/1950用例，不将本地通过当成CI通过。
 
 - 2026-10-11 本地 GUI 产品/QA 走查登记 REQ-016「A股全市场数据采集」。owner 随后明确批准受理并修改 REQ-015.4 AC-4.1；REQ-015 与 .4 回退 `in-progress`，REQ-016 转为 `accepted`。已创建 [Issue #122](https://github.com/CHU-2002/Value_analysis_framework/issues/122) 和 [GitHub Milestone #2](https://github.com/CHU-2002/Value_analysis_framework/milestone/2)。
-- 2026-10-11 owner 要求记录 HTTP/1.1 排障发现并强化财报解释能力。普通 HTTPS Git 操作超时后，单次 `git -c http.version=HTTP/1.1 ...` 曾成功、后续也曾超时；详情与边界见 `docs/DEVELOPMENT.md` §8「GitHub HTTPS 连接超时」。财报重大事项发现涉及独立的跨公告/监管来源识别与定性能力，故登记 REQ-017（Issue #125），并同步扩充 REQ-016.2 的读者表达验收标准。
+- 2026-10-11~12 owner 要求记录 GitHub Git 连接故障排查并强化财报解释能力。Git HTTPS 超时但 `gh` API 可用；为本机登记专用 SSH 公钥后，SSH over 443 的账号认证、`git ls-remote` 和 `git fetch origin main` 均成功。详情与安全边界见 `docs/DEVELOPMENT.md` §8「GitHub Git 连接故障排查」。财报重大事项发现涉及独立的跨公告/监管来源识别与定性能力，故登记 REQ-017（Issue #125），并同步扩充 REQ-016.2 的读者表达验收标准。
 - 同次走查将内部文件混入产物表登记为 REQ-009 M3，将伊利 H1 变化报告未突出商誉减值等重大候选归因登记为 REQ-004 M1；证据见 `docs/run-records/2026-10-11-REQ-016-GUI-UX-review.md`。
