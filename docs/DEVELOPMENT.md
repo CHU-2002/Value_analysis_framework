@@ -144,6 +144,26 @@ make gui                                        # 另一个终端
 - 使用 `Refs #18` 而不是 `Closes #18`，避免合并即关闭 Issue 而跳过验收；
 - 增删测试文件后重新生成 `docs/TEST_SCOPE.md`（`make scope-write`）。
 
+### GitHub Git 连接故障排查
+
+GitHub CLI 的 API 可用不代表 Git HTTPS 的上传/下载端点可用。若 `gh` 正常但 `git fetch` / `git push` 在 HTTPS 上连接超时，优先测试 GitHub 官方 SSH over 443（`ssh.github.com:443`）：
+
+1. 为 GitHub 创建专用 Ed25519 密钥，将 `.pub` 公钥登记到 GitHub 账户的 **Settings → SSH and GPG keys**；私钥只留在本机 `~/.ssh`，不进仓库或日志。
+2. 核对首次连接显示的 SSH 主机指纹与 GitHub 官方发布的指纹一致后再接受；不要关闭主机密钥校验。
+3. 对当前仓库配置 SSH over 443 和该密钥，例如：
+
+   ```bash
+   git remote set-url origin ssh://git@ssh.github.com:443/OWNER/REPOSITORY.git
+   git config core.sshCommand 'ssh -i ~/.ssh/id_ed25519_github -o IdentitiesOnly=yes'
+   ```
+
+   这两项是仓库本地配置；替换仓库路径和密钥文件名。若使用不同密钥，先验证公钥已登记到有该仓库权限的 GitHub 账户。
+4. 先运行 `ssh -T -p 443 -i ~/.ssh/id_ed25519_github -o IdentitiesOnly=yes git@ssh.github.com`，再用 `git ls-remote origin`、`git fetch` 验证 Git 通路，最后执行推送。SSH 测试以 GitHub 返回的认证成功问候语判断；GitHub 不提供交互式 shell，因此 SSH 测试的非零退出码不一定表示认证失败。
+
+2026-10-12 本机验证：GitHub API 正常但 Git HTTPS 端点连接超时；`ssh.github.com:443` 可达，ED25519 指纹与 GitHub 官方 API 元数据一致，`CHU-2002` SSH 认证、`git ls-remote` 与 `git fetch origin main` 成功。该仓库的 `origin` 和 `core.sshCommand` 已设置为 SSH over 443；推送验证以命令实际结果为准。
+
+若 SSH over 443 也不可用，可对单次 HTTPS 命令尝试 HTTP/1.1：`git -c http.version=HTTP/1.1 fetch origin main` 或对应的 push 命令。此方式此前曾成功、也曾超时，不保证可用；不要改写全局 Git 设置。连接失败时保留本地提交，网络恢复后重试相同传输命令，不改走浏览器提交，也不把凭据写进仓库、日志或 PR 正文。
+
 ### GitHub 远端发布（本地 Git + gh）
 
 本仓库的历史成功交付（REQ-013、REQ-014、REQ-015）均由本机 Git 和 GitHub CLI 完成：先推送分支，再用 `gh` 创建/更新 PR、查看检查状态；不依赖浏览器上传代码。可复用步骤：
