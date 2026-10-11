@@ -1,0 +1,13 @@
+.research-chart { min-width:0; max-width:100%; }
+.research-chart .research-controls { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:12px 0; }
+.research-chart label { display:inline-flex; gap:8px; align-items:center; }
+.research-chart select,.research-chart input,.research-chart button { min-height:32px; max-width:100%; }
+.research-chart :focus-visible { outline:3px solid #2f6fed; outline-offset:2px; }
+.research-chart .research-info { display:block; line-height:1.65; margin:12px 0; overflow-wrap:anywhere; }
+.research-chart canvas { display:block; width:100%; max-width:100%; touch-action:none; }
+.research-chart .research-readout { padding:12px; margin:12px 0; border:1px solid #bbb; line-height:1.8; white-space:pre-wrap; overflow-wrap:anywhere; }
+.research-chart .research-table { max-width:100%; overflow:auto; max-height:420px; }
+.research-chart table { border-collapse:collapse; font-size:12px; white-space:nowrap; }
+.research-chart th,.research-chart td { padding:8px; border-bottom:1px solid #ddd; text-align:right; }
+.research-chart th { position:sticky; top:0; background:#fff; }
+.research-chart summary { cursor:pointer; padding:12px 0; }

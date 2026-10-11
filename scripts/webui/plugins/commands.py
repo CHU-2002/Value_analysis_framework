@@ -509,7 +509,7 @@ def contribute(registry):
     ))
     # `REQ-012.1` 的 IA：侧栏按「用户的事」分组（工作台 / 数据 / 公司 / 任务），
     # 「按键」页改名「任务」并**退到技术视图**（动作入口在对象上，任务页只管队列与历史）。
-    registry.nav(NavItem(id="commands", title="任务", group="任务", order=50,
+    registry.nav(NavItem(id="commands", title="任务", placement="primary", group="任务", order=50,
                          panels=("commands.actions", "commands.jobs", "commands.catalog"),
                          description="队列与历史任务；「可以做的事」按当前公司列出可执行的动作。"))
     registry.route("GET", "/api/v1/commands", _list_commands, name="command catalog")

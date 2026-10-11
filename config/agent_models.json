@@ -1,0 +1,58 @@
+{
+  "version": "2026-10-10",
+  "agents": [
+    {
+      "id": "codex",
+      "title": "Codex",
+      "executable": "codex",
+      "source": "本地维护目录 config/agent_models.json；目录不代表账号授权",
+      "models": [
+        {
+          "id": "gpt-5.5",
+          "compatibility": "unverified"
+        },
+        {
+          "id": "gpt-6.1-sol",
+          "compatibility": "unavailable",
+          "evidence": "本仓2026-10-09真实ChatGPT登录调用被拒；账号变化后需复核并更新目录"
+        },
+        {
+          "id": "gpt-6-astra",
+          "compatibility": "unverified"
+        },
+        {
+          "id": "gpt-6-sol",
+          "compatibility": "unverified"
+        },
+        {
+          "id": "gpt-6-luna",
+          "compatibility": "unverified"
+        },
+        {
+          "id": "gpt-5.6-sol",
+          "compatibility": "unverified"
+        }
+      ]
+    },
+    {
+      "id": "claude",
+      "title": "Claude Code",
+      "executable": "claude",
+      "source": "本地维护目录 config/agent_models.json；别名由 CLI 解析，目录不代表账号授权",
+      "models": [
+        {
+          "id": "sonnet",
+          "compatibility": "unverified"
+        },
+        {
+          "id": "opus",
+          "compatibility": "unverified"
+        },
+        {
+          "id": "haiku",
+          "compatibility": "unverified"
+        }
+      ]
+    }
+  ]
+}

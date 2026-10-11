@@ -135,6 +135,14 @@ export function drawSeries(ctx, options) {
       started = true;
     });
     ctx.stroke();
+    // A lone observation (including one between gaps) has no line segment.
+    // Draw its value so valid data cannot look like an empty chart/export.
+    values.forEach((value, index) => {
+      if (!isNumber(value) || isNumber(values[index - 1]) || isNumber(values[index + 1])) return;
+      ctx.beginPath();
+      ctx.arc(x(index), y(value), 3, 0, Math.PI * 2);
+      ctx.fill();
+    });
     // 缺失值标一个空心点：让「断开」看起来是**有意的**，而不是数据没加载。
     values.forEach((value, index) => {
       if (value === null || value === undefined) return;
@@ -303,3 +311,33 @@ export function renderChart(container, { labels, series, type, unit, basisLabel,
 }
 
 export { renderChart as default };
+
+// Export composition is renderer work: kind dispatchers only supply canvases and metadata.
+export function composeChartImage(canvases, headings = []) {
+  const output = document.createElement("canvas");
+  output.width = Math.max(320, ...canvases.map(canvas => canvas.width));
+  const measure = output.getContext("2d");
+  measure.font = "16px sans-serif";
+  const lines = [];
+  headings.forEach(text => {
+    let line = "";
+    for (const character of text) {
+      if (line && measure.measureText(line + character).width > output.width - 24) {
+        lines.push(line);
+        line = character;
+      } else line += character;
+    }
+    lines.push(line);
+  });
+  const headerHeight = 30 + 30 * lines.length;
+  output.height = headerHeight + canvases.reduce((sum, canvas) => sum + canvas.height, 0);
+  const context = output.getContext("2d");
+  context.fillStyle = "white";
+  context.fillRect(0, 0, output.width, output.height);
+  context.fillStyle = "#333";
+  context.font = "16px sans-serif";
+  lines.forEach((text, index) => context.fillText(text, 12, 22 + 30 * index));
+  let top = headerHeight;
+  canvases.forEach(canvas => { context.drawImage(canvas, 0, top); top += canvas.height; });
+  return output;
+}

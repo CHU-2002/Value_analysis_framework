@@ -129,7 +129,13 @@ def universe_rows(ctx) -> list:
         pack = Path(ctx.config.output_root) / directory / "data_pack_market.md"
         analysis = _mtime(Path(ctx.config.output_root) / directory / "latest.json")
         todos = []
-        if not facts and not pack.is_file():
+        has_raw = bool(facts.get("records"))
+        period = (entry or {}).get("primary_period") or "未知"
+        if period == "未知":
+            todos.append("数据期次未知")
+        if not analysis:
+            todos.append("尚无可核验的分析记录")
+        if not has_raw and not pack.is_file():
             todos.append("还没拉数据")
         if facts.get("gaps"):
             todos.append(f"{facts['gaps']} 个数据缺口")
@@ -139,14 +145,14 @@ def universe_rows(ctx) -> list:
         if job:
             todos.append("上次任务失败")
         state = "warn" if todos else "ok"
-        if not (facts or pack.is_file()):
+        if not (has_raw or pack.is_file()):
             state = "error"
         return {
             "company": display,
             "href": f"#charts?company={ticker or directory}",
-            "data_period": (entry or {}).get("primary_period", ""),
+            "data_period": period,
             "data_pulled": str(facts.get("fetched_at") or "")[:16].replace("T", " "),
-            "analysis_at": analysis,
+            "analysis_at": analysis or "未知",
             "state": {"ok": "正常", "warn": "待更新", "error": "缺数据"}[state],
             "todo": "、".join(todos) or "—",
             "_state": state,
@@ -241,7 +247,7 @@ def contribute(registry):
     ))
     # 默认落地页（AC-1.3）：核心只认 `default=True` 这个数据，不认 `home` 这个 id。
     registry.nav(NavItem(
-        id="home", title="工作台", group="工作台", order=1, panels=(
+        id="home", title="工作台", placement="primary", group="工作台", order=1, panels=(
             "home.todo", "home.universe", "home.actions",
         ),
         default=True,

@@ -193,6 +193,23 @@ def _company_blockers(ctx, selection: dict) -> dict:
     return {"blockers": blockers}
 
 
+def _buy_sell_plan_blockers(ctx, selection: dict) -> dict:
+    """触发式买卖计划必须有冻结价值基准与数据源凭据。"""
+    blockers = []
+    company = selection.get("company") or ""
+    if not company:
+        return {"blockers": blockers}
+    try:
+        resolved = resolve_company(ctx, company)
+    except WebUIError:
+        return {"blockers": ["当前公司无法解析：请重新选择一家公司。"]}
+    if not _has_token():
+        blockers.append("没有配置数据源凭据：把 TUSHARE_TOKEN 放进项目 .env 或环境变量后重试。")
+    if not (resolved["base"] / "value_computed.json").is_file():
+        blockers.append("这家公司还没有冻结的价值分析基准：先生成价值分析报告。")
+    return {"blockers": blockers}
+
+
 def _rebuild_blockers(ctx, selection: dict) -> dict:
     """「从仓重建」的前置：原始仓里有这家公司的记录。离线、不花钱。"""
     blockers = []
@@ -302,6 +319,18 @@ def _steps_update_analysis() -> tuple:
     )
 
 
+def _steps_buy_sell_plan() -> tuple:
+    return (
+        CommandStep(
+            "buy_sell_plan",
+            title="采集最新行情并生成买卖计划",
+            bind={"code": "{ticker}", "output_dir": "{company_dir}"},
+            writes=("{company_dir}/buy_sell_plan.json", "{company_dir}/buy_sell_plan.md",
+                    "{company_dir}/buy_sell_market.json", "{company_dir}/buy_sell_basis.json"),
+        ),
+    )
+
+
 def contribute(registry):
     registry.job_type(JobTypeSpec(
         id="data.pull_all",
@@ -362,6 +391,24 @@ def contribute(registry):
         effects={"network": False, "quota": False,
                  "writes": ("分析 run", "迭代台账", "变化报告")},
         preflight=_company_blockers,
+    ))
+    registry.job_type(JobTypeSpec(
+        id="company.buy_sell_plan",
+        title="生成买卖计划",
+        description="采集当时行情，按这家公司的冻结价值基准生成买卖计划；不提交交易订单。",
+        group="公司",
+        order=10,
+        requires=("selection.company",),
+        steps=_steps_buy_sell_plan(),
+        effects={"network": True, "quota": True,
+                 "writes": ("买卖计划", "计划行情与基准")},
+        danger=True,
+        confirm={
+            "title": "确认采集行情并生成买卖计划？",
+            "body": "这一步会访问行情数据源并消耗调用配额，读取冻结价值基准，写入本次行情与计划；不会重算价值基准，也不会提交交易订单。",
+            "confirm_label": "开始生成计划",
+        },
+        preflight=_buy_sell_plan_blockers,
     ))
 
 

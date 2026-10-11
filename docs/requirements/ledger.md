@@ -22,7 +22,7 @@
 | [REQ-012](REQ-012-console-v2.md) | 控制台 2.0（公司上下文 + 任务式交互 + 视图质量） | `verified` | P1 | #74 | #92, #95, #96, #97, #98, #99, #100, #101, #104, #106, #109 | `tests/test_console_context.py` `tests/test_console_actions.py` `tests/test_console_views.py` `tests/test_console_data_page.py` |
 | [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `in-progress` | P1 | #75 | #77, #114, #115, #116 | `tests/test_agent_action.py` |
 | [REQ-014](REQ-014-watchlist-maintenance-ui.md) | 控制台里的自选股清单维护（添加 / 从既有产物导入 / 移除） | `verified` | P1 | #102 | #112, #113 | `tests/test_watchlist_ui.py` |
-| [REQ-015](REQ-015-research-workspace-ux.md) | 公司研究工作区（研究导航 + K线与估值时间轴 + 可选生成 + 报告阅读 + 采集解释） | `proposed` | P1 | [#118](https://github.com/CHU-2002/Value_analysis_framework/issues/118) | TBD（提案登记 [#117](https://github.com/CHU-2002/Value_analysis_framework/pull/117)） | 尚未实现；五片均为 proposed |
+| [REQ-015](REQ-015-research-workspace-ux.md) | 公司研究工作区（研究导航 + K线与估值时间轴 + 可选生成 + 报告阅读 + 采集解释） | `verified` | P1 | [#118](https://github.com/CHU-2002/Value_analysis_framework/issues/118) | [#120](https://github.com/CHU-2002/Value_analysis_framework/pull/120) | 独立验收报告通过；待 CI 全绿后合入 |
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
 
@@ -53,11 +53,11 @@
 | [REQ-013.1](REQ-013-agent-cli-report.md) | REQ-013 | 包装脚本与动作白名单 | `verified` | #77, #114, #115, #116 | `tests/test_agent_action.py` |
 | [REQ-013.2](REQ-013-agent-cli-report.md) | REQ-013 | 最小界面（一键页） | `verified` | #77, #114, #115, #116 | `tests/test_agent_action.py` |
 | [REQ-013.3](REQ-013-agent-cli-report.md) | REQ-013 | 提交前预检、完整命令行与产出链接 | `in-progress` | #114, #115, #116 | `tests/test_agent_action.py` |
-| [REQ-015.1](REQ-015-research-workspace-ux.md) | REQ-015 | 标准 K 线与估值联动时间轴 | `proposed` | TBD | TBD（尚未实现） |
-| [REQ-015.2](REQ-015-research-workspace-ux.md) | REQ-015 | 可选择 agent 与模型的报告生成 | `proposed` | TBD | TBD（尚未实现） |
-| [REQ-015.3](REQ-015-research-workspace-ux.md) | REQ-015 | 报告阅读与版本比较 | `proposed` | TBD | TBD（尚未实现） |
-| [REQ-015.4](REQ-015-research-workspace-ux.md) | REQ-015 | 采集过程与结果解释 | `proposed` | TBD | TBD（尚未实现） |
-| [REQ-015.5](REQ-015-research-workspace-ux.md) | REQ-015 | 公司研究导航与页面布局 | `proposed` | TBD | TBD（尚未实现） |
+| [REQ-015.1](REQ-015-research-workspace-ux.md) | REQ-015 | 标准 K 线与估值联动时间轴 | `verified` | #120 | `tests/test_webui_views.py` |
+| [REQ-015.2](REQ-015-research-workspace-ux.md) | REQ-015 | 可选择 agent 与模型的报告生成 | `verified` | #120 | `tests/test_agent_action.py` |
+| [REQ-015.3](REQ-015-research-workspace-ux.md) | REQ-015 | 报告阅读与版本比较 | `verified` | #120 | `tests/test_console_views.py` |
+| [REQ-015.4](REQ-015-research-workspace-ux.md) | REQ-015 | 采集过程与结果解释 | `verified` | #120 | `tests/test_console_data_page.py` |
+| [REQ-015.5](REQ-015-research-workspace-ux.md) | REQ-015 | 公司研究导航与页面布局 | `verified` | #120 | `tests/test_console_context.py` |
 
 > **编号按登记顺序，交付按「交付顺序」**：`REQ-009` 的交付顺序为
 > **`REQ-009.3`（框架，先）→ `REQ-009.4`（采集与长期存档）→ `REQ-009.1`（按键执行器）→ `REQ-009.2`（视图）**，
@@ -139,3 +139,19 @@
 
 - 2026-10-10 补建 REQ-015 独立需求 [Issue #118](https://github.com/CHU-2002/Value_analysis_framework/issues/118) 并回填；.1～.5 统一随 #118 跟踪，
   父需求与子需求状态均保持 proposed。
+
+- 2026-10-10 owner 指示「端到端交付req15」：受理 REQ-015 及 .1～.5 原判据，accepted → in-progress；无 AC 变更，见需求实施记录。
+
+- REQ-015实施发现登记T1统一派生缓存、T2导航边界owner决策、T3绘制与损坏数据包回归、T4确认后零请求观察、T5默认未来期；见需求任务表与原需求维护记录。均在收口前复核，不留在对话里。
+- 2026-10-11 owner 试用反馈要求买卖计划快捷入口、价值分析默认第一，以及 PE/PB/PS 源口径和滚动五年 P25/P75 估值线；按明确选择扩展 REQ-015 AC-1、AC-2、AC-4、AC-1.3～1.5、AC-3.1，并在同次更新需求和台账。PB 保持真实 PB 语义，不伪称 TTM。
+- 2026-10-11 owner 明确接受 PB 采用数据源 PB（最近披露净资产）口径；PE/PS 使用源 TTM 字段，三项指标按同一滚动近五年有效日样本计算 P25/P75。
+- REQ-015 实跑工具在同一浏览器会话跨 1440×900→1024×768 时偶发 CDP 滚轮超时，独立 1024 进程正常；登记 T21 并将视口走查改为分进程隔离，AC 判据保持不变。
+- 真实截图发现窄视口估值图例重叠，登记 T22；图例改为自适应短标签并给绘图区留出行高，日期标签增加间距。
+- REQ-015 T23：独立隔离的两次 Codex/gpt-6-luna 真实运行均退出0但没有本次价值分析报告；UI 按预期失败关闭，未见额度/认证错误或实现异常。两份失败证据保留于 `.live_req015_acceptance/`，按约停止重试；AC-7 未通过，REQ-015 不得推进 verified 或合并。
+- REQ-015 T24：复查 T23 的结构化任务日志确认，CLI 在 `framework_changed` 新鲜度门禁正确停止；缺陷是生成页预检没有提前执行此必需前置检查，导致无效确认与 CLI 提交。现将新鲜度检查放进只读预检及提交校验，并明确先更新分析；仅 `downstream_stale` 不阻断，AC 不变。
+- REQ-015 T25：更新分析实跑确认 Codex `workspace-write` 命令沙箱默认网络关闭，导致 CNINFO DNS 失败；已登记为产品集成缺陷。拟在继续保持该文件系统沙箱与公司目录边界的基础上显式开启网络，UI 仍显示并确认联网和额度影响。
+- REQ-015 T26：首次切换至中国移动实跑发现 WebUI 的隔离存档变量 `WEBUI_ARCHIVE_ROOT` 没被 agent 固定提示识别，模型误判缺少安全存档并停下；提示现明确接受该变量并禁止回退 HOME 默认路径，增加 argv 回归断言。
+
+| `scripts/gui_research_walkthrough.py` 的证据工具覆盖率登记 | REQ-015独立QA真实浏览器前后对照 | 独立QA维护的浏览器证据驱动，CI无真实浏览器环境；全量cov仍计入该文件且阈值74%不变。仅记录实跑验证方式，不引入豁免规则 |
+
+- REQ-015 T7：远端推送被自动审批拒绝（本批代码目的地授权不足），owner于2026-10-10明确授权本批推送至CHU-2002/Value_analysis_framework、创建PR、独立验收与CI全绿后合并；T2通用导航演进同时获批。本地门禁1947 passed、76.94%、48文件/1950用例，不将本地通过当成CI通过。

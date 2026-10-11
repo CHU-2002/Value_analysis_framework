@@ -28,7 +28,7 @@ import pytest
 from webui.config import Config
 from webui.core.context import RequestContext
 from webui.core.errors import BadRequest, InvalidParam, TooManyJobs, UnknownCommand
-from webui.core.jobs import AWAITING, FAILED, FINISHED, JobRunner
+from webui.core.jobs import AWAITING, FAILED, FINISHED, Job, JobRunner
 from webui.core.models import (
     CommandSpec,
     CommandStep,
@@ -581,6 +581,21 @@ def test_failed_job_keeps_both_a_readable_reason_and_the_raw_log(tmp_path):
         line for step in final["steps"] for line in step["log"]
     )
     assert "boom" in raw, "原始日志一个字都不能删"
+
+    # REQ-015 T11: mentioning token configuration earlier must not obscure
+    # the terminal model-service failure or modify the original evidence.
+    quota_log = ["TUSHARE_TOKEN is loaded from environment", "You've hit your usage limit. Try again at 9:16PM"]
+    failed = Job("quota", "demo", "额度", [], {}, status=FAILED, exit_code=1)
+    failed.log.extend(quota_log)
+    reason = registry.jobs._summarise(failed)
+    assert "额度已用尽" in reason["what"] and "手动" in reason["how"]
+    assert list(failed.log) == quota_log
+    failed.log.clear()
+    failed.log.append("TUSHARE_TOKEN is loaded from environment")
+    assert "数据源凭据" not in registry.jobs._summarise(failed)["what"]
+    failed.log.clear()
+    failed.log.append("NO_TOKEN: 未配置 Tushare token")
+    assert "数据源凭据" in registry.jobs._summarise(failed)["what"]
 
 
 def test_retry_reexecutes_the_action_with_the_same_context(tmp_path):

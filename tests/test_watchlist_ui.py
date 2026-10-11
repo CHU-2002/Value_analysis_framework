@@ -1,3 +1,4 @@
+# 覆盖需求：REQ-015.1 —— 新加入无产物公司显示明确无OHLC状态，离线浏览不取凭据/网络
 # 覆盖需求：REQ-014 —— AC-1 离线添加与别名、AC-2 幂等导入与逐项原因、AC-3 保留产物、
 # AC-4 文案、AC-5 空清单入口、AC-6 实跑共用的入口（真实产物实跑另留报告）。
 """真实临时仓 + 动作 HTTP handler + 真实子进程，锁住清单与页面的可观察行为。"""
@@ -68,7 +69,12 @@ def test_add_aliases_refresh_all_company_views_offline(tmp_path, identifier, mon
     assert panel_data(registry, "companies.list")["rows"][0]["ticker"] == "600887.SH"
     assert call_route(registry, "GET", "/api/v1/companies")["data"]["count"] == 1
     page = call_route(registry, "GET", "/api/v1/pages/charts", company="600887.SH")["data"]
-    assert page["empty_state"]
+    # REQ-015: an enabled company now opens its research chart with truthful
+    # no-data feedback rather than a page saying the selected company is unknown.
+    assert not page.get("empty_state")
+    timeline = panel_data(registry, "charts.timeline", company="600887.SH")
+    assert timeline["points"] == [] and timeline["coverage"]["incomplete"]
+    assert "尚未采集" in timeline["empty_hint"] and "company=600887.SH" in timeline["update_href"]
     _, repeated = run(registry, "add", {"ticker": "600887", "name": "替代简称"})
     assert not repeated["created"]
     assert Universe(DataStore(config.archive_root)).entries()[0]["display_name"] == "伊利股份"

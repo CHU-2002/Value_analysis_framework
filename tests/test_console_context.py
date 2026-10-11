@@ -1,3 +1,4 @@
+# 覆盖需求：REQ-015、REQ-015.5（AC-1、AC-6、AC-8、AC-5.1~5.4：导航区域、上下文与既有入口；浏览器实跑另验证URL/键盘）
 # 覆盖需求：REQ-012（父需求 AC-1 公司是上下文、AC-2 工作台首页、AC-9 统一公司标识、
 # AC-11 扩展性不回退）、REQ-012.1（公司上下文与信息架构）—— AC-1.1 全局公司选择器与冷开
 # 公司级页面不降级、AC-1.2 导航按任务分组（父子层级 + requires 声明，全部走注册表扩展点）、
@@ -311,6 +312,15 @@ def test_workbench_shows_a_display_name_even_without_a_record_file(tmp_path):
     assert "_" not in row["company"].split(" ")[0]
     listing = panel_data(registry, "companies.list")["rows"][0]["name"]
     assert listing == row["company"], "工作台与公司列表必须是同一个显示名"
+    company = call_route(registry, "GET", "/api/v1/companies")["data"]["companies"][0]
+    assert company["ticker"] == "000858.SZ"
+    assert panel_data(registry, "companies.list")["rows"][0]["href"] == "#charts?company=000858.SZ"
+    context = RequestContext(method="GET", path="/", query={"company": "000858_五粮液"},
+                            config=registry.config, registry=registry)
+    resolved = companies_plugin.resolve_company(context, "000858_五粮液")
+    assert resolved["ticker"] == "000858.SZ"
+    from webui.plugins.research_timeline import _canonical_company
+    assert _canonical_company(context, "000858_五粮液") == "000858.SZ"
 
 
 # --------------------------------------------------------------- AC-1 端点接受 ticker
@@ -558,3 +568,66 @@ def test_sub_navigation_is_not_rendered_twice(tmp_path):
     root_ids = {item.id for item in registry.nav_items()}
     child_ids = {child.id for item in registry.nav_items() for child in item.children}
     assert root_ids & child_ids == set()
+
+
+
+def test_research_navigation_uses_existing_declarations_and_keeps_all_pages(tmp_path):
+    from webui.plugins import research
+    config, registry = make_app(tmp_path)
+    from webui.plugins import agent_report
+    agent_report.contribute(registry)
+    research.contribute(registry)
+    items = call_route(registry, "GET", "/api/v1/nav")["data"]["items"]
+    primary = [i["id"] for i in items if i["placement"] == "primary"]
+    context = [i["id"] for i in items if i["placement"] == "context"]
+    assert primary == ["home", "companies", "commands"]
+    assert context == ["research", "charts", "report", "data"]
+    for page in ("collect", "runs", "commands", "agent"):
+        assert registry.page(page).panels
+    assert registry.page("report").actions[0]["page"] == "agent"
+    plan_link = next(action for action in registry.page("report").actions
+                     if action["title"] == "生成买卖计划")
+    assert plan_link == {"title": "生成买卖计划", "page": "commands",
+                         "query": {"focus_action": "company.buy_sell_plan"}}
+    assert registry.page("research").actions[-1] == plan_link
+    plan = registry.job_type_spec("company.buy_sell_plan")
+    assert plan.danger and plan.effects["network"] and plan.effects["quota"]
+    assert plan.steps[0].command == "buy_sell_plan"
+    assert plan.steps[0].bind == {"code": "{ticker}", "output_dir": "{company_dir}"}
+    assert "不会提交交易订单" in plan.confirm["body"]
+    shell = (Path(__file__).resolve().parents[1] / "scripts/webui/static/app.js").read_text(encoding="utf-8")
+    action_panel = (Path(__file__).resolve().parents[1] / "scripts/webui/static/kinds/actions.js").read_text(encoding="utf-8")
+    assert "...(action.query || {})" in shell, "公司页快捷入口应保留聚焦意图与当前公司"
+    assert 'selection.focus_action' in action_panel and 'action-card-focused' in action_panel
+    assert registry.page("data").actions[0]["page"] == "collect"
+    external = NavItem(id="external.context",title="独立插件页",placement="context",actions=({"title":"下一步","page":"external.next"},))
+    registry.nav(external)
+    assert call_route(registry,"GET","/api/v1/nav")["data"]["items"][-1]["placement"] == "context"
+
+
+def test_buy_sell_plan_preflight_requires_a_token_and_frozen_value_basis(tmp_path, monkeypatch):
+    from webui.plugins import actions as actions_plugin
+    config, registry = make_app(tmp_path)
+    make_company(tmp_path)
+    monkeypatch.setattr(actions_plugin, "_has_token", lambda: False)
+    result = call_route(registry, "GET", "/api/v1/actions", company="600887.SH")["data"]
+    action = next(item for item in result["actions"] if item["id"] == "company.buy_sell_plan")
+    assert action["enabled"] is False
+    assert any("数据源凭据" in blocker for blocker in action["blockers"])
+    assert any("冻结的价值分析基准" in blocker for blocker in action["blockers"])
+
+
+def test_company_overview_has_scoped_links_and_normal_empty_selection(tmp_path):
+    from webui.plugins import research
+    config,registry=make_app(tmp_path)
+    research.contribute(registry)
+    # Existing company fixture is local; overview must remain read-only.
+    make_company(tmp_path)
+    empty=call_route(registry,"GET","/api/v1/pages/research")
+    assert empty["warnings"]==[] and empty["data"]["empty_state"]
+    payload=call_route(registry,"GET","/api/v1/pages/research",company="600887.SH")
+    assert payload["warnings"]==[] and len(payload["data"]["panels"])==1
+    overview=research.overview(RequestContext(method="GET",path="/",query={"company":"600887.SH"},config=config,registry=registry),company="600887.SH")
+    assert all("company=600887.SH" in row["href"] for row in overview["rows"])
+    missing=call_route(registry,"GET","/api/v1/pages/research",company="999999.SH")
+    assert missing["warnings"]==[] and missing["data"]["empty_state"]
