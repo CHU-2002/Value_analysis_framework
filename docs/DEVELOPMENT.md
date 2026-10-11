@@ -144,6 +144,17 @@ make gui                                        # 另一个终端
 - 使用 `Refs #18` 而不是 `Closes #18`，避免合并即关闭 Issue 而跳过验收；
 - 增删测试文件后重新生成 `docs/TEST_SCOPE.md`（`make scope-write`）。
 
+### GitHub HTTPS 连接超时
+
+先按原命令重试；若普通 Git HTTPS 命令持续超时，而 GitHub 网页/API 可用，可对**单次命令**尝试 HTTP/1.1，例如：
+
+```bash
+git -c http.version=HTTP/1.1 fetch origin main
+git -c http.version=HTTP/1.1 push -u origin <branch>
+```
+
+`-c` 只影响该次 Git 调用，不要为了排障改写全局配置。此方式曾使 `fetch` 和 `push` 成功，但后续也出现过超时，因此只是可选重试路径，不保证可用；成功与否以命令实际结果为准。连接失败时保留本地提交，恢复后重试相同操作，不改走浏览器提交，也不把凭据写进仓库、日志或 PR 正文。
+
 ### GitHub 远端发布（本地 Git + gh）
 
 本仓库的历史成功交付（REQ-013、REQ-014、REQ-015）均由本机 Git 和 GitHub CLI 完成：先推送分支，再用 `gh` 创建/更新 PR、查看检查状态；不依赖浏览器上传代码。可复用步骤：
