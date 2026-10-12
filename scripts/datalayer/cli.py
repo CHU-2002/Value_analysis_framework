@@ -60,11 +60,17 @@ def build_parser() -> argparse.ArgumentParser:
                                              "import-output"))
     universe.add_argument("--ticker")
     universe.add_argument("--name", help="显示名（add 必填）")
-    universe.add_argument("--market", choices=("SH", "SZ", "HK", "US"))
+    universe.add_argument("--market", choices=("SH", "SZ", "BJ", "HK", "US"))
     universe.add_argument("--tier", help="所需数据档位（frugal / bulk）")
     universe.add_argument("--note")
     universe.add_argument("--output-root", default="output", help="import-output 的既有产物根")
     universe.add_argument("--write", action="store_true", help="import-output 时真的写入清单")
+
+    directory = subparsers.add_parser("directory", parents=[common], help="独立A股目录快照")
+    directory.add_argument("action", choices=("refresh", "list", "show", "diff"))
+    directory.add_argument("--snapshot-id")
+    directory.add_argument("--old")
+    directory.add_argument("--new")
 
     pull = subparsers.add_parser("pull", parents=[common], help="一次动作全量拉取（AC-2/6/7）")
     pull.add_argument("--profile", choices=("frugal", "bulk"), help="不填则按清单每条自己的档位")
@@ -187,6 +193,31 @@ def cmd_universe(args) -> int:
             print(f"已写入 {len(suggestions)} 条建议条目")
         return 0
     raise UsageError(f"未知的 universe 动作：{action}")
+
+
+def cmd_directory(args) -> int:
+    from .directory import Directory
+    directory = Directory(_store_from_args(args))
+    if args.action == "refresh":
+        from .security import resolve_token
+        from tushare_collector import TushareClient
+        token = resolve_token()
+        if not token:
+            raise NoToken("未配置 Tushare token")
+        payload = directory.refresh(TushareClient(token, store=directory.store))
+    elif args.action == "list":
+        payload = [{key: row[key] for key in ("snapshot_id", "source", "fetched_at", "count", "coverage", "gaps")}
+                   for row in directory.list()]
+    elif args.action == "diff":
+        if not args.old or not args.new:
+            raise UsageError("diff 需要 --old 和 --new 快照标识")
+        payload = directory.compare(args.old, args.new)
+    else:
+        payload = directory.get(args.snapshot_id) if args.snapshot_id else directory.latest()
+        if payload is None:
+            raise UsageError("没有目录快照，请先显式刷新目录")
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
 
 
 def cmd_pull(args) -> int:
@@ -359,6 +390,7 @@ def cmd_wipe(args) -> int:
 
 COMMANDS = {
     "universe": cmd_universe,
+    "directory": cmd_directory,
     "pull": cmd_pull,
     "rebuild": cmd_rebuild,
     "gaps": cmd_gaps,

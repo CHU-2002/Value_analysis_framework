@@ -30,7 +30,7 @@ from .gaps import DONE_KINDS, classify_result, completeness, pending_targets
 # 美股接口只对美股标的，`stock_basic` 只对 A 股。
 HK_MARKETS = ("HK",)
 US_MARKETS = ("US", "NYSE", "NASDAQ")
-CN_MARKETS = ("SH", "SZ", "")
+CN_MARKETS = ("SH", "SZ", "BJ", "")
 
 
 def market_of(ticker: str) -> str:
@@ -103,7 +103,7 @@ def targets_for(tickers, periods, profile: str, *, params_by_api=None,
                 for period in api_periods:
                     params = dict(base)
                     if api == "trade_cal":
-                        params.setdefault("exchange", "SZSE" if market == "SZ" else "SSE")
+                        params["exchange"] = params_by_api.get(api, {}).get("exchange", {"SZ": "SZSE", "BJ": "BSE"}.get(market, "SSE"))
                     else:
                         params.setdefault("ts_code", ticker)
                     if period != "latest":
@@ -299,13 +299,13 @@ class PullBatch:
         self.access.quota_profile = self.profile
         # 批次 id 同理：记录要能回答「这批数据是哪一次拉的」。
         self.access.batch_id = batch_id
-        self.store.append_batch(batch)
+        self.store.append_batch(batch, changed_keys=[])
         try:
             for target in batch["targets"]:
                 if self.should_pause():
                     raise KeyboardInterrupt
                 batch["progress"].update(current={**_target_summary(target)}, phase="collecting")
-                self.store.append_batch(batch)
+                self.store.append_batch(batch, changed_keys=[])
                 key = _target_key(target)
                 existing = (batch.get("completed") or {}).get(key)
                 if existing and existing.get("result") in DONE_KINDS and not force \
@@ -318,7 +318,7 @@ class PullBatch:
                                                "error_excerpt": None}
                     batch["usage"]["archive_hits"] = batch["usage"].get("archive_hits", 0) + 1
                     batch["progress"]["completed"] = len(batch["completed"])
-                    self.store.append_batch(batch)
+                    self.store.append_batch(batch, changed_keys=[key])
                     continue
                 # 「新增请求」只数**真的发出去的请求**：命中存档的分支有两处
                 # （上面按精确键跳过、以及取数门面按「记录服务请求」命中），
@@ -330,7 +330,7 @@ class PullBatch:
                 def phase_changed(phase):
                     batch["usage"]["actual_requests"] = requests_before + max(0, self.access.remote_calls - calls_before)
                     batch["progress"]["phase"] = phase
-                    self.store.append_batch(batch)
+                    self.store.append_batch(batch, changed_keys=[])
 
                 self.access.progress_callback = phase_changed
                 try:
@@ -348,7 +348,7 @@ class PullBatch:
                                            "error_excerpt": excerpt}
                 batch["progress"]["completed"] = len(batch["completed"])
                 batch["heartbeat_at"] = self.clock().isoformat()
-                self.store.append_batch(batch)
+                self.store.append_batch(batch, changed_keys=[key])
 
             batch["progress"].pop("current", None)
             batch["progress"].pop("phase", None)
@@ -359,21 +359,21 @@ class PullBatch:
                                 "failures": summary["counts"]["error"]
                                 + summary["counts"]["rate_limited"],
                                 "no_permission": summary["counts"]["no_permission"]})
-            self.store.append_batch(batch)
+            self.store.append_batch(batch, changed_keys=[])
             return batch
         except KeyboardInterrupt:
             batch.update(status="paused", owner_pid=None,
                          heartbeat_at=self.clock().isoformat(),
                          progress={**batch.get("progress", {}), "completed": len(batch["completed"]),
                                    "total": len(batch["targets"])})
-            self.store.append_batch(batch)
+            self.store.append_batch(batch, changed_keys=[])
             raise
         except Exception:
             batch.update(status="failed", owner_pid=None,
                          heartbeat_at=self.clock().isoformat(),
                          progress={**batch.get("progress", {}), "completed": len(batch["completed"]),
                                    "total": len(batch["targets"])})
-            self.store.append_batch(batch)
+            self.store.append_batch(batch, changed_keys=[])
             raise
         finally:
             # 模式是 access 的共享状态：批次结束要还原，否则同一个门面连跑两批时，

@@ -735,48 +735,60 @@ class DataStore:
 
     # ------------------------------------------------------------------ 批次（兼容期双写）
 
-    def append_batch(self, batch: dict) -> None:
-        """批次快照写两处：SQLite（断点续跑与查询）+ `batches/<id>.json`（GUI 兼容）。"""
+    def append_batch(self, batch: dict, *, changed_keys=None) -> None:
+        """写批次；执行热路径只增量保存目标，初始/终态同步兼容 JSON。
 
+        changed_keys=None 保留既有调用的全量快照语义。增量调用的 targets 不变，
+        每目标事务持久化，进程中断后仍可完全从 SQLite 恢复。
+        """
         batch_id = str(batch.get("batch_id", ""))
         if not batch_id:
             raise ValueError("批次缺少 batch_id")
         connection = self._connect()
+        exists = connection.execute("SELECT 1 FROM batch WHERE batch_id = ?", (batch_id,)).fetchone()
+        full = changed_keys is None or exists is None
         completed = batch.get("completed") or {}
+        values = (batch.get("profile", ""), batch.get("status", "pending"),
+                  batch.get("heartbeat_at"), batch.get("owner_pid"),
+                  int(batch.get("estimate", len(batch.get("targets", [])))),
+                  json.dumps(batch.get("progress", {}), ensure_ascii=False, sort_keys=True),
+                  json.dumps(batch.get("usage", {}), ensure_ascii=False, sort_keys=True),
+                  json.dumps(batch.get("summary"), ensure_ascii=False, sort_keys=True)
+                  if batch.get("summary") is not None else None)
         with self.transaction() as transaction:
-            transaction.execute(
-                "INSERT INTO batch (batch_id, profile, status, created_at, heartbeat_at, owner_pid,"
-                " estimate, targets_json, progress_json, usage_json, summary_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(batch_id) DO UPDATE SET profile = excluded.profile, "
-                "status = excluded.status, heartbeat_at = excluded.heartbeat_at, "
-                "owner_pid = excluded.owner_pid, estimate = excluded.estimate, "
-                "targets_json = excluded.targets_json, progress_json = excluded.progress_json, "
-                "usage_json = excluded.usage_json, summary_json = excluded.summary_json",
-                (batch_id, batch.get("profile", ""), batch.get("status", "pending"),
-                 batch.get("created_at") or self._now(), batch.get("heartbeat_at"),
-                 batch.get("owner_pid"), int(batch.get("estimate", len(batch.get("targets", [])))),
-                 json.dumps(batch.get("targets", []), ensure_ascii=False, sort_keys=True),
-                 json.dumps(batch.get("progress", {}), ensure_ascii=False, sort_keys=True),
-                 json.dumps(batch.get("usage", {}), ensure_ascii=False, sort_keys=True),
-                 json.dumps(batch.get("summary"), ensure_ascii=False, sort_keys=True)
-                 if batch.get("summary") is not None else None),
-            )
-            transaction.execute("DELETE FROM batch_target WHERE batch_id = ?", (batch_id,))
-            for key, item in completed.items():
+            if exists is None:
                 transaction.execute(
-                    "INSERT INTO batch_target (batch_id, target_key, ticker, dataset, period,"
-                    " params_json, result, error_excerpt, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO batch (batch_id, profile, status, heartbeat_at, owner_pid, estimate, "
+                    "progress_json, usage_json, summary_json, created_at, targets_json) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (batch_id, *values, batch.get("created_at") or self._now(),
+                     json.dumps(batch.get("targets", []), ensure_ascii=False, sort_keys=True)))
+            else:
+                transaction.execute(
+                    "UPDATE batch SET profile=?, status=?, heartbeat_at=?, owner_pid=?, estimate=?, "
+                    "progress_json=?, usage_json=?, summary_json=? WHERE batch_id=?", (*values, batch_id))
+                if full:
+                    transaction.execute("UPDATE batch SET targets_json=? WHERE batch_id=?",
+                                        (json.dumps(batch.get("targets", []), ensure_ascii=False, sort_keys=True), batch_id))
+            if full:
+                transaction.execute("DELETE FROM batch_target WHERE batch_id = ?", (batch_id,))
+            for key in (completed if full else changed_keys):
+                item = completed[key]
+                transaction.execute(
+                    "INSERT INTO batch_target (batch_id, target_key, ticker, dataset, period, "
+                    "params_json, result, error_excerpt, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(batch_id,target_key) DO UPDATE SET ticker=excluded.ticker, "
+                    "dataset=excluded.dataset, period=excluded.period, params_json=excluded.params_json, "
+                    "result=excluded.result, error_excerpt=excluded.error_excerpt, updated_at=excluded.updated_at",
                     (batch_id, key, item.get("ticker"), item.get("dataset"), item.get("period"),
                      json.dumps(item.get("params") or {}, ensure_ascii=False, sort_keys=True),
-                     item.get("result"), item.get("error_excerpt"), self._now()),
-                )
+                     item.get("result"), item.get("error_excerpt"), self._now()))
+        if not full and batch.get("status") == "running":
+            return
         try:
             self.batches_dir.mkdir(parents=True, exist_ok=True)
             temporary = self.batches_dir / f".{batch_id}.tmp"
-            temporary.write_text(json.dumps(batch, ensure_ascii=False, sort_keys=True),
-                                 encoding="utf-8")
+            temporary.write_text(json.dumps(batch, ensure_ascii=False, sort_keys=True), encoding="utf-8")
             os.replace(temporary, self.batches_dir / f"{batch_id}.json")
         except OSError as exc:
             raise StoreUnavailable(f"批次进度不可写：{self.batches_dir}") from exc
