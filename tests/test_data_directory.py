@@ -76,6 +76,15 @@ def test_uncertain_exchange_and_redacted_errors(tmp_path):
         directory.compare("missing", snapshot["snapshot_id"])
     client, _ = client_for({**BASE, "BSE": [{"ts_code": "920001.BJ"}]})
     assert directory.refresh(client)["coverage"]["BSE"]["status"] == "unknown"
+    bad = dict(BASE["BSE"][0])
+    bad["curr_type"] = None
+    client, _ = client_for({**BASE, "BSE": [bad], "SSE": BASE["SSE"] * 2})
+    snapshot = directory.refresh(client)
+    assert snapshot["coverage"]["BSE"]["status"] == "unknown"
+    assert snapshot["coverage"]["SSE"]["status"] == "unknown"
+    assert snapshot["coverage"]["SSE"]["count"] == 1
+    assert snapshot["exclusions"]["by_reason"]["重复代码"] == 1
+
 
 
 def test_bj_supported_for_watchlist_and_market_calendar(tmp_path, monkeypatch):

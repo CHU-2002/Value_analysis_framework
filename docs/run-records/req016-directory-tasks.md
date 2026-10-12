@@ -10,3 +10,23 @@
 接口：`Directory(store).refresh(client)` 是唯一联网动作；`latest()` / `get(id)` / `list()` / `compare(old_id,new_id)` 读历史。快照包含 `snapshot_id/source/fetched_at/content_sha256/companies/count/coverage/exclusions/gaps`，公司项含 `ticker/display_name/market/exchange/list_status/metadata`。覆盖键 SSE/SZSE/BSE，状态 confirmed/unknown；缺口为字符串列表。
 
 命令：`python -m scripts.datalayer directory refresh|list|show|diff --store 沙箱`；show 可指定 `--snapshot-id`，diff 必须指定 `--old` / `--new`。refresh 与公司数据采集分开，查询命令不实例化数据源客户端。
+
+## 实跑记录
+
+环境：macOS / 项目 `.venv` Python / Tushare stock_basic；网络权限经自动审批批准。工作树没有 `.env`，故显式从主仓读取 token；不是临时环境补丁。可复制命令（在实现工作树运行）：
+
+```sh
+/Users/everett.li/Project/Turtle_investment_framework/.venv/bin/python - <<'PY'
+import json
+from scripts.datalayer.security import resolve_token
+from scripts.datalayer.store import DataStore
+from scripts.datalayer.directory import Directory
+from tushare_collector import TushareClient
+store = DataStore('output/.live_req016_directory')
+token = resolve_token(dotenv_path='/Users/everett.li/Project/Turtle_investment_framework/.env')
+snapshot = Directory(store).refresh(TushareClient(token, store=store))
+print(json.dumps({key: snapshot[key] for key in ('snapshot_id', 'fetched_at', 'count', 'coverage', 'gaps')}, ensure_ascii=False))
+PY
+```
+
+实际退出码 0，输出 `count=5573`，`coverage={SSE: confirmed/2320, SZSE: confirmed/2904, BSE: confirmed/349}`，`gaps=[]`。目录刷新仅发出三个 stock_basic 请求，没有创建公司数据采集批次。完整快照位于工作树隔离沙箱 `output/.live_req016_directory/store.db`；外部请求原始记录写同一仓，全市场批次实跑由主线另行完成。
