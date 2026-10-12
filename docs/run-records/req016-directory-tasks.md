@@ -51,3 +51,5 @@ T4 补充：`whole_market=True` 是已确认全市场批次的正式执行选项
 `stock_basic_reused` 单独记录目录原始数据分区复用数量，分区继承源 `fetched_at/token_fingerprint/batch_id/tier_label/quota_profile`，不会把旧目录转换为本批新增。金融与日线真实预取记录使用正在执行的批次标识；主线根据批次来源区分本批预取成功与旧数据复用。
 
 官方整日接口：[A股日线 daily](https://tushare.pro/document/2?doc_id=27)。实现阶段仍只 mock，未额外调用真实数据源。
+
+T4 分页边界补充（已修）：数据源可能把请求 limit=6000 截到实际上限5000。若用 `page * requested_limit` 推导 offset，会跳过中间行而无法靠末页判断发现。预取现在按每页实际返回行数递增 offset，仍必须取得空末页，并保留重复页/行、最大页数、预算护栏。既有组合测试以请求6000、实际返回2行再1行模拟不同源上限，断言请求 offset=0,2,3，并确认中间公司和全部行均入仓；没有增加测试用例预算。

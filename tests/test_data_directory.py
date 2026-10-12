@@ -135,9 +135,10 @@ def test_market_bulk_financial_pagination_and_missing_fallback(tmp_path):
     store = DataStore(tmp_path)
     client = SimpleNamespace(_vip_mode=True, MAX_RETRIES=1, pro=SimpleNamespace(income_vip=respond))
     access = DataAccess(store, client=client, token="test", rate_limit_seconds=0)
-    report = prefetch(store, targets, access, page_size=2)
+    report = prefetch(store, targets, access, page_size=6000)
     assert report["actual_requests"] == 3 and report["prefetched_targets"] == 2 and report["fallback_targets"] == 1
-    assert [item["offset"] for item in calls] == [0, 2, 4]
+    assert [item["offset"] for item in calls] == [0, 2, 3]
+    assert all(item["limit"] == 6000 for item in calls)
     assert all("ts_code" not in call for call in calls)
     assert store.serves_target(targets[0]) and store.serves_target(targets[1]) and not store.serves_target(targets[2])
     assert len(json.loads(store.find("600001.SH", "income", "20260630", params=targets[0]["params"])["rows_json"])) == 2

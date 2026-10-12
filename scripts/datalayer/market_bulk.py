@@ -141,6 +141,7 @@ def prefetch(store, targets, access, *, completed=None, page_size=1000, max_page
                 date_params = [params]
             for request in date_params:
                 seen_rows = set()
+                offset = 0
                 for page in range(max_pages):
                     if should_pause():
                         report["paused"] = True
@@ -148,7 +149,7 @@ def prefetch(store, targets, access, *, completed=None, page_size=1000, max_page
                     remaining = budget - (access.remote_calls - calls_before)
                     if remaining < int(getattr(access.client, "MAX_RETRIES", 5)):
                         raise ValueError("预取请求预算不足，回退原目标")
-                    frame = access._invoke(official_alias, {**request, "limit": page_size, "offset": page * page_size})
+                    frame = access._invoke(official_alias, {**request, "limit": page_size, "offset": offset})
                     if frame is None:
                         raise ValueError("接口没有返回结构化响应")
                     if frame.empty:
@@ -165,6 +166,7 @@ def prefetch(store, targets, access, *, completed=None, page_size=1000, max_page
                         raise ValueError("分页返回重复行，无法确认完整性")
                     seen_rows.update(row_signatures)
                     frames.append(frame)
+                    offset += len(frame)
                 else:
                     raise ValueError("分页未到空末页，不能确认完整性")
             if frames:
