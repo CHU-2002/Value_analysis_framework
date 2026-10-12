@@ -234,7 +234,7 @@ Issue 在**验收通过后**才关闭（`verified`），不在 PR 合并时自�
 | [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `in-progress` |
 | [REQ-014](REQ-014-watchlist-maintenance-ui.md) | 控制台里的自选股清单维护 | `verified` |
 | [REQ-015](REQ-015-research-workspace-ux.md) | 公司研究工作区（研究导航 + K线与估值时间轴 + 可选生成 + 报告阅读 + 采集解释） | `in-progress`（AC-4.1 已按 owner 批准修改，待实现与复验） |
-| [REQ-016](REQ-016-a-share-universe-acquisition.md) | A股全市场数据采集 | `accepted` |
+| [REQ-016](REQ-016-a-share-universe-acquisition.md) | A股全市场数据采集 | `in-progress` |
 | ~~REQ-007~~ | 门禁与治理工具加固 → 并入 REQ-006 的 T2 | `superseded` |
 | ~~REQ-008~~ | 覆盖率洼地补测 → 并入 REQ-006 的 T4 | `superseded` |
 

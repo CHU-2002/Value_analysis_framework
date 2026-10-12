@@ -364,14 +364,14 @@ class PullBatch:
         except KeyboardInterrupt:
             batch.update(status="paused", owner_pid=None,
                          heartbeat_at=self.clock().isoformat(),
-                         progress={"completed": len(batch["completed"]),
+                         progress={**batch.get("progress", {}), "completed": len(batch["completed"]),
                                    "total": len(batch["targets"])})
             self.store.append_batch(batch)
             raise
         except Exception:
             batch.update(status="failed", owner_pid=None,
                          heartbeat_at=self.clock().isoformat(),
-                         progress={"completed": len(batch["completed"]),
+                         progress={**batch.get("progress", {}), "completed": len(batch["completed"]),
                                    "total": len(batch["targets"])})
             self.store.append_batch(batch)
             raise
