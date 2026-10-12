@@ -309,6 +309,8 @@ def resolve_company(ctx, company_id: str) -> dict:
         "primary_period": str(entry.get("primary_period") or ""),
         "last_run": str(entry.get("last_run") or ""),
         "downstream_stale": bool(entry.get("downstream_stale")),
+        "enabled": entry.get("enabled"),
+        "tier": entry.get("tier", ""),
     }
 
 
@@ -356,13 +358,15 @@ def companies_dataset(ctx) -> tuple:
     for entry in entries:
         code = entry["ticker"]
         if code in known:
-            if not known[code].get("ticker"):
-                known[code]["ticker"] = code
+            known[code].update({"ticker": code, "company": entry["display_name"],
+                                "display_name": display_name(code, entry["display_name"]),
+                                "enabled": entry["enabled"], "tier": entry["tier"]})
             continue
         items.append({"dir": "", "name": entry["display_name"], "label": "",
                       "ticker": code, "company": entry["display_name"],
                       "display_name": display_name(code, entry["display_name"]),
-                      "last_run": "", "primary_period": "", "downstream_stale": False})
+                      "last_run": "", "primary_period": "", "downstream_stale": False,
+                      "enabled": entry["enabled"], "tier": entry["tier"]})
     return {**data, "companies": items, "count": len(items)}, meta
 
 
@@ -386,6 +390,8 @@ def _list_panel(ctx, **_):
             "name": item["display_name"],
             "href": f"#charts?company={_link_id(item)}",
             "ticker": item["ticker"],
+            "watchlist_state": ("启用" if item["enabled"] else "停用") if "enabled" in item else "未加入清单",
+            "tier_label": {"bulk": "完整业务数据", "frugal": "基础必需数据"}.get(item.get("tier"), "未设置"),
             "last_run": item["last_run"],
             "primary_period": item["primary_period"],
             "stale": "是" if item["downstream_stale"] else "",
@@ -402,6 +408,8 @@ def _link_id(item: dict) -> str:
 
 _COMPANY_COLUMNS = [
     {"key": "name", "title": "公司", "href_key": "href", "sort": "text", "search": True},
+    {"key": "watchlist_state", "title": "清单状态", "sort": "text"},
+    {"key": "tier_label", "title": "清单数据档位", "sort": "text"},
     {"key": "primary_period", "title": "数据期次", "sort": "text", "search": True},
     {"key": "last_run", "title": "最近分析", "sort": "text"},
     {"key": "stale", "title": "下游过期", "sort": "text"},

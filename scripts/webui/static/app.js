@@ -393,7 +393,8 @@ async function fillCompanySelector() {
   const remembered = rememberedCompany();
   const options = [{ value: "", label: "（未选择）" }];
   for (const item of companies) {
-    options.push({ value: item.ticker || item.dir, label: item.display_name || item.name });
+    options.push({ value: item.ticker || item.dir, label: item.display_name || item.name,
+                   enabled: item.enabled, tier: item.tier });
   }
   const explicit = new URLSearchParams(parseHash().query).has("company");
   const current = selection.company || (explicit ? "" : remembered) || "";
@@ -403,6 +404,8 @@ async function fillCompanySelector() {
     const node = document.createElement("option");
     node.value = option.value;
     node.textContent = option.label;
+    if (typeof option.enabled === "boolean") node.dataset.watchlistEnabled = option.enabled ? "1" : "0";
+    if (option.tier) node.dataset.watchlistTier = option.tier;
     if (option.value === current) node.selected = true;
     select.append(node);
   }
@@ -441,6 +444,25 @@ function updateCurrentCompanyLabel() {
   // 上下文还在，公司级动作被误判成缺上下文——实测踩到：点侧栏回任务页后动作全部禁用。
   if (select.value !== (selection.company || "")) {
     select.value = selection.company || "";
+  }
+  let status = document.getElementById("company-watchlist-status");
+  if (!status) {
+    status = document.createElement("span");
+    status.id = "company-watchlist-status";
+    status.className = "hint";
+    status.setAttribute("aria-live", "polite");
+    select.closest("label").insertAdjacentElement("afterend", status);
+  }
+  const chosen = select.selectedOptions[0];
+  status.hidden = !chosen?.value;
+  if (status.hidden) {
+    status.textContent = "";
+  } else if (!chosen.dataset.watchlistEnabled) {
+    status.textContent = "未加入自选股清单";
+  } else {
+    const state = chosen.dataset.watchlistEnabled === "1" ? "已启用" : "已停用";
+    const tier = { frugal: "基础必需数据", bulk: "完整业务数据" }[chosen.dataset.watchlistTier] || "未知档位";
+    status.textContent = `清单：${state} · ${tier}`;
   }
 }
 

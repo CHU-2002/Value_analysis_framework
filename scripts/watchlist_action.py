@@ -9,11 +9,11 @@ from pathlib import Path
 try:
     from .datalayer.errors import UniverseError
     from .datalayer.store import DataStore
-    from .datalayer.universe import Universe, market_of, normalize_ticker
+    from .datalayer.universe import Universe, market_of, normalize_ticker, validate_tier
 except ImportError:  # 直接运行白名单脚本
     from datalayer.errors import UniverseError
     from datalayer.store import DataStore
-    from datalayer.universe import Universe, market_of, normalize_ticker
+    from datalayer.universe import Universe, market_of, normalize_ticker, validate_tier
 
 
 def resolve_ticker(identifier: str) -> str:
@@ -95,7 +95,7 @@ def import_output(universe: Universe, output_root) -> dict:
             "message": f"导入 {len(imported)} 家、跳过 {len(skipped)} 家"}
 
 
-def execute(operation: str, *, archive_root, output_root, ticker="", name="") -> dict:
+def execute(operation: str, *, archive_root, output_root, ticker="", name="", tier="") -> dict:
     universe = Universe(DataStore(archive_root))
     if operation == "import":
         return import_output(universe, output_root)
@@ -107,20 +107,39 @@ def execute(operation: str, *, archive_root, output_root, ticker="", name="") ->
         result = universe.add(code, label)
         return {"message": f"已添加 {code.split('.')[0]} {label}", "ticker": code,
                 "created": result["created"]}
+    if operation in ("enable", "disable", "edit"):
+        if not universe.get(code):
+            raise UniverseError("这家公司已不在清单里，请刷新后重新选择")
+        if operation == "edit":
+            fields = {}
+            if name:
+                fields["display_name"] = clean_name(name)
+            if tier:
+                fields["tier"] = validate_tier(tier)
+            if not fields:
+                raise UniverseError("请填写新简称或选择新数据档位")
+            entry = universe.update(code, **fields)
+            message = "已更新公司信息，只修改清单配置"
+        else:
+            entry = universe.set_enabled(code, operation == "enable")
+            message = ("已启用，将参与已维护公司采集" if operation == "enable"
+                       else "已停用，仍保留在清单中，不参与已维护公司采集")
+        return {"message": message, "ticker": code, "entry": entry}
     if operation == "remove":
         removed = universe.remove(code)
-        return {"message": "已停止跟踪这家公司，所有产物均已保留" if removed else "这家公司已不在清单里",
+        return {"message": "已从清单移除这家公司，所有数据与产物均已保留" if removed else "这家公司已不在清单里",
                 "ticker": code, "removed": removed}
     raise UniverseError("无法识别这个清单动作")
 
 
 def build_parser():
     parser = argparse.ArgumentParser(description="离线维护自选股清单")
-    parser.add_argument("--operation", required=True, choices=("add", "import", "remove"))
+    parser.add_argument("--operation", required=True, choices=("add", "import", "enable", "disable", "edit", "remove"))
     parser.add_argument("--archive-root", required=True)
     parser.add_argument("--output-root", required=True)
     parser.add_argument("--ticker", default="")
     parser.add_argument("--name", default="")
+    parser.add_argument("--tier", default="")
     return parser
 
 
@@ -128,7 +147,7 @@ def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
         result = execute(args.operation, archive_root=args.archive_root,
-                         output_root=args.output_root, ticker=args.ticker, name=args.name)
+                         output_root=args.output_root, ticker=args.ticker, name=args.name, tier=args.tier)
     except (UniverseError, OSError) as exc:
         print(json.dumps({"message": "清单操作失败，请检查公司信息与存储是否可用",
                           "error": type(exc).__name__}, ensure_ascii=False))
