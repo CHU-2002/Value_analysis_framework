@@ -394,7 +394,7 @@ async function fillCompanySelector() {
   const options = [{ value: "", label: "（未选择）" }];
   for (const item of companies) {
     options.push({ value: item.ticker || item.dir, label: item.display_name || item.name,
-                   enabled: item.enabled, tier: item.tier });
+                   contextNote: item.context_note });
   }
   const explicit = new URLSearchParams(parseHash().query).has("company");
   const current = selection.company || (explicit ? "" : remembered) || "";
@@ -404,8 +404,7 @@ async function fillCompanySelector() {
     const node = document.createElement("option");
     node.value = option.value;
     node.textContent = option.label;
-    if (typeof option.enabled === "boolean") node.dataset.watchlistEnabled = option.enabled ? "1" : "0";
-    if (option.tier) node.dataset.watchlistTier = option.tier;
+    if (option.contextNote) node.dataset.contextNote = option.contextNote;
     if (option.value === current) node.selected = true;
     select.append(node);
   }
@@ -457,12 +456,8 @@ function updateCurrentCompanyLabel() {
   status.hidden = !chosen?.value;
   if (status.hidden) {
     status.textContent = "";
-  } else if (!chosen.dataset.watchlistEnabled) {
-    status.textContent = "未加入自选股清单";
   } else {
-    const state = chosen.dataset.watchlistEnabled === "1" ? "已启用" : "已停用";
-    const tier = { frugal: "基础必需数据", bulk: "完整业务数据" }[chosen.dataset.watchlistTier] || "未知档位";
-    status.textContent = `清单：${state} · ${tier}`;
+    status.textContent = chosen.dataset.contextNote || "";
   }
 }
 

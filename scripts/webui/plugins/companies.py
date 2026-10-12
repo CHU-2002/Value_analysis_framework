@@ -367,6 +367,13 @@ def companies_dataset(ctx) -> tuple:
                       "display_name": display_name(code, entry["display_name"]),
                       "last_run": "", "primary_period": "", "downstream_stale": False,
                       "enabled": entry["enabled"], "tier": entry["tier"]})
+    for item in items:
+        if isinstance(item.get("enabled"), bool):
+            state = "已启用" if item["enabled"] else "已停用"
+            tier = {"frugal": "基础必需数据", "bulk": "完整业务数据"}.get(item.get("tier"), "未知档位")
+            item["context_note"] = f"清单：{state} · {tier}"
+        else:
+            item["context_note"] = "未加入自选股清单"
     return {**data, "companies": items, "count": len(items)}, meta
 
 

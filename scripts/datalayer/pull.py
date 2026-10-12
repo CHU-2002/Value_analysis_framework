@@ -22,6 +22,7 @@ from collections import Counter
 from datetime import datetime, timezone
 
 from . import registry
+from .batch_control import register_worker, pause_requested
 from .access import MODE_ONLINE, MODE_REFRESH
 from .errors import BatchRunning, NoToken, QuotaConfirmRequired, UsageError
 from .gaps import DONE_KINDS, classify_result, completeness, pending_targets
@@ -218,7 +219,7 @@ class PullBatch:
     """一个批次：逐目标取数、去重、断点续跑、四类计数。"""
 
     def __init__(self, store, targets, profile: str, access, *, token: str = "",
-                 tier_label: str = "", clock=None, should_pause=None):
+                 tier_label: str = "", clock=None, should_pause=None, pre_collect=None):
         self.store = store
         self.targets = [dict(target) for target in targets]
         registry.profile_datasets(profile)  # 未知档位立刻报错
@@ -228,6 +229,7 @@ class PullBatch:
         self.tier_label = tier_label
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.should_pause = should_pause or (lambda: False)
+        self.pre_collect = pre_collect
 
     @staticmethod
     def create_id() -> str:
@@ -280,6 +282,7 @@ class PullBatch:
                 raise BatchRunning("该采集批次正在运行", hint="等待当前批次结束。") from retry_exc
         os.write(descriptor, str(os.getpid()).encode("ascii"))
         os.close(descriptor)
+        register_worker(self.store, batch_id, clear=batch.get("status") in ("paused", "partial", "failed", "done"))
 
         # `--force` 的语义是「重拉」，而取数门面默认在 online 模式**先查仓**：
         # 不切模式的话，只要仓里的记录还能被读取路径服务，force 就是个空操作
@@ -301,8 +304,24 @@ class PullBatch:
         self.access.batch_id = batch_id
         self.store.append_batch(batch, changed_keys=[])
         try:
+            if self.pre_collect:
+                calls_before_bulk = self.access.remote_calls
+                requests_before_bulk = batch["usage"].get("actual_requests", 0)
+                def bulk_phase(phase):
+                    batch["usage"]["actual_requests"] = requests_before_bulk + max(0, self.access.remote_calls - calls_before_bulk)
+                    batch["progress"]["phase"] = phase if phase.startswith("waiting_") else "collecting_bulk"
+                    self.store.append_batch(batch, changed_keys=[])
+                self.access.progress_callback = bulk_phase
+                report = self.pre_collect(batch, self.access,
+                    lambda: self.should_pause() or pause_requested(self.store, batch_id))
+                batch["usage"]["actual_requests"] = requests_before_bulk + max(0, self.access.remote_calls - calls_before_bulk)
+                batch["progress"]["prefetch"] = report
+                self.access.progress_callback = None
+                self.store.append_batch(batch, changed_keys=[])
+                if report.get("paused"):
+                    raise KeyboardInterrupt
             for target in batch["targets"]:
-                if self.should_pause():
+                if self.should_pause() or pause_requested(self.store, batch_id):
                     raise KeyboardInterrupt
                 batch["progress"].update(current={**_target_summary(target)}, phase="collecting")
                 self.store.append_batch(batch, changed_keys=[])
@@ -317,6 +336,9 @@ class PullBatch:
                     batch["completed"][key] = {**_target_summary(target), "result": result,
                                                "error_excerpt": None}
                     batch["usage"]["archive_hits"] = batch["usage"].get("archive_hits", 0) + 1
+                    record = self.store.find(target["ticker"], target["dataset"], target["period"], params=target["params"], include_rows=False)
+                    if record and record.get("batch_id") == batch_id:
+                        batch["usage"]["current_batch_cache"] = batch["usage"].get("current_batch_cache", 0) + 1
                     batch["progress"]["completed"] = len(batch["completed"])
                     self.store.append_batch(batch, changed_keys=[key])
                     continue
@@ -364,14 +386,18 @@ class PullBatch:
         except KeyboardInterrupt:
             batch.update(status="paused", owner_pid=None,
                          heartbeat_at=self.clock().isoformat(),
-                         progress={**batch.get("progress", {}), "completed": len(batch["completed"]),
+                         progress={**{key: batch["progress"][key] for key in ("inputs", "directory", "prefetch")
+                                      if key in batch.get("progress", {})},
+                                   "completed": len(batch["completed"]),
                                    "total": len(batch["targets"])})
             self.store.append_batch(batch, changed_keys=[])
             raise
         except Exception:
             batch.update(status="failed", owner_pid=None,
                          heartbeat_at=self.clock().isoformat(),
-                         progress={**batch.get("progress", {}), "completed": len(batch["completed"]),
+                         progress={**{key: batch["progress"][key] for key in ("inputs", "directory", "prefetch")
+                                      if key in batch.get("progress", {})},
+                                   "completed": len(batch["completed"]),
                                    "total": len(batch["targets"])})
             self.store.append_batch(batch, changed_keys=[])
             raise

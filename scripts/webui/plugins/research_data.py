@@ -39,7 +39,7 @@ RESULTS = {
 }
 PHASES = {"pending": "排队", "running": "正在采集", "paused": "暂停", "done": "完成",
           "partial": "部分成功", "failed": "中断", "waiting_rate_limit": "等待限频",
-          "waiting_retry": "等待重试"}
+          "waiting_retry": "等待重试", "collecting_bulk": "正在读取全市场同源数据"}
 
 
 def business_group(dataset):
@@ -245,8 +245,9 @@ def explain_batch(store, batch):
             "success": counts["ok"] + counts["empty"], "failures": failure,
             "uncompleted": counts["unattempted"] + counts["stale"], "empty": counts["empty"],
             "actual_requests": None if usage.get("actual_requests_incomplete") else usage.get("actual_requests"),
-            "reused": usage.get("archive_hits", 0),
-            "new": max(0, len(completed) - int(usage.get("archive_hits", 0)) - failure),
+            "reused": max(0, usage.get("archive_hits", 0) - usage.get("current_batch_cache", 0)),
+            "bulk_new": usage.get("current_batch_cache", 0),
+            "new": max(0, len(completed) - int(usage.get("archive_hits", 0)) + int(usage.get("current_batch_cache", 0)) - failure),
             "rows": rows, "counts": dict(counts),
             "by_company_group": _result_groups(rows),
             "directory": progress.get("directory"), "inputs": progress.get("inputs") or {},
@@ -279,7 +280,8 @@ def _directory_refresh(ctx, **_):
 def _directory_list(ctx, **_):
     from datalayer.directory import Directory
     catalog = Directory(DataStore(ctx.config.archive_root))
-    return envelope.ok({"snapshots": catalog.snapshots()})
+    return envelope.ok({"snapshots": [{key: value for key, value in snapshot.items() if key != "companies"}
+                                       for snapshot in catalog.snapshots()]})
 
 
 def _body(ctx):
@@ -297,6 +299,7 @@ class CollectionRunner:
         self.ctx = ctx
         self.lock = threading.Lock()
         self.active = {}
+        self.finished = {}
 
     def start(self, planned, batch_id=None):
         token = resolve_token()
@@ -320,12 +323,14 @@ class CollectionRunner:
                             "usage": {"new_requests": 0, "archive_hits": 0, "actual_requests": 0}}
                 store.append_batch(existing)
             pause = threading.Event()
-            thread = threading.Thread(target=self._run, args=(store, existing, token, pause), daemon=True)
+            finished = threading.Event()
+            self.finished[batch_id] = finished
+            thread = threading.Thread(target=self._run, args=(store, existing, token, pause, finished), daemon=True)
             self.active[batch_id] = (thread, pause)
             thread.start()
         return explain_batch(store, store.load_batch(batch_id))
 
-    def _run(self, store, batch, token, pause):
+    def _run(self, store, batch, token, pause, finished):
         # The HTTP thread reads its connection while the worker writes snapshots.
         # Give the worker its own SQLite connection; never share one transaction
         # across the request and collection threads.
@@ -334,8 +339,19 @@ class CollectionRunner:
             from tushare_collector import TushareClient
 
             access = TushareClient(token, store=store, batch_id=batch["batch_id"])._access
+            def pre_collect(current, current_access, should_pause):
+                from datalayer.market_bulk import prefetch
+                # The directory partition saves one request per remaining basic
+                # target. Reserve that reduction for whole-market attempts; a
+                # denied VIP route can still fall back to the original targets.
+                budget = sum(target["dataset"] == "stock_basic" for target in current["targets"]
+                             if not store.serves_target(target))
+                return prefetch(store, current["targets"], current_access,
+                                completed=current.get("completed"), should_pause=should_pause,
+                                max_requests=budget, whole_market=True, page_size=6000)
+            bulk = pre_collect if (batch.get("progress") or {}).get("inputs", {}).get("scope") == "all_a" else None
             PullBatch(store, batch["targets"], batch["profile"], access, token=token,
-                      should_pause=pause.is_set).run(batch_id=batch["batch_id"], confirm=True)
+                      should_pause=pause.is_set, pre_collect=bulk).run(batch_id=batch["batch_id"], confirm=True)
         except KeyboardInterrupt:
             return
         except Exception as exc:
@@ -347,8 +363,21 @@ class CollectionRunner:
                 self.ctx.log(f"collection {batch['batch_id']} failed: {type(exc).__name__}")
         finally:
             store.close()
+            finished.set()
 
     def pause(self, batch_id):
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", batch_id):
+            raise BadRequest("批次标识无效")
+        store = DataStore(self.ctx.config.archive_root)
+        batch = store.load_batch(batch_id)
+        if not batch:
+            raise BatchNotFound("批次不存在")
+        if batch.get("status") not in ("pending", "running"):
+            return {"batch_id": batch_id, "message": "批次已停止；可核对结果后明确确认恢复"}
+        from datalayer.batch_control import request_pause, supports_pause
+        if batch_id not in self.active and not supports_pause(store, batch_id):
+            raise BadRequest("此批次由旧版外部进程运行；请在其命令窗口按 Ctrl+C 安全暂停，再由本页恢复")
+        request_pause(store, batch_id)
         with self.lock:
             running = self.active.get(batch_id)
             if running:

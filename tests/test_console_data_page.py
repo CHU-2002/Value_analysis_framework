@@ -817,3 +817,77 @@ def test_market_cli_plan_is_offline_and_requires_review_before_run(tmp_path, cap
     assert market_acquisition.main(['run', *args, '--yes']) == 2
     assert DataStore(root).list_batches() == []
     assert '确认' in capsys.readouterr().err
+
+
+def test_cli_interrupt_waits_for_durable_worker_completion(tmp_path, capsys, monkeypatch):
+    import threading
+    import market_acquisition
+    from datalayer.store import DataStore
+    store = DataStore(tmp_path / 'archive')
+    batch = {'batch_id': 'signal', 'profile': 'frugal', 'status': 'running',
+             'targets': [{'ticker': TICKER, 'dataset': 'income', 'period': '20260630', 'params': {'ts_code': TICKER}}],
+             'completed': {}, 'progress': {}}
+    store.append_batch(batch)
+    plan = tmp_path / 'plan.json'
+    plan.write_text('{}')
+    pause = threading.Event()
+    class Finished:
+        done = False
+        calls = 0
+        def is_set(self): return self.done
+        def wait(self, timeout):
+            self.calls += 1
+            if self.calls == 1:
+                raise KeyboardInterrupt
+            assert pause.is_set()
+            batch['status'] = 'paused'
+            store.append_batch(batch)
+            self.done = True
+    finished = Finished()
+    class Runner:
+        def __init__(self, ctx):
+            self.active = {'signal': (object(), pause)}  # No thread liveness can certify disk state.
+            self.finished = {'signal': finished}
+        def start(self, planned, batch_id=None):
+            return {'batch_id': 'signal', 'status': 'running', 'total': 1}
+    monkeypatch.setattr(market_acquisition, 'CollectionRunner', Runner)
+    result = market_acquisition.main(['resume', '--store', str(store.root), '--plan', str(plan), '--batch-id', 'signal', '--yes'])
+    assert result == 130 and finished.calls == 2
+    assert store.load_batch('signal')['status'] == 'paused'
+    assert '"status": "paused"' in capsys.readouterr().out
+
+
+def test_market_prefetch_counts_new_targets_separately_from_directory_reuse(tmp_path):
+    import pandas as pd
+    from types import SimpleNamespace
+    from datalayer.access import DataAccess
+    from datalayer.store import DataStore
+    from datalayer.pull import PullBatch
+    from datalayer.market_bulk import prefetch
+    from webui.plugins.research_data import explain_batch
+    store = DataStore(tmp_path / 'archive')
+    tickers = [TICKER, '000001.SZ']
+    basic = pd.DataFrame({'ts_code': tickers, 'name': ['伊利', '平安']})
+    store.write_frame(ticker='', dataset='stock_basic', period='latest', params={'exchange': 'SSE'},
+                      frame=basic, result='ok', batch_id='directory-source')
+    finance = pd.DataFrame({'ts_code': tickers, 'end_date': ['20260630'] * 2,
+                            'report_type': ['1'] * 2, 'revenue': [10, 20]})
+    calls = []
+    class Pro:
+        def income_vip(self, **params):
+            calls.append(params)
+            return finance if params['offset'] == 0 else pd.DataFrame()
+    client = SimpleNamespace(pro=Pro(), MAX_RETRIES=1, RETRY_DELAY=0, _vip_mode=False)
+    access = DataAccess(store, client=client, token='test', rate_limit_seconds=0)
+    targets = [{'ticker': ticker, 'dataset': 'stock_basic', 'period': 'latest', 'params': {'ts_code': ticker, 'fields': 'ts_code,name'}} for ticker in tickers]
+    targets += [{'ticker': ticker, 'dataset': 'income', 'period': '20260630',
+                 'params': {'ts_code': ticker, 'period': '20260630', 'report_type': '1', 'fields': 'ts_code,end_date,report_type,revenue'}} for ticker in tickers]
+    def prepare(batch, reader, pause):
+        return prefetch(store, batch['targets'], reader, completed=batch['completed'],
+                        should_pause=pause, max_requests=2, whole_market=True)
+    batch = PullBatch(store, targets, 'frugal', access, token='test', pre_collect=prepare).run(batch_id='bulk', confirm=True)
+    result = explain_batch(store, store.load_batch('bulk'))
+    assert len(calls) == result['actual_requests'] == 2
+    assert result['success'] == result['total'] == 4 and result['reused'] == result['new'] == 2
+    assert batch['usage']['current_batch_cache'] == 2
+    assert batch['progress']['prefetch']['source_apis']['income'] == 'income_vip'

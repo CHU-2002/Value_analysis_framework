@@ -907,3 +907,13 @@ webui 侧（GUI 面板与既有测试在用），但 `--collect` 已转调 `data
   两条命令行不再各指一个仓。
 - **N9** 实现者的实跑记录把 `fina_mainbz` 说成「旧存档没有」→ 更正为「有记录，但那条记录
   没带 `type=P`、响应里也没有 `type` 列可核对，读取路径宁缺勿混」。
+
+
+## REQ-016 全市场目录与批次
+
+- `directory_snapshot(snapshot_id PRIMARY KEY, fetched_at, payload_json)` additive表保存独立上市目录，含来源、摘要、逐标的代码/名称/交易所/上市状态、排除项与覆盖缺口。刷新生成新ID并保留历史；不改自选股。
+- 计划纯读已保存目录；全部A计划的规范输入保存snapshot_id。批次progress保存原inputs、目录元信息和预取审计，targets保存确定目标集合。恢复直接用原targets。
+- `batch_control(batch_id PRIMARY KEY, pause_requested, worker_registered)` additive表传递跨进程暂停。旧版外部worker未注册时明确说明需在原命令窗口安全暂停；新版GUI/CLI worker统一轮询，恢复在取得批次锁后清理旧暂停请求。
+- 批次热路径只更新progress/usage和改变的batch_target，初始与终态同步兼容JSON；运行中SQLite为权威源，减少全市场二次方写入。
+- 官方整期VIP财报和整日行情通过唯一DataAccess远程收口读取，按实际返回行数推进offset直到空末页。缺字段、重复页、分页未终止、日期错配、权限/预算不足或暂停不生成假空响应；无法证明的目标回退原单公司读取。整日行情需整个原日期窗口完成后才分区入仓。
+- 目录分区继承原获取时间和批次来源，金融/行情预取标记本批来源。实际请求包含预取/重试；本批预取成功后从仓消费的目标记新增成功，旧存档消费计复用，保持目标数与请求数的不同口径。

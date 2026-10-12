@@ -642,3 +642,33 @@ def test_research_batch_user_pause_preserves_completed_and_pending(tmp_path):
     assert len(persisted["targets"]) == len(targets) and persisted["usage"]["actual_requests"] == 1
     resumed = _run(store, targets, _FakePro(), "RESEARCH-PAUSE")
     assert resumed["status"] == "done" and resumed["progress"]["completed"] == len(targets)
+
+
+# 覆盖需求：REQ-016 —— AC-5 GUI/CLI跨进程暂停、固定快照续跑与成功目标去重。
+def test_external_gui_pause_is_persisted_and_resume_keeps_directory(tmp_path):
+    from types import SimpleNamespace
+    from webui.plugins.research_data import CollectionRunner
+    store = DataStore(tmp_path / 'store')
+    targets = _sample_targets()
+    metadata = {'inputs': {'scope': 'all_a', 'snapshot_id': 'fixed'},
+                'directory': {'snapshot_id': 'fixed', 'count': 1}}
+    store.append_batch({'batch_id': 'EXTERNAL', 'profile': 'frugal', 'targets': targets,
+                        'status': 'pending', 'progress': metadata, 'completed': {}})
+    runner = CollectionRunner(SimpleNamespace(config=SimpleNamespace(archive_root=store.root)))
+    seen = []
+    def respond(name):
+        seen.append(name)
+        reply = runner.pause('EXTERNAL')
+        assert '暂停已请求' in reply['message'] and not runner.active
+        target = next(t for t in targets if t['dataset'] == name)
+        return getattr(_FakePro(), name)(**target['params'])
+    with pytest.raises(KeyboardInterrupt):
+        _run(store, targets, _FakePro(respond), 'EXTERNAL')
+    paused = store.load_batch('EXTERNAL')
+    assert len(paused['completed']) == 1 and paused['status'] == 'paused'
+    assert paused['progress']['directory'] == metadata['directory']
+    assert paused['progress']['inputs'] == metadata['inputs']
+    pro = _FakePro()
+    resumed = _run(store, targets, pro, 'EXTERNAL')
+    assert len(pro.calls) == len(targets) - 1 and resumed['status'] == 'done'
+    assert resumed['progress']['directory'] == metadata['directory']

@@ -77,16 +77,18 @@ def execute(args):
     result = runner.start(planned, batch_id=batch_id)
     batch_id = result["batch_id"]
     print(json.dumps({"batch_id": batch_id, "status": result["status"], "total": result["total"]}, ensure_ascii=False), flush=True)
-    thread, pause = runner.active[batch_id]
+    _, pause = runner.active[batch_id]
+    finished = runner.finished[batch_id]
     try:
-        while thread.is_alive():
-            thread.join(timeout=1)
+        while not finished.is_set():
+            finished.wait(timeout=1)
     except KeyboardInterrupt:
         pause.set()
-        while thread.is_alive():
-            thread.join(timeout=1)
-        print(json.dumps({"batch_id": batch_id, "status": "paused"}, ensure_ascii=False), flush=True)
-        return 130
+        while not finished.is_set():
+            finished.wait(timeout=1)
+        stopped = store.load_batch(batch_id)
+        print(json.dumps({"batch_id": batch_id, "status": stopped["status"]}, ensure_ascii=False), flush=True)
+        return 130 if stopped["status"] == "paused" else 2
     result = explain_batch(store, store.load_batch(batch_id))
     print(json.dumps({key: result[key] for key in ("batch_id", "status", "total", "actual_requests", "reused", "counts", "directory")}, ensure_ascii=False, indent=2))
     return 2 if result["status"] == "failed" else 0
