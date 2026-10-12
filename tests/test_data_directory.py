@@ -254,3 +254,24 @@ def test_market_bulk_daily_incomplete_dates_never_persist(tmp_path):
                           should_pause=(lambda: access.remote_calls > 0) if scenario == "pause" else None)
         assert report["prefetched_targets"] == 0 and report["fallback_targets"] == 6
         assert not store.serves_target(targets[0])
+        if scenario == "late_error":
+            source_params = {"trade_date": "20260101", "fields": "close,trade_date,ts_code"}
+            source = store.find("", "daily", "latest", params=source_params)
+            assert source and source["result"] == "ok"
+            recovered_calls = []
+            def recovered(**params):
+                recovered_calls.append(params)
+                if params["trade_date"] == "20260102" or params["offset"]:
+                    return pd.DataFrame()
+                return pd.DataFrame([{"ts_code": "600000.SH", "trade_date": "20260101", "close": 1}])
+            client.pro.daily = recovered
+            resumed = prefetch(store, targets, access, whole_market=True, page_size=1)
+            assert resumed["checkpoint_reused"] == 1 and resumed["actual_requests"] == 1
+            assert [call["trade_date"] for call in recovered_calls] == ["20260102"]
+            assert resumed["prefetched_targets"] == 1 and resumed["fallback_targets"] == 5
+            assert store.find("", "daily", "latest", params=source_params)["fetched_at"] == source["fetched_at"]
+            again = prefetch(store, targets, access, whole_market=True, page_size=1)
+            assert again["checkpoint_reused"] == 2 and again["actual_requests"] == 0
+            assert all(store.result_of(target) != "empty" for target in targets)
+            different_token = DataAccess(store, client=client, token="other", rate_limit_seconds=0)
+            assert prefetch(store, targets, different_token, whole_market=True, page_size=1)["checkpoint_reused"] == 0

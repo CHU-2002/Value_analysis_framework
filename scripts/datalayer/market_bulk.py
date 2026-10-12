@@ -13,9 +13,9 @@ import pandas as pd
 
 from .access import MODE_OFFLINE
 from .dataframe_codec import decode_frame
-from .security import redact
+from .security import redact, token_fingerprint
 from .gaps import DONE_KINDS
-from .store import target_key
+from .store import target_key, param_key
 
 FINANCIAL = frozenset(("income", "balancesheet", "cashflow", "fina_indicator"))
 
@@ -66,7 +66,7 @@ def prefetch(store, targets, access, *, completed=None, page_size=1000, max_page
     should_pause = should_pause or (lambda: False)
     completed = completed or {}
     report = {"actual_requests": 0, "prefetched_targets": 0, "archive_hits": 0,
-              "fallback_targets": 0, "stock_basic_reused": 0, "source_apis": {}, "failures": [], "paused": False}
+              "fallback_targets": 0, "stock_basic_reused": 0, "checkpoint_reused": 0, "source_apis": {}, "failures": [], "paused": False}
     pending = []
     for target in targets:
         if completed.get(target_key(target), {}).get("result") in DONE_KINDS or store.serves_target(target):
@@ -140,6 +140,27 @@ def prefetch(store, targets, access, *, completed=None, page_size=1000, max_page
             else:
                 date_params = [params]
             for request in date_params:
+                source_params = {key: value for key, value in request.items() if key not in ("limit", "offset")}
+                source_period = str(request.get("period") or "latest")
+                checkpoint_key = f"market_bulk_checkpoint:{dataset}:{source_period}:{param_key(source_params)}"
+                cached = store.find("", dataset, source_period, params=source_params)
+                marker = store.meta_get(checkpoint_key)
+                cache_frame = None
+                if cached and cached["result"] in DONE_KINDS \
+                        and cached.get("batch_id") == access.batch_id \
+                        and cached.get("token_fingerprint") == token_fingerprint(access.token) \
+                        and marker == cached["content_sha256"] \
+                        and (requested or not cached["params"].get("fields")):
+                    candidate = decode_frame(cached["columns_json"], cached["rows_json"])
+                    if (requested | required).issubset(candidate.columns):
+                        if dataset != "daily" or candidate.empty or candidate["trade_date"].astype(str).eq(request["trade_date"]).all():
+                            cache_frame = candidate
+                if cache_frame is not None:
+                    report["checkpoint_reused"] += 1
+                    if not cache_frame.empty:
+                        frames.append(cache_frame)
+                    continue
+                source_frames = []
                 seen_rows = set()
                 offset = 0
                 for page in range(max_pages):
@@ -165,10 +186,17 @@ def prefetch(store, targets, access, *, completed=None, page_size=1000, max_page
                     if seen_rows & row_signatures:
                         raise ValueError("分页返回重复行，无法确认完整性")
                     seen_rows.update(row_signatures)
-                    frames.append(frame)
+                    source_frames.append(frame)
                     offset += len(frame)
                 else:
                     raise ValueError("分页未到空末页，不能确认完整性")
+                complete_frame = pd.concat(source_frames, ignore_index=True, sort=False) if source_frames else pd.DataFrame(columns=sorted(requested | required))
+                access._persist("", dataset, source_period, source_params, complete_frame,
+                                "empty" if complete_frame.empty else "ok", None)
+                checkpoint = store.find("", dataset, source_period, params=source_params, include_rows=False)
+                store.meta_set(checkpoint_key, checkpoint["content_sha256"])
+                if not complete_frame.empty:
+                    frames.append(complete_frame)
             if frames:
                 frame = pd.concat(frames, ignore_index=True, sort=False)
                 # One grouping pass avoids scanning the full annual market frame for every company.
