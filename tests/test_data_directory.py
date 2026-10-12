@@ -116,3 +116,78 @@ def test_incremental_batch_persistence_and_compatibility(tmp_path):
     batch["completed"] = {}
     store.append_batch(batch)
     assert store.load_batch("large")["completed"] == {}
+
+
+def test_market_bulk_financial_pagination_and_missing_fallback(tmp_path):
+    from datalayer.access import DataAccess
+    from datalayer.market_bulk import prefetch
+    from datalayer.store import target_key
+    targets = [{"ticker": code, "dataset": "income", "period": "20260630",
+                "params": {"ts_code": code, "period": "20260630", "report_type": "1",
+                           "fields": "ts_code,end_date,report_type,revenue"}} for code in ("600001.SH", "000001.SZ", "920001.BJ")]
+    calls = []
+    def respond(**params):
+        calls.append(params)
+        pages = {0: [{"ts_code": "600001.SH", "end_date": "20260630", "report_type": "1", "revenue": 1},
+                     {"ts_code": "600001.SH", "end_date": "20260630", "report_type": "1", "revenue": 2}],
+                 2: [{"ts_code": "000001.SZ", "end_date": "20260630", "report_type": "1", "revenue": 3}]}
+        return pd.DataFrame(pages.get(params["offset"], []))
+    store = DataStore(tmp_path)
+    client = SimpleNamespace(_vip_mode=True, MAX_RETRIES=1, pro=SimpleNamespace(income_vip=respond))
+    access = DataAccess(store, client=client, token="test", rate_limit_seconds=0)
+    report = prefetch(store, targets, access, page_size=2)
+    assert report["actual_requests"] == 3 and report["prefetched_targets"] == 2 and report["fallback_targets"] == 1
+    assert [item["offset"] for item in calls] == [0, 2, 4]
+    assert all("ts_code" not in call for call in calls)
+    assert store.serves_target(targets[0]) and store.serves_target(targets[1]) and not store.serves_target(targets[2])
+    assert len(json.loads(store.find("600001.SH", "income", "20260630", params=targets[0]["params"])["rows_json"])) == 2
+    assert prefetch(store, targets, access, completed={target_key(targets[2]): {"result": "ok"}})["archive_hits"] == 3
+
+
+def test_market_bulk_repeated_page_fields_permission_and_offline(tmp_path):
+    from datalayer.access import DataAccess
+    from datalayer.market_bulk import prefetch
+    target = {"ticker": "600001.SH", "dataset": "income", "period": "20260630",
+              "params": {"ts_code": "600001.SH", "period": "20260630", "report_type": "6", "fields": "ts_code,end_date,report_type,revenue"}}
+    for scenario in ("repeat", "missing", "permission", "wrong_variant"):
+        store = DataStore(tmp_path / scenario)
+        def respond(**params):
+            if scenario == "permission":
+                raise RuntimeError("没有权限 test-token")
+            if scenario == "wrong_variant" and params["offset"]:
+                return pd.DataFrame()
+            data = {"ts_code": "600001.SH", "end_date": "20260630", "report_type": "1" if scenario == "wrong_variant" else "6", "revenue": 1}
+            if scenario == "missing":
+                del data["revenue"]
+            return pd.DataFrame([data])
+        client = SimpleNamespace(_vip_mode=True, MAX_RETRIES=1, pro=SimpleNamespace(income_vip=respond))
+        access = DataAccess(store, client=client, token="test-token", rate_limit_seconds=0)
+        report = prefetch(store, [target, {**target, "ticker": "000001.SZ"}, {**target, "ticker": "920001.BJ"}], access, page_size=1)
+        assert report["prefetched_targets"] == 0 and not store.serves_target(target)
+        assert "test-token" not in json.dumps(report)
+    access.mode = "offline"
+    before = access.remote_calls
+    assert prefetch(store, [target], access)["actual_requests"] == 0
+    assert access.remote_calls == before
+    access.mode = "online"
+    client._vip_mode = False
+    assert prefetch(store, [target], access)["actual_requests"] == 0
+    client._vip_mode = True
+    paused = prefetch(store, [target], access, should_pause=lambda: True)
+    assert paused["paused"] and paused["actual_requests"] == 0
+    capped = prefetch(store, [target], access, max_requests=0)
+    assert capped["actual_requests"] == 0 and capped["fallback_targets"] == 1
+
+
+def test_market_bulk_stock_basic_existing_directory_and_pause(tmp_path):
+    from datalayer.access import DataAccess
+    from datalayer.market_bulk import prefetch
+    store = DataStore(tmp_path)
+    frame = pd.DataFrame([row("600001.SH", "SSE")])
+    store.write_frame(ticker="", dataset="stock_basic", period="latest", params={"exchange": "SSE", "list_status": "L"}, frame=frame, result="ok")
+    targets = [{"ticker": code, "dataset": "stock_basic", "period": "latest", "params": {"ts_code": code, "fields": "ts_code,name"}}
+               for code in ("600001.SH", "000001.SZ")]
+    access = DataAccess(store, token="test", rate_limit_seconds=0)
+    report = prefetch(store, targets, access)
+    assert report["prefetched_targets"] == 1 and report["fallback_targets"] == 1 and report["actual_requests"] == 0
+    assert store.serves_target(targets[0]) and not store.serves_target(targets[1])
