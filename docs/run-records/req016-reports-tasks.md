@@ -11,6 +11,7 @@
 | T5 本地环回权限限制 | 已复核 | 沙箱启动服务与 socket 测试报 Operation not permitted。实跑使用允许本地环回的环境，写入隔离 output 沙箱；不动真实 HOME 存档。 | GUI observations；控制台测试复跑 |
 | T6 缓存测试版本写死 | 已修复 | catalog 版本升级暴露既有测试把升级目标写死为 2。改成从原版本加 1，仍要求两类解析均重新执行且版本准确。 | `test_report_reader_caches_derivations_and_invalidates_fact_sources` |
 | T7 scope 汇总 | 交主线 | 新增 4 条测试，未增删测试文件；主线按分工统一再生 TEST_SCOPE 并完成全量门禁。此分支未改门禁/阈值/登记表。 | 全量首跑覆盖率 75.66% |
+| T8 独立 QA 发现金额、事实归属及同比定位缺口 | 已修复并复跑 | 伊利样例补齐附注七（73）存货行 907,520,836.34 元并保留完整合并科目名；金额与公司解释按字段分别归属，术语说明独立标为分析推断；同比指标各自给原报告第3页定位。缺定位明确待回查，旧输入仅事件级状态不自动提升字段事实等级。 | 下方 QA 修复实跑；57 条相关测试通过，测试条数不增加 |
 
 ## 实跑记录
 
@@ -52,3 +53,23 @@ WEBUI_OUTPUT_ROOT="$PWD/output/.live_req016_reports" ../.venv/bin/python -m scri
 ## 开发自检
 
 受影响视图、变化报告及更新文档合同测试：105 passed。允许本地环回的环境复跑控制台框架与服务器测试：49 passed。首轮 `make verify PYTHON=../.venv/bin/python`：1944 passed / 15 failed / 5 skipped，覆盖率 75.66%。15 失败中 13 项为 sandbox socket 权限，1 项为主线统一更新前的 scope，1 项为已修复的缓存版本测试。没有降低门禁、删断言或添加 skip；主线收口时仍须完整 `make verify` 绿。
+
+## 独立 QA 指出的缺口与修复实跑
+
+2026-10-12，独立 QA 指出首版伊利样例虽然有存货原因说明，但缺少存货行金额；报表金额和公司解释共用一个事件级状态；同比数字缺少第3页原始定位。原文件再次回查：印刷第164页（PDF第167页），附注七（73）第二行是“存货跌价损失及合同履约成本减值损失”，本期列示 -907,520,836.34 元、上期 -315,591,928.82 元。新版报告以损失金额正数描述、明示报表原列负数，不擅自将合并科目拆分成纯存货金额。
+
+事件输入新增 `field_statuses`：`explanation`、`terminology`、`importance`、`amount`、`impact`、`limits` 各自选择既有五类状态。输出逐字段标注，未显式提供字段状态的旧输入显示“未核实事项”，不继承事件级 `company_explanation`。伊利金额为已披露事实，原因说明为公司解释，商誉/存货通俗释义与影响说明为分析推断，未核实税费/少数股东/贡献为未核实事项。五粮液更正与监管认定亦分别标注，避免把公司解释与监管事实混成一类。
+
+经营指标支持 `context.metric_sources[key]`，包含原始标题、日期、URL 与页码/章节/表格定位。伊利收入和归母净利润两项各指向印刷第3页（PDF第6页）主要会计数据，2026年1—6月累计对上年同期；来源缺失或字段不完整时紧邻数字标明“原始来源定位缺失，幅度尚待回查”。不借用其他指标来源补定位。
+
+继续使用上面的样例生成命令，输出同一沙箱报告。浏览器按下列命令实跑，两次退出码均 0、`failures=[]`：
+
+```bash
+../.venv/bin/python scripts/gui_report_catalog_walkthrough.py --out output/.live_req016_reports/reader-field-status-after --artifact 202b29b8363b --require 907,520,836.34 --require 315,591,928.82 --require '报表金额与口径（已披露事实）' --require '事项说明（公司解释）' --require '术语解释（分析推断）' --require 印刷第3页 --require 少数股东
+../.venv/bin/python scripts/gui_report_catalog_walkthrough.py --out output/.live_req016_reports/wuliangye-field-status-after --company 000858_五粮液 --artifact 202b29b8363b --require '事项说明（监管确认事实）' --require '报表金额与口径（已披露事实）' --require '术语解释（分析推断）' --require 2011 --require 2025
+../.venv/bin/python -m pytest tests/test_change_report.py tests/test_update_docs_contract.py -q
+```
+
+测试输出：57 passed，0.12s。复用原有三条呈现组合测试，新增字段归属、旧输入降级、指标来源及非法状态断言，未新增测试条数。
+
+最新证据：[伊利观察](req016-report-evidence/reader-field-status-after.json)、[伊利截图](req016-report-evidence/reader-field-status-after.png)、[五粮液观察](req016-report-evidence/wuliangye-field-status-after.json)、[五粮液截图](req016-report-evidence/wuliangye-field-status-after.png)。两份 `*-reader.md` 已按新版重新生成；先前首轮截图保留，不能据首轮样例宣称本次 QA 缺口已关闭。

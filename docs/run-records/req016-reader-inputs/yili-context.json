@@ -13,5 +13,19 @@
       "net_profit_yoy_pct": -20.02
     }
   },
-  "degraded": {}
+  "degraded": {},
+  "metric_sources": {
+    "revenue_yoy_pct": {
+      "title": "伊利2026年半年度报告",
+      "date": "2026-08-27",
+      "url": "https://static.cninfo.com.cn/finalpage/2026-08-27/1225511409.PDF",
+      "locator": "印刷第3页（PDF第6页），七（一）主要会计数据，2026年1—6月对上年同期累计合并口径"
+    },
+    "net_profit_yoy_pct": {
+      "title": "伊利2026年半年度报告",
+      "date": "2026-08-27",
+      "url": "https://static.cninfo.com.cn/finalpage/2026-08-27/1225511409.PDF",
+      "locator": "印刷第3页（PDF第6页），七（一）主要会计数据，2026年1—6月对上年同期累计合并口径"
+    }
+  }
 }

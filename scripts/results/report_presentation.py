@@ -10,6 +10,23 @@ STATES = {"disclosed": "已披露事实", "regulator_confirmed": "监管确认�
           "company_explanation": "公司解释", "inference": "分析推断", "unverified": "未核实事项"}
 
 
+EVENT_FIELDS = ("explanation", "importance", "amount", "impact", "limits")
+
+
+def _validate_source(source: dict) -> None:
+    if not isinstance(source, dict) or not all(isinstance(source.get(key), str) and source[key].strip()
+                                               for key in ("title", "date", "url", "locator")):
+        raise ValueError("source requires title, date, url and locator")
+    if not source["url"].startswith(("https://", "http://")):
+        raise ValueError("source URL must be http(s)")
+
+
+def _source_line(source: dict) -> str:
+    title = _line(source["title"]).replace("[", "\\[").replace("]", "\\]")
+    url = source["url"].replace("(", "%28").replace(")", "%29")
+    return f"[{title}]({url})，{_line(source['date'])}，{_line(source['locator'])}。"
+
+
 def load_events(path: str | Path | None, context: dict) -> list[dict]:
     if path is None:
         return []
@@ -33,11 +50,12 @@ def load_events(path: str | Path | None, context: dict) -> list[dict]:
         if not isinstance(sources, list) or not sources:
             raise ValueError("event requires original sources")
         for source in sources:
-            if not isinstance(source, dict) or not all(isinstance(source.get(key), str) and source[key].strip()
-                                                       for key in ("title", "date", "url", "locator")):
-                raise ValueError("source requires title, date, url and locator")
-            if not source["url"].startswith(("https://", "http://")):
-                raise ValueError("source URL must be http(s)")
+            _validate_source(source)
+        statuses = event.get("field_statuses", {})
+        if not isinstance(statuses, dict) or any(key not in (*EVENT_FIELDS, "terminology") or value not in STATES
+                                                for key, value in statuses.items()):
+            raise ValueError("invalid event field status")
+
     return events
 
 
@@ -56,7 +74,16 @@ def render_reader_summary(context: dict, events: list[dict]) -> str:
         value = params.get(key)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             direction = "增长" if value > 0 else ("下降" if value < 0 else "持平")
-            lines.append(f"- {name}同比{direction}{abs(value):g}%。")
+            statement = f"- {name}同比{direction}{abs(value):g}%。"
+            metric_sources = context.get("metric_sources")
+            source = metric_sources.get(key) if isinstance(metric_sources, dict) else None
+            try:
+                _validate_source(source)
+            except ValueError:
+                statement += "原始来源定位缺失，幅度尚待回查。"
+            else:
+                statement += "指标来源：" + _source_line(source)
+            lines.append(statement)
         else:
             lines.append(f"- {name}同比变化尚未核实，不能判断幅度。")
     lines += ["", "## 重要事项与主要解释", ""]
@@ -64,15 +91,18 @@ def render_reader_summary(context: dict, events: list[dict]) -> str:
         lines.append("尚未取得本次报告已核验的重大事项材料。收入、利润的同比变化不能单独证明变化原因；需补充原始报表附注、公告或监管文件，再核实金额及影响。")
     for event in events:
         lines += [f"### {_line(event['title'])}", "",
-                  f"**{STATES[event['status']]}**；披露日期：{_line(event['disclosed_at'])}；涉及期间：{_line(event['period'])}。", "",
-                  _line(event["explanation"]), "", f"为什么重要：{_line(event['importance'])}", "",
-                  f"报表金额与口径：{_line(event['amount'])}", "", f"影响：{_line(event['impact'])}", "",
-                  f"尚不能确定：{_line(event['limits'])}", ""]
+                  f"披露日期：{_line(event['disclosed_at'])}；涉及期间：{_line(event['period'])}。", ""]
+        statuses = event.get("field_statuses", {})
+        # 事件级状态不能替代句子/字段的事实归属；旧输入未明确归属的字段降级为未核实。
+        for key, label in (("explanation", "事项说明"), ("terminology", "术语解释"),
+                           ("importance", "为什么重要"), ("amount", "报表金额与口径"),
+                           ("impact", "影响"), ("limits", "尚不能确定")):
+            if not event.get(key):
+                continue
+            status = STATES[statuses.get(key, "unverified")]
+            lines += [f"**{label}（{status}）**：{_line(event[key])}", ""]
         for source in event["sources"]:
-            # 标题括号转义，保持来源可点击；正文仍由安全 Markdown renderer 消毒。
-            title = _line(source["title"]).replace("[", "\\[").replace("]", "\\]")
-            url = source["url"].replace("(", "%28").replace(")", "%29")
-            lines.append(f"来源：[{title}]({url})，{_line(source['date'])}，{_line(source['locator'])}。")
+            lines.append("来源：" + _source_line(source))
         lines.append("")
     lines += ["", "## 证据限制与后续动作", "",
               "上述事项按各自来源日期和涉及期间解释；历史监管决定不自动构成对当前更正事项的认定。税前费用不能直接等同于归母净利润下降额；未核实税费、少数股东或其他因素的影响时，不给出因果贡献金额。"]
