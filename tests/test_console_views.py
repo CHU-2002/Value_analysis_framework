@@ -812,10 +812,11 @@ def test_report_reader_caches_derivations_and_invalidates_fact_sources(tmp_path,
     call_route(registry, "GET", path, type="business")  # 原输入可复用已落盘分片。
     before = dict(calls)
     original_lookup = registry.dataset_spec
-    registry.datastore._spec_lookup = lambda name: replace(original_lookup(name), parser_version=2) if name.startswith("report_reader.") else original_lookup(name)
+    registry.datastore._spec_lookup = lambda name: replace(original_lookup(name), parser_version=original_lookup(name).parser_version + 1) if name.startswith("report_reader.") else original_lookup(name)
     upgraded = call_route(registry, "GET", path, type="business")["data"]
     assert calls == {"catalog": before["catalog"] + 1, "document": before["document"] + 1}
-    assert upgraded["meta"]["parser_version"] == upgraded["meta"]["document"]["parser_version"] == 2
+    assert upgraded["meta"]["parser_version"] == original_lookup("report_reader.catalog").parser_version + 1
+    assert upgraded["meta"]["document"]["parser_version"] == original_lookup("report_reader.document").parser_version + 1
 
 
 def test_report_reader_opens_value_analysis_first_by_default(tmp_path):

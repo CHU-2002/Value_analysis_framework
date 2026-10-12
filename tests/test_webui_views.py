@@ -1,3 +1,4 @@
+# 覆盖需求：REQ-016.1 —— AC-1.1/1.2 普通列表白名单、未知隐藏、磁盘不删
 # 覆盖需求：REQ-015.3（AC-3.1～3.4：正式指针、目录、安全材料、同公司版本比较）
 # 覆盖需求：REQ-009.2（报告浏览、图表与迭代台账视图）—— AC-2.1 公司列表、
 # AC-2.2 产物索引与路径 jail、AC-2.3 报告安全渲染、AC-2.4 图表序列与缓存、
@@ -438,10 +439,10 @@ def test_reader_material_and_download_bind_selected_version_and_keep_jail(tmp_pa
     from webui.core.context import RequestContext
     from webui.plugins import report_reader
     token = "mock_secret_1234567890"
-    (base / "credential.md").write_text("known credential " + token, encoding="utf-8")
+    (base / "source.md").write_text("known credential " + token, encoding="utf-8")
     ctx = RequestContext(method="GET", path="/", config=registry.config, registry=registry, secrets=(token,))
     with pytest.raises(BadRequest, match="包含已知凭据"):
-        report_reader.content(ctx, "111111_甲", companies_plugin._artifact_id("credential.md"))
+        report_reader.content(ctx, "111111_甲", companies_plugin._artifact_id("source.md"))
     secret = tmp_path / "secret.pdf"
     secret.write_bytes(b"private")
     (base / "escaped.pdf").symlink_to(secret)
@@ -807,3 +808,26 @@ def test_research_other_existing_markets_remain_readable_without_a_share_pull_pl
         assert "尚不可用" in data["source_note"]
         assert "chart_metrics" not in data["update_href"]
         assert "company=" in data["update_href"]
+
+
+def test_reader_filters_internal_and_unknown_files_without_deleting_them(tmp_path):
+    registry, base = _reader_versions(tmp_path)
+    hidden = ["latest.json", "record.json", "run_manifest.json", "qualitative_input.json",
+              "data_pack_market_current.md", "pdf_sections_2026H1.json", "unknown.md",
+              "change_report_2026H1.json", "business_analysis_input.json"]
+    for name in hidden:
+        (base / name).write_text("{}", encoding="utf-8")
+    (base / "data_pack_report.md").write_text("# 财报源材料", encoding="utf-8")
+    result = call_route(registry, "GET", "/api/v1/companies/111111_甲/report")["data"]
+    names = {item["name"] for item in result["versions"]}
+    assert not names.intersection(hidden)
+    assert {"qualitative_report.md", "change_report.md", "data_pack_report.md"} <= names
+    panels = call_route(registry, "GET", "/api/v1/pages/report", company="111111_甲")["data"]["panels"]
+    html = next(panel["html"] for panel in panels if panel["id"] == "companies.artifacts")
+    assert all(name not in html for name in hidden)
+    assert all((base / name).read_text(encoding="utf-8") == "{}" for name in hidden)
+    # 技术索引保留内部文件；普通阅读与下载不能绕过分类规则。
+    technical = call_route(registry, "GET", "/api/v1/companies/111111_甲/artifacts")["data"]
+    assert set(hidden) <= {item["name"] for item in technical["artifacts"]}
+    with pytest.raises(NotFound):
+        call_route(registry, "GET", "/api/v1/companies/111111_甲/report/content", id=companies_plugin._artifact_id("unknown.md"))

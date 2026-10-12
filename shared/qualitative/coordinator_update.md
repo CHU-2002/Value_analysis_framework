@@ -212,6 +212,20 @@ python3 -m scripts.results.change_report \
 {run_dir}/change_report_{period}.json   # investment.change_report sidecar
 ```
 
+变化报告正文写成后，必须加上读者优先的经营/利润摘要与重要事项区，保留原报告的详细变化与证据：
+
+```bash
+python3 -m scripts.results.report_presentation \
+  --context "{run_dir}/synthesis/change_report_context.json" \
+  --body "{run_dir}/change_report_{period}.md" \
+  --output "{run_dir}/change_report_{period}.md"
+```
+
+若 REQ-017 已提供核验过的 `investment.report_events` 输入，追加 `--events "{run_dir}/synthesis/report_events.json"`。
+此步骤只呈现已查证事项，不代替事件识别或来源复核；没有该输入时正文明确缺少重大事项材料，不猜金额或归因。
+事项输入必须绑定公司/本次报告期，每项分别保留历史涉及期间、披露日期、金额口径、影响边界及原始来源定位。
+
+
 ## Step 9：写入台账
 
 ```bash

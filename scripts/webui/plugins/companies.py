@@ -417,6 +417,7 @@ _COMPANY_COLUMNS = [
 
 
 def _artifacts_panel(ctx, company=None, **_):
+    from .report_reader import report_type
     try:
         base = company_base(ctx, company)
     except NotFound:
@@ -437,6 +438,7 @@ def _artifacts_panel(ctx, company=None, **_):
             "rel": artifact["rel"],
         }
         for artifact in data["artifacts"]
+        if report_type(artifact) is not None
     ]
     return {
         "columns": [

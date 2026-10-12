@@ -490,3 +490,62 @@ def test_main_reports_the_degradation_to_the_operator(tmp_path, capsys):
         ]
     )
     assert "已降级" in capsys.readouterr().out
+
+# 覆盖需求：REQ-016.2 —— AC-2.1/2.2/2.5/2.6 读者正文、事项来源及缺口
+
+def _reader_context():
+    return {"schema": "investment.change_report_context", "subject": dict(SUBJECT),
+            "report_period": "2026H1", "comparable_period": "2025H1",
+            "period_delta": _delta_result(), "degraded": {}}
+
+
+def _reader_event():
+    return {"title": "重要资产变化", "period": "2025FY", "disclosed_at": "2026-03-01",
+            "status": "company_explanation", "explanation": "收购形成的预期价值部分无法收回。",
+            "importance": "影响利润与资产价值。", "amount": "税前费用100元，合并口径。",
+            "impact": "本期利润减少；现金影响未核实。", "limits": "税费与少数股东影响未知。",
+            "sources": [{"title": "原始公告", "date": "2026-03-01", "url": "https://example.org/report.pdf",
+                         "locator": "第3页资产减值表"}]}
+
+
+def test_reader_summary_prioritizes_business_and_locatable_events(tmp_path):
+    from results.report_presentation import main as present
+    context = _write(tmp_path, "context.json", _reader_context())
+    events = _write(tmp_path, "events.json", {"schema": "investment.report_events", "subject": dict(SUBJECT),
+                                               "report_period": "2026H1", "events": [_reader_event()]})
+    body = tmp_path / "details.md"
+    body.write_text("## 数据缺口\n详细证据", encoding="utf-8")
+    output = tmp_path / "reader.md"
+    present(["--context", str(context), "--events", str(events), "--body", str(body), "--output", str(output)])
+    text = output.read_text(encoding="utf-8")
+    assert "营业收入同比增长8.3%" in text and "归母净利润同比增长5.1%" in text
+    assert "2026H1与2025H1" in text and "累计口径" in text
+    assert text.index("重要资产变化") < text.index("## 数据缺口")
+    assert "公司解释" in text and "涉及期间：2025FY" in text
+    assert "第3页资产减值表" in text and "https://example.org/report.pdf" in text
+    assert "税费与少数股东影响未知" in text
+    assert not any(term in text for term in ("bundle", "D7", "selected_chars", "prior_analysis"))
+
+
+def test_reader_summary_missing_events_and_metrics_does_not_invent_causes():
+    from results.report_presentation import render_reader_summary
+    context = _reader_context()
+    context["period_delta"]["parameters"].pop("net_profit_yoy_pct")
+    text = render_reader_summary(context, [])
+    assert "归母净利润同比变化尚未核实" in text
+    assert "尚未取得本次报告已核验的重大事项材料" in text
+    assert "不能单独证明变化原因" in text
+
+
+def test_reader_event_source_and_company_period_mismatch_rejected(tmp_path):
+    from results.report_presentation import load_events
+    data = {"schema": "investment.report_events", "subject": dict(SUBJECT),
+            "report_period": "2026H1", "events": [_reader_event()]}
+    for key, value in (("subject", {"ticker": "000858.SZ"}), ("report_period", "2025FY")):
+        wrong = dict(data, **{key: value})
+        with pytest.raises(ValueError, match="mismatch"):
+            load_events(_write(tmp_path, "wrong.json", wrong), _reader_context())
+    data["events"][0]["sources"] = []
+    with pytest.raises(ValueError, match="original sources"):
+        load_events(_write(tmp_path, "no-source.json", data), _reader_context())
+    assert load_events(None, _reader_context()) == []

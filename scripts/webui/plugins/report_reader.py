@@ -16,21 +16,28 @@ from ..render import markdown_safe
 # 固定源模式覆盖索引、所有指针/台账/运行与发布元信息，以及正文摘要。
 # 不把用户的路径/id插入glob；每个分片仍以公司base和已验证版本id隔离。
 SOURCES = ("*", "runs/*/*", "value_reports/*/*/*", "value_reports/*/*/artifacts/*")
-CATALOG_VERSION = 1
+CATALOG_VERSION = 2
 DOCUMENT_VERSION = 1
 
 TYPES = {"value": "价值分析", "business": "商业质量", "change": "变化报告", "material": "源材料"}
 
 
 def report_type(item):
+    """普通列表的白名单；未知产物留在磁盘与技术索引，不能冒充源材料。"""
     name, rel = item["name"].lower(), item["rel"].lower()
-    if "change_report" in name or "变化报告" in name:
-        return "change"
-    if "价值分析报告" in name or (rel.startswith("value_reports/") and name == "report.md"):
-        return "value"
-    if name == "qualitative_report.md" or "business_analysis" in name:
-        return "business"
-    return "material"
+    suffix = Path(name).suffix
+    if suffix in (".md", ".markdown"):
+        if name == "change_report.md" or name.startswith("change_report_") or "变化报告" in name:
+            return "change"
+        if "价值分析报告" in name or (rel.startswith("value_reports/") and name == "report.md"):
+            return "value"
+        if name == "qualitative_report.md" or name.startswith("business_analysis"):
+            return "business"
+        if name in ("data_pack_market.md", "data_pack_report.md", "source.md"):
+            return "material"
+    if suffix == ".pdf" or name == "source.json":
+        return "material"
+    return None
 
 
 def _json(base, relative):
@@ -151,6 +158,8 @@ def parse_catalog(sources, params):
     versions = []
     for item in data["artifacts"]:
         kind = report_type(item)
+        if kind is None:
+            continue
         parts = Path(item["rel"]).parts
         row, origin = {}, "未知"
         if len(parts) >= 3 and parts[0] == "runs":

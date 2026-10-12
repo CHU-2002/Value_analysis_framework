@@ -1,0 +1,17 @@
+{
+  "schema": "investment.change_report_context",
+  "subject": {
+    "ticker": "600887.SH",
+    "company": "伊利股份",
+    "market": "CN"
+  },
+  "report_period": "2026H1",
+  "comparable_period": "2025H1",
+  "period_delta": {
+    "parameters": {
+      "revenue_yoy_pct": 4.13,
+      "net_profit_yoy_pct": -20.02
+    }
+  },
+  "degraded": {}
+}
