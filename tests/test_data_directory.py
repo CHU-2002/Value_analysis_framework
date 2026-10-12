@@ -184,10 +184,72 @@ def test_market_bulk_stock_basic_existing_directory_and_pause(tmp_path):
     from datalayer.market_bulk import prefetch
     store = DataStore(tmp_path)
     frame = pd.DataFrame([row("600001.SH", "SSE")])
-    store.write_frame(ticker="", dataset="stock_basic", period="latest", params={"exchange": "SSE", "list_status": "L"}, frame=frame, result="ok")
+    store.write_frame(ticker="", dataset="stock_basic", period="latest", params={"exchange": "SSE", "list_status": "L"}, frame=frame, result="ok", fetched_at="2026-01-01T00:00:00+00:00", token_fingerprint="source-token-fingerprint", batch_id="directory-refresh")
     targets = [{"ticker": code, "dataset": "stock_basic", "period": "latest", "params": {"ts_code": code, "fields": "ts_code,name"}}
                for code in ("600001.SH", "000001.SZ")]
     access = DataAccess(store, token="test", rate_limit_seconds=0)
     report = prefetch(store, targets, access)
     assert report["prefetched_targets"] == 1 and report["fallback_targets"] == 1 and report["actual_requests"] == 0
     assert store.serves_target(targets[0]) and not store.serves_target(targets[1])
+    saved = store.find("600001.SH", "stock_basic", "latest", params=targets[0]["params"])
+    assert report["stock_basic_reused"] == 1
+    assert saved["fetched_at"] == "2026-01-01T00:00:00+00:00"
+    assert saved["batch_id"] == "directory-refresh" and saved["token_fingerprint"] == "source-token-fingerprint"
+
+
+def test_market_bulk_daily_complete_window_and_explicit_official_vip(tmp_path):
+    from datalayer.access import DataAccess
+    from datalayer.market_bulk import prefetch
+    targets = [{"ticker": f"60000{i}.SH", "dataset": "daily", "period": "latest",
+                "params": {"ts_code": f"60000{i}.SH", "start_date": "20260101", "end_date": "20260102", "fields": "ts_code,trade_date,close"}} for i in range(6)]
+    calls = []
+    def daily(**params):
+        calls.append(params)
+        if params["trade_date"] == "20260102" or params["offset"] >= 2:
+            return pd.DataFrame()
+        return pd.DataFrame([{"ts_code": "600000.SH", "trade_date": "20260101", "close": 1},
+                             {"ts_code": "600001.SH", "trade_date": "20260101", "close": 2}])
+    store = DataStore(tmp_path)
+    client = SimpleNamespace(_vip_mode=False, MAX_RETRIES=1, pro=SimpleNamespace(daily=daily))
+    access = DataAccess(store, client=client, token="test", rate_limit_seconds=0, batch_id="confirmed")
+    assert prefetch(store, targets, access)["actual_requests"] == 0
+    report = prefetch(store, targets, access, whole_market=True, page_size=2)
+    assert report["actual_requests"] == 3 and report["prefetched_targets"] == 2 and report["fallback_targets"] == 4
+    assert {call["trade_date"] for call in calls} == {"20260101", "20260102"}
+    assert all("start_date" not in call and "ts_code" not in call for call in calls)
+    assert store.serves_target(targets[0]) and not store.serves_target(targets[2])
+    assert store.find("600000.SH", "daily", "latest", params=targets[0]["params"])["batch_id"] == "confirmed"
+    finance = [{"ticker": code, "dataset": "income", "period": "20260630", "params": {"ts_code": code, "period": "20260630", "fields": "ts_code,end_date,revenue"}} for code in ("600000.SH", "600001.SH")]
+    def income_vip(**params):
+        return pd.DataFrame([{"ts_code": "600000.SH", "end_date": "20260630", "revenue": 1}]) if not params["offset"] else pd.DataFrame()
+    client.pro.income_vip = income_vip
+    assert prefetch(store, finance, access)["actual_requests"] == 0
+    assert prefetch(store, finance, access, whole_market=True)["prefetched_targets"] == 1
+    assert client._vip_mode is False
+
+
+def test_market_bulk_daily_incomplete_dates_never_persist(tmp_path):
+    from datalayer.access import DataAccess
+    from datalayer.market_bulk import prefetch
+    targets = [{"ticker": f"60000{i}.SH", "dataset": "daily", "period": "latest",
+                "params": {"ts_code": f"60000{i}.SH", "start_date": "20260101", "end_date": "20260102", "fields": "ts_code,trade_date,close"}} for i in range(6)]
+    for scenario in ("repeat", "missing", "missing_ticker", "wrong_date", "late_error", "pause", "budget"):
+        store = DataStore(tmp_path / scenario)
+        def daily(**params):
+            if params["trade_date"] == "20260102":
+                raise RuntimeError("late error")
+            if params["offset"] and scenario != "repeat":
+                return pd.DataFrame()
+            data = {"ts_code": "600000.SH", "trade_date": "20260102" if scenario == "wrong_date" else "20260101", "close": 1}
+            if scenario == "missing":
+                del data["close"]
+            if scenario == "missing_ticker":
+                data["ts_code"] = None
+            return pd.DataFrame([data])
+        client = SimpleNamespace(_vip_mode=False, MAX_RETRIES=1, pro=SimpleNamespace(daily=daily))
+        access = DataAccess(store, client=client, token="test", rate_limit_seconds=0)
+        report = prefetch(store, targets, access, whole_market=True, page_size=1,
+                          max_requests=1 if scenario == "budget" else 6,
+                          should_pause=(lambda: access.remote_calls > 0) if scenario == "pause" else None)
+        assert report["prefetched_targets"] == 0 and report["fallback_targets"] == 6
+        assert not store.serves_target(targets[0])
