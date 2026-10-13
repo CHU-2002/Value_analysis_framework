@@ -39,11 +39,15 @@ def test_snapshot_separate_filtered_and_historical(tmp_path):
     assert directory.latest() is None
     payload = {key: list(value) for key, value in BASE.items()}
     payload["SSE"] += [row("900901.SH", "SSE", "B股"), row("510001.SH", "SSE", "ETF"),
-                       row("689001.SH", "SSE", "CDR"), row("600002.SH", "SSE", status="D")]
+                       row("689001.SH", "SSE", "CDR"),
+                       # Real stock_basic may report CDRs in the Sci-tech board market.
+                       row("689009.SH", "SSE", "科创板", "九号公司"),
+                       row("600002.SH", "SSE", status="D")]
     client, calls = client_for(payload)
     first = directory.refresh(client)
     assert len(calls) == 3 and client._access.mode == "online"
-    assert first["count"] == 3 and first["exclusions"]["count"] == 4
+    assert first["count"] == 3 and first["exclusions"]["count"] == 5
+    assert first["exclusions"]["by_reason"]["CDR代码段（689）"] == 1
     assert first["gaps"] == []
     assert all(item["status"] == "confirmed" for item in first["coverage"].values())
     assert [entry["ticker"] for entry in Universe(store).entries()] == ["600887.SH"]

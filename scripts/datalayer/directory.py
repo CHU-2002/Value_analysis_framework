@@ -89,6 +89,10 @@ class Directory:
                         elif not re.fullmatch(r"[0-9]{6}\.(SH|SZ|BJ)", ticker):
                             reason = "代码无效"
                             uncertain = True
+                        elif suffix == "SH" and ticker.startswith("689"):
+                            # Tushare may label a 689xxx CDR as 科创板; the code
+                            # segment still identifies a depositary receipt, not an A-share common stock.
+                            reason = "CDR代码段（689）"
                         elif (suffix == "SH" and not ticker.startswith("6")) or (suffix == "SZ" and not ticker.startswith(("0", "3"))):
                             reason = "非A股普通股代码"
                         if reason:
