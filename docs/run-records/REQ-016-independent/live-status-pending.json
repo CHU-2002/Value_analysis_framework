@@ -1,0 +1,30 @@
+{
+  "observed_at": "2026-10-13T01:59:54.060343+00:00",
+  "batch_id": "3acb1a5d48544d6ba3703e68a7004313",
+  "status": "running",
+  "targets": 44584,
+  "completed": 1435,
+  "distribution": {
+    "ok": 1435
+  },
+  "usage": {
+    "actual_requests": 1961,
+    "archive_hits": 94,
+    "current_batch_cache": 47,
+    "new_requests": 1341
+  },
+  "current": {
+    "company_ticker": "000630.SZ",
+    "dataset": "income",
+    "params": {
+      "fields": "ts_code,end_date,report_type,revenue,oper_cost,biz_tax_surchg,sell_exp,admin_exp,rd_exp,fin_exp,assets_impair_loss,credit_impa_loss,fv_value_chg_gain,invest_income,asset_disp_income,operate_profit,non_oper_income,non_oper_exp,total_profit,income_tax,n_income,n_income_attr_p,minority_gain,basic_eps,diluted_eps,dt_eps",
+      "period": "20260630",
+      "report_type": "6",
+      "ts_code": "000630.SZ"
+    },
+    "period": "20260630",
+    "ticker": "000630.SZ"
+  },
+  "phase": "waiting_rate_limit",
+  "snapshot_id": "a107a05c417d4762bb7145d74260f442"
+}

@@ -1,0 +1,15 @@
+{
+  "url": "http://127.0.0.1:8788/#report?company=600887_%E4%BC%8A%E5%88%A9",
+  "text": "报告阅读\n\nMarkdown 先转义再渲染；报告里的原始 HTML 不生效。\n\n公司：600887 伊利\n\n报告类型\n价值分析\n商业质量\n变化报告\n源材料\n报告版本\n选择版本\n未知 · 未知 · 未知 · 未知 · 版本 a6a3044122f0\n生成报告\n\n无法解析此类型的正式发布指针；可选择历史版本，未猜测最新版。\n\n可选历史 1 版；缺少元信息时显示未知。\n\n本次重新解析 · 数据生成时间 2026-10-12T15:40:51+00:00 · 产出格式 0.1.0\n\n产物\n\n按类型分组列出本地产物；点产物名在面板内阅读。\n\n显示 5 / 共 5 行\n产物\t类型\t位置（技术标识）\t字节\n600887_价值分析报告.md\t价值分析\t600887_价值分析报告.md\t27\nchange_report_reader_2026H1.md\t变化报告\tchange_report_reader_2026H1.md\t1744\ndata_pack_market.md\t数据包\tdata_pack_market.md\t51\nqualitative_report.md\t定性报告\tqualitative_report.md\t51\nsource.md\t其他\tsource.md\t51\n\n5 行\n\n上一页\n第 1 / 1 页\n下一页\n\n本次重新解析 · 数据生成时间 2026-10-12T15:40:51+00:00 · 产出格式 0.1.0",
+  "failures": [],
+  "require": [],
+  "forbid": [
+    "latest.json",
+    "record.json",
+    "run_manifest.json",
+    "qualitative_input.json",
+    "data_pack_market_current.md",
+    "pdf_sections_2026H1.json",
+    "unknown.bin"
+  ]
+}

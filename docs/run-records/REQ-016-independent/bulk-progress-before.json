@@ -1,0 +1,20 @@
+{
+  "observed_at": "2026-10-12T16:01:14.465505+00:00",
+  "code_sha": "6bed4c70030e247548c56165e77e32085b698e62",
+  "batch_id": "3acb1a5d48544d6ba3703e68a7004313",
+  "status": "running",
+  "phase": "collecting_bulk",
+  "current": {
+    "company_ticker": "000557.SZ",
+    "dataset": "fina_indicator",
+    "params": {
+      "fields": "ts_code,end_date,roe,roe_waa,grossprofit_margin,netprofit_margin,rd_exp,current_ratio,quick_ratio,assets_turn,debt_to_assets,or_yoy,tr_yoy,netprofit_yoy,ocfps,bps,profit_dedt,ebitda,fcff,netdebt,interestdebt,npl_ratio,prov_cov_ratio,cap_adequacy_ratio,core_cap_adequacy_ratio,net_int_margin,cost_income_ratio",
+      "period": "20260630",
+      "ts_code": "000557.SZ"
+    },
+    "period": "20260630",
+    "ticker": "000557.SZ"
+  },
+  "actual_requests": 1479,
+  "ui_current_display_condition": "current.dataset && batch.status === running"
+}

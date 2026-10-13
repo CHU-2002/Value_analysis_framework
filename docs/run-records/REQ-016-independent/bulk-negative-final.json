@@ -1,0 +1,7 @@
+{
+  "requests": 2,
+  "target_records": 0,
+  "fallback": 6,
+  "false_complete": false,
+  "source_checkpoint_records": 1
+}

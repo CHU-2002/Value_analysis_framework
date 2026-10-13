@@ -1,0 +1,51 @@
+{
+  "checks": {
+    "external_owner": true,
+    "no_active_gui_thread": true,
+    "paused_after_first": true,
+    "resume_only_remaining": true,
+    "snapshot_preserved": true
+  },
+  "reply": {
+    "batch_id": "INDEPENDENT-IPC",
+    "message": "暂停已请求；当前请求完成后落盘并暂停"
+  },
+  "first": {
+    "calls": [
+      "stock_basic"
+    ],
+    "status": "paused",
+    "completed": 1,
+    "progress": {
+      "completed": 1,
+      "directory": {
+        "snapshot_id": "unchanged"
+      },
+      "inputs": {
+        "scope": "all_a",
+        "snapshot_id": "unchanged"
+      },
+      "total": 3
+    }
+  },
+  "resume": {
+    "calls": [
+      "daily",
+      "income"
+    ],
+    "status": "done",
+    "completed": 3,
+    "progress": {
+      "completed": 3,
+      "directory": {
+        "snapshot_id": "unchanged"
+      },
+      "inputs": {
+        "scope": "all_a",
+        "snapshot_id": "unchanged"
+      },
+      "total": 3
+    }
+  },
+  "failures": []
+}

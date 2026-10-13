@@ -1,0 +1,20 @@
+{
+  "base": "http://127.0.0.1:8793",
+  "failures": [],
+  "checks": [
+    {
+      "name": "bulk current company/group displayed truthfully",
+      "passed": true,
+      "actual": [
+        "当前公司：全部A股；当前业务组：行情与估值；当前交易日期：20260101"
+      ]
+    },
+    {
+      "name": "bulk date matches actual provider request",
+      "passed": true,
+      "actual": [
+        "当前公司：全部A股；当前业务组：行情与估值；当前交易日期：20260101"
+      ]
+    }
+  ]
+}
