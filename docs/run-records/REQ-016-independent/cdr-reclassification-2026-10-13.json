@@ -1,0 +1,89 @@
+{
+  "purpose": "Independent read-only reclassification for REQ-016 revised A-share common stock + mainland-listed CDR scope",
+  "sqlite": {
+    "path": "output/.live_req016_delivery/archive/store.db",
+    "mode": "ro",
+    "query_only": true
+  },
+  "snapshot": {
+    "snapshot_id": "a107a05c417d4762bb7145d74260f442",
+    "source": "Tushare stock_basic",
+    "fetched_at": "2026-10-12T15:17:19.023752+00:00",
+    "content_sha256": "bbc8736398aaf763b49f7981d5880a04c3c79a23b304714d66d4546c55006d74",
+    "source_count": 5573,
+    "reclassified_counts": {
+      "A股普通股": 5572,
+      "境内上市CDR": 1
+    },
+    "unknown_count": 0,
+    "coverage": {
+      "SSE": {
+        "status": "confirmed",
+        "count": 2320,
+        "reason": ""
+      },
+      "SZSE": {
+        "status": "confirmed",
+        "count": 2904,
+        "reason": ""
+      },
+      "BSE": {
+        "status": "confirmed",
+        "count": 349,
+        "reason": ""
+      }
+    },
+    "cdr_rows": [
+      {
+        "ticker": "689009.SH",
+        "source_market": "科创板",
+        "exchange": "SSE",
+        "list_status": "L"
+      }
+    ]
+  },
+  "old_plan": {
+    "scope": "all_a",
+    "snapshot_id": "a107a05c417d4762bb7145d74260f442",
+    "company_count": 5573,
+    "target_count": 44584,
+    "directory_keys": [
+      "content_sha256",
+      "count",
+      "coverage",
+      "exclusions",
+      "fetched_at",
+      "gaps",
+      "snapshot_id",
+      "source"
+    ],
+    "instrument_type_counts_saved": false,
+    "explicit_confirmation_after_reclassification_evidenced": false
+  },
+  "old_batch": {
+    "batch_id": "3acb1a5d48544d6ba3703e68a7004313",
+    "status": "done",
+    "target_count": 44584,
+    "company_count": 5573,
+    "cdr_target_count": 8,
+    "progress_directory_keys": [
+      "content_sha256",
+      "count",
+      "coverage",
+      "exclusions",
+      "fetched_at",
+      "gaps",
+      "snapshot_id",
+      "source"
+    ],
+    "instrument_type_counts_saved": false
+  },
+  "classification_basis": "scripts.datalayer.directory.classify_instrument applied in memory to frozen snapshot JSON; no network request; no writes to output/.live_req016_delivery or HOME",
+  "verification": {
+    "targeted_command": ".venv/bin/python -m pytest tests/test_data_directory.py tests/test_console_data_page.py -q",
+    "targeted_result": "42 passed in 11.18s, exit 0",
+    "full_command": "COVERAGE_FILE=\"$PWD/output/.live_req016_acceptance/verify-cdr-approved.coverage\" make verify",
+    "full_result": "1980 passed, 3 skipped; coverage 76.45%; trace 18 passed; scope 49 files / 1983 cases; regression gate passed; exit 0",
+    "sandbox_attempt": "13 loopback-binding tests initially failed with PermissionError in restricted run; approved rerun passed"
+  }
+}

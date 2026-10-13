@@ -1,41 +1,41 @@
 ---
 batch: 2026-10-12-REQ-016
-date: 2026-10-12
+date: 2026-10-13
 reviewer: independent-acceptance-agent
 independence: independent
 requirements: REQ-016, REQ-016.1, REQ-016.2, REQ-016.3, REQ-016.4
 base: 0587992f813e41a495f929622dc83882a99bec69
-full-suite: "1980 passed, 3 skipped，覆盖率 76.43%；make verify 退出0"
+full-suite: "2026-10-13 独立重跑：1980 passed, 3 skipped，覆盖率 76.45%；make verify 退出0"
 ---
 
-# REQ-016 独立验收报告（原目录AC-3未通过）
+# REQ-016 独立验收报告（CDR范围复核；AC-7 pending）
 
 ## 独立验收声明
 
 本 agent 未参与产品实现，仅依据 AGENTS.md、需求原文、代码、测试与独立操作核验。未修产品代码，未改 AC、门禁或需求状态。界面操作及证据工具由验收者独立编写；实现者提供的服务地址只作为访问入口，其声明不作通过证据。
 
-初始检查提交为 `356365d9a8b707d7311835ebb6af4cb52452005e`，当时 `scripts/datalayer/pull.py`、`scripts/webui/plugins/research_data.py`、`docs/TEST_SCOPE.md` 存在主线集成改动；最终独立全量门禁覆盖0587992实现（执行树b6f06da仅另含运行记录文档），1980 passed/3既有skip、76.43%；仅验收报告/证据由本人修改，产品、测试与需求状态未改。终态已独立只读复核；原固定目录的普通股边界发现E4，AC-3未通过。0587992的代码修正不改写原快照或原批次。
+初始检查提交为 `356365d9a8b707d7311835ebb6af4cb52452005e`，此前报告按旧范围认为AC-3未通过。2026-10-13 owner 扩展为 A 股普通股与境内上市 CDR 后，本次只读重分类原固定快照并复核当前计划/目录实现；未联网、未触碰token或 `output/.live_req016_delivery` 写入。本人定向复跑 `42 passed`；在 loopback 权限审批后独立 `make verify` 退出0：1980 passed、3 skipped、覆盖率76.45%，追溯18 passed，scope49文件/1983用例，回归门禁通过。未经审批的首次门禁运行中13项HTTP服务测试因沙箱禁止绑定 `127.0.0.1` 失败；获批重跑后全绿，故不把环境权限错误记作实现失败。终态数据证实原目录现属新范围（5572普通股+1 CDR），但旧计划/批次没有保存当时的分类分布；显式确认发生在该分类展示之前，AC-7仍 pending。
 
 ## 全量测试
 
 ```bash
-.venv/bin/python -m pytest tests/test_data_directory.py tests/test_watchlist_ui.py tests/test_console_data_page.py -q
-COVERAGE_FILE="$PWD/output/.live_req016_acceptance/cdr-final.coverage" make verify
+.venv/bin/python -m pytest tests/test_data_directory.py tests/test_console_data_page.py -q
+COVERAGE_FILE="$PWD/output/.live_req016_acceptance/verify-cdr-approved.coverage" make verify
 ```
 
-独立定向运行退出 0：数据/目录/自选股 `59 passed in 17.43s`；报告/视图 `72 passed in 2.95s`；暂停/目录/报告修复复验 `62 passed in 0.77s`。最终独立 `make verify` 退出0：**1980 passed、3 skipped，覆盖率76.43%**（门槛74%）；需求追溯18 passed，scope 49文件/1983用例（≤52/2000），lint及回归门禁通过。专属COVERAGE_FILE仅隔离证据输出，不改变门槛或测试；最新独立完整日志见 [verify-cdr-final.log](../run-records/REQ-016-independent/verify-cdr-final.log)（1980 passed、3 skipped，111.63秒），追溯18 passed，scope49/1983、回归门禁通过；先前b1dd417/6bed4c7日志作为历史保留。既有3项integration skip为全mock基线，不是本次为通过新增skip。
+独立定向运行退出0：`tests/test_data_directory.py` 与 `tests/test_console_data_page.py` 共 `42 passed in 11.18s`。最新独立 `make verify` 退出0：**1980 passed、3 skipped，覆盖率76.45%**（门槛74%）；需求追溯18 passed，scope49文件/1983用例（≤52/2000），lint及回归门禁通过。完整日志见 [verify-cdr-final.log](../../output/.live_req016_acceptance/verify-cdr-final.log)；分类观察见 [frozen-snapshot-cdr-reclassification.json](../../output/.live_req016_acceptance/frozen-snapshot-cdr-reclassification.json)。既有3项integration skip为未配置token时的live测试，不是本次为通过新增skip。首次无 loopback 权限的门禁失败记录为环境限制，已通过审批权限重跑，不影响通过结论。
 
 ## 逐条验收
 
 ### REQ-016 A股全市场数据采集
 
-- [x] **AC-1**：真实浏览器分别进入伊利与五粮液数据页，范围选择器恰有“已维护公司”“全部A股”。同一断言在旧版两公司各失败、改后均通过。其余档位、期次控件仍存在。
+- [x] **AC-1**：真实浏览器既有走查在伊利、五粮液页核对了选择器恰有两个选项；当前实现把第二项改为需求指定的“沪深北A股与境内上市CDR”，数据档位和期次控件保留。当前 diff 的选择器定义为这两个值；本轮遵守无网络请求边界，未重新打开本机服务抓新截图，故本条新标签依据当前组件定义，既有浏览器截图只支持控件数量和原始交互结构。
 - [x] **AC-2**：隔离清单仅伊利启用、五粮液停用，伊利有磁盘报告。分别从当前伊利/五粮液生成计划，均严格只含 `600887.SH`，计划摘要相等；公司清单详情可核对数量。定向测试进一步检验无关当前公司和空启用清单拒绝路径。
-- [ ] **AC-3**：原固定快照确为Tushare目录、5573标的（沪2320/深2904/北349）及三市场confirmed，但独立终态核对发现689009.SH九号公司CDR被真实源标注科创板而纳入，违反本条A股普通股边界。此前mock中的market=CDR过滤通过不足以证明真实目录边界，纠正先前PASS。0587992已补689代码段规则、独立9项目录测试通过；旧目录/批次仍保留该标的，需新的真实目录及固定计划范围复验后才可关闭E4。
-- [x] **AC-4**：浏览器看到目录时点、目标1家、档位/期次、中文数据组、8目标、新增/复用数量，以及配额/权限/耗时的“未知”与原因。计划查询只读本地仓，未创建批次；测试用 DataAccess 外部调用拒绝断言保证计划不发数据请求。
+- [x] **AC-3**：当前目录规则按交易所、当前上市状态、币种和证券类型筛入普通股与境内上市CDR；689009.SH按代码段分类为CDR，B股/基金/ETF、退市与未知类型不混入，未知类型进入计划缺口并阻止确认。只读原冻结快照重分类为普通股5572、CDR1，沪深北2320/2904/349且coverage均confirmed；目标实现把目录摘要（来源、时点、证券类型计数、快照数）复制到批次 `progress.directory`。当前定向目录/计划测试42 passed。旧快照本身及旧批次不含当时尚未实现的分类字段，故只用于边界/规模复算，不充当新版字段持久化证据。
+- [x] **AC-4**：当前计划返回 A股普通股/CDR 分类计数、目标总数、数据组、请求/复用预估与配额/权限/耗时未知项；未知证券类型被列为缺口并进入 blockers。新定向计划断言覆盖普通股/CDR计数与未知分类阻断。联网前计划路径只读已有本地记录、不创建批次、不请求数据源；既有实跑的旧计划只有总数，未显示新分类分布，不能据此证明用户已看过类型分布后确认（见AC-7）。
 - [x] **AC-5**：取消原生联网确认后批次仍为空，显式确认方创建批次。E1已修复并独立复验：真实两进程、mock数据源的外部worker完成首目标后按GUI共享pause停下；重启仅请求其余2目标，原快照/inputs保持不变。原版active=[]却成功应答的缺陷证据与新版5检查0失败均保留。 E3已独立关闭：冻结6bed同受控长预取场景中current缺失、原生GUI前测退出1；b1dd417后测显示全部A股/真实财报组，退出0。另日线后测同时核对全部A股/行情与估值/20260101交易日期，和实际mock provider请求相等，2检查0失败。
 - [x] **AC-6**：审阅 explain_batch、中文分组表与定向失败路径：按公司/组输出 ok、empty、no_permission、rate_limited、error、unattempted/stale，逐目标有获取时点与后续动作；部分失败保持 partial，未完成数量明确。最终真实批次分布已在AC-7终态章节独立复算。
-- [ ] **AC-7**：实跑执行及终态留证已完成，但全验收仍pending。owner明确确认的原固定批次已done，44584/44584目标均经正式serves_target验证可服务；explain_batch仍done，ok44441/empty143、无权限/错误/限频/覆盖不足/未完成均0，实际批次请求34324、历史复用5440。可复制命令/环境/退出0/目录时点/结果分布及发现的问题均记录；原确认目录仍包含CDR，不能把该终态批次宣称为符合普通股范围的完整通过；须完成修正范围的真实目录/计划复验，AC-3/AC-7保留未通过，REQ-016整体不通过。
+- [ ] **AC-7**：原真实批次执行、结果分布与终态已留证；只读重分类确认原目录为普通股5572+CDR1，原计划/批次目标数44584，CDR占8个目标。范围扩大后该批次客观上覆盖新范围，但原计划文件的 `directory` 不含证券类型字段或类型计数，批次 `progress.directory` 同样只有来源、获取时点、总数、覆盖、排除与缺口；原显式确认发生时没有普通股/CDR分类预估展示的证据。事后从冻结快照分类，不能倒推用户当时确认过新的类型分布。因此真实批次事实可作范围/规模/执行证据，不能满足“经预估后显式确认”的新AC-7；仍须在展示类型计数和预估的新离线计划后取得owner明确确认，再按确认结果完成一轮批次实跑。无网络请求限制下，本次不刷新目录或新建实跑批次。
 
 ### REQ-016.1 报告列表只展示面向用户的产物
 
@@ -57,15 +57,21 @@ COVERAGE_FILE="$PWD/output/.live_req016_acceptance/cdr-final.coverage" make veri
 - [x] **AC-3.2**：刷新数据页显示新简称、基础档位；公司图表页显示“清单：已停用 · 基础必需数据”，重新启用后显示已启用。定向测试核对清单、公司索引、公司解析、计划一致；新增文案约束测试通过。
 - [x] **AC-3.3**：浏览器实际执行编辑、停用、启用、移除后，唯一原始记录与操作前完全相等、公司报告和记录文件逐字节相等。停用卡明确“仍保留在清单”，移除卡明确“不再保留该条目”，移除有单独二次确认。
 
-### REQ-016.4 全 A 股目录快照与批次追踪
+### REQ-016.4 沪深北 A 股与境内上市 CDR 目录快照与批次追踪
 
-- [x] **AC-4.1**：SQLite 独立 directory_snapshot 表保存 source/fetched_at/snapshot_id/content_sha256 与逐标的 ticker/name/exchange/list_status；与 universe 启用状态完全分离，additive迁移及重开仓用例通过。
-- [x] **AC-4.2**：真实计划与运行批次均固定 `a107a05c417d4762bb7145d74260f442`，目标44584对应公司5573，批次目标集合持久化；make_plan使用指定id、恢复用原batch.targets，不读取新latest替换目标。暂停元数据保留集成改动仍须最终门禁覆盖。
-- [x] **AC-4.3**：刷新INSERT新id，旧快照查询可复原；测试实证第二快照新增/减少/名称变化、历史保留、缺失字段与交易所覆盖未知、token错误信息脱敏。compare明确目录减少不能单独认定退市。
+- [x] **AC-4.1**：当前 `Directory.refresh` 在逐标的行结构化保存证券类型，并在快照保存分类计数；SQLite 独立 `directory_snapshot` 保存 source/fetched_at/snapshot_id/content_sha256 与逐标的 ticker/name/type/exchange/list_status，仍与自选股状态分离。定向目录测试验证普通股/CDR分类、689009.SH分类和历史快照查询；本次42项定向测试及全量门禁通过。原固定快照是在类型字段加入前生成，未被改写。
+- [x] **AC-4.2**：当前计划固定指定的 snapshot_id，分类计数随 `directory` 摘要保存到新批次 `progress.directory`，目标从固定计划生成；`CollectionRunner.start` 保留该摘要。测试覆盖固定快照、计划digest稳定和批次快照ID不变。原实跑计划/批次均引用 `a107a05c417d4762bb7145d74260f442`、44584目标/5573家公司；但旧批次目录摘要没有证券类型计数，不作为新版分类持久化的实跑证据。
+- [x] **AC-4.3**：刷新插入新 snapshot_id、旧快照仍可查询；测试验证两次快照新增/减少/名称变化、历史保留、缺字段与交易所覆盖未知。当前compare明示目录减少不能单独认定退市。定向测试及完整门禁通过。
 
 ## 实跑记录
 
 环境：本机 macOS、项目 `.venv` Python、真实无头浏览器 CDP。所有本验收仓、缓存、公司报告与浏览器profile写入 `output/.live_req016_acceptance`；真实 HOME 存档未作为写入目标。界面实跑没有发起真实公司数据采集，不读取或打印 token。
+
+### 2026-10-13 CDR范围复核
+
+本次只读查询冻结 SQLite `output/.live_req016_delivery/archive/store.db`，以 `mode=ro` 和 `PRAGMA query_only=ON` 打开；从快照内存中按当前分类规则计数，不写入旧快照、计划或批次，也未发网络请求。观察为快照 `a107a05c417d4762bb7145d74260f442` 共5573家：普通股5572、境内上市CDR1、未知0；SSE/SZSE/BSE分别2320/2904/349且均confirmed。原批次 `3acb1a5d48544d6ba3703e68a7004313` 为done、44584目标、5573家公司，689009.SH占8个目标。原计划与原批次目录摘要都没有分类字段/计数；本次没有证据表明显式确认发生在看到类型分布之后。逐字段与校验结果见[独立分类观察](../run-records/REQ-016-independent/cdr-reclassification-2026-10-13.json)及指定live目录中的JSON。
+
+测试环境为macOS、Python 3.12.13、项目 `.venv`。定向测试命令退出0，42 passed；完整 `make verify` 在批准本机loopback绑定后退出0，1980 passed/3 skipped、76.45%，trace18、scope49/1983、regression gate passed。第一次受限运行的13项loopback绑定错误为沙箱权限限制，获批运行通过；完整日志保存于 `output/.live_req016_acceptance/verify-cdr-final.log`。本轮测试不会发起真实数据源请求。
 
 证据源脚本与选取截图保存于 [`../run-records/REQ-016-independent/`](../run-records/REQ-016-independent/)。命令从仓库根执行；本机旧版服务8786来自隔离实现worktree，改后服务8787为当前主线，两者均显式沙箱仓。脚本仅使用GUI原生点击与键盘执行配置动作，读DOM/只读API核验结果，不调用产品stub。
 
@@ -215,13 +221,12 @@ print({k:r[k] for k in ['status','total','counts','actual_requests','reused','un
 PYCODE
 ```
 
-## E4 原目录普通股范围未通过
+## 新范围实跑限制：分类可复核，确认时间点不可追溯
 
-只读原快照发现689009.SH九号公司，metadata.market=科创板、list_status=L、币种CNY，原批次因此包含该证券8目标。其2026H1原始披露摘要明确公司存托凭证简况及境内存托凭证持有人均适用，上市的是CDR。[公司原始半年报摘要（法定信披）](https://paper.cnstock.com/html/2026-08/11/content_2253825.htm)、[上交所公司页面（区分A/B/CDR）](https://www.sse.com.cn/star/market/stocklist/info/company/index.shtml?COMPANY_CODE=689009)。[原始目录与受影响目标观察](../run-records/REQ-016-independent/cdr-directory-gap.json)。
+只读重分类和原始资料共同支持689009.SH九号公司为境内上市CDR；原数据源字段 `market=科创板`，`list_status=L`、币种CNY。公司2026H1披露摘要列有存托凭证简况及境内存托凭证持有人适用事项；上交所页面也区分A股/B股/CDR。[公司原始半年报摘要（法定信披）](https://paper.cnstock.com/html/2026-08/11/content_2253825.htm)、[上交所公司页面（区分A/B/CDR）](https://www.sse.com.cn/star/market/stocklist/info/company/index.shtml?COMPANY_CODE=689009)。
 
-独立审阅0587992：directory增加SSE689代码段排除，不再依赖market字符串；原有测试补真实科创板标注的九号CDR，独立9 passed。修复不删除历史记录、不改原snapshot_id/target集合/AC；原固定快照仍不是纯普通A股范围，AC-3保持FAIL。需要修正代码后新的真实目录及计划范围证据，不能用mock通过或原批次done替代这个边界复验。
-
+本轮无网络请求，故没有刷新快照。旧冻结快照保留分类前字段；当前实现能在生成计划时对旧快照推导类型并列缺口，但不回写历史记录。旧实跑计划和批次缺类型计数；用户明确确认发生在展示新分类计数之前，不能据此证明确认发生在类型分布预估之后。范围决定可将该批次用于新市场范围的覆盖、规模和结果复算，不能替代AC-7要求的确认时点证据。
 
 ## 结论
 
-原确认批次实跑执行与终态复算已完成；AC-7记录事实充分，但因确认范围含CDR，整条AC-7仍pending。REQ-016.1～.4原有逐AC结论保持通过，E1/E2/E3已独立复验。父AC-3及AC-7因原确认快照纳入CDR而未通过，REQ-016整体不通过、不得推进verified；代码修复已审阅并通过独立目录测试，真实目录范围复验尚未完成。需求状态及验收标准均未由本验收者修改。
+当前实现和测试支持新AC-1、AC-3、AC-4及REQ-016.4；冻结真实快照按新范围重分类为5572普通股+1境内上市CDR，原全量批次44584目标、其中CDR 8目标，终态分布及只读性均复核成立。原实跑计划与批次没有保存类型分布，而且显式确认早于分类计数展示；owner批准扩大范围不等同于对已展示分类分布的新计划再次确认。故AC-7保持pending，REQ-016及REQ-016.4的实现/定向测试证据通过，但需求不能推进verified。关闭AC-7需要新离线计划展示分类计数与请求预估、随后取得owner显式确认，并完成该计划对应的全市场批次实跑与报告。本次未修改需求状态、台账或产品实现。
