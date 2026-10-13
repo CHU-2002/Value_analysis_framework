@@ -11,7 +11,7 @@ try:
   w.goto('data',company)
   options=cdp.evaluate('[...document.querySelectorAll(".collection-workspace select")][0] ? [...document.querySelectorAll(".collection-workspace select")][0].options.length : 0')
   labels=cdp.evaluate('[...document.querySelectorAll(".collection-workspace select")][0] ? [...document.querySelectorAll(".collection-workspace select")][0].textContent : ""')
-  w.record(company+' scope exactly maintained/all-A',[options,labels],options==2 and '已维护公司' in labels and '全部A股' in labels)
+  w.record(company+' scope exactly maintained/mainland A-shares plus CDR',[options,labels],options==2 and '已维护公司' in labels and '沪深北A股与境内上市CDR' in labels)
   for op in ['enable','disable','edit']:
    found=cdp.evaluate(f'Boolean(document.querySelector(\'[data-action-id="universe.{op}"]\'))');w.record(company+' '+op+' GUI entry',found,found)
   w.screenshot(company.replace('.','-'))

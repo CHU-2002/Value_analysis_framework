@@ -46,8 +46,10 @@ def test_snapshot_separate_filtered_and_historical(tmp_path):
     client, calls = client_for(payload)
     first = directory.refresh(client)
     assert len(calls) == 3 and client._access.mode == "online"
-    assert first["count"] == 3 and first["exclusions"]["count"] == 5
-    assert first["exclusions"]["by_reason"]["CDR代码段（689）"] == 1
+    assert first["count"] == 5 and first["exclusions"]["count"] == 3
+    assert first["instrument_type_counts"] == {"A股普通股": 3, "境内上市CDR": 2}
+    assert {item["ticker"]: item["instrument_type"] for item in first["companies"]}["689009.SH"] == "境内上市CDR"
+    assert first["exclusions"]["by_reason"] == {"非支持证券类型或板块未知": 2, "非当前上市": 1}
     assert first["gaps"] == []
     assert all(item["status"] == "confirmed" for item in first["coverage"].values())
     assert [entry["ticker"] for entry in Universe(store).entries()] == ["600887.SH"]
@@ -59,7 +61,7 @@ def test_snapshot_separate_filtered_and_historical(tmp_path):
     assert directory.latest() == second and len(directory.list()) == 2
     diff = directory.compare(first["snapshot_id"], second["snapshot_id"])
     assert [item["ticker"] for item in diff["added"]] == ["600003.SH"]
-    assert [item["ticker"] for item in diff["removed"]] == ["600001.SH"]
+    assert [item["ticker"] for item in diff["removed"]] == ["600001.SH", "689001.SH", "689009.SH"]
     assert len(diff["changed"]) == 1
     store.close()
     assert Directory(DataStore(tmp_path)).get(first["snapshot_id"]) == first

@@ -19,7 +19,7 @@ from webui.plugins.research_data import CollectionRunner, explain_batch, make_pl
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(description="全A股采集：离线规划，再明确确认执行")
+    parser = argparse.ArgumentParser(description="沪深北A股与境内CDR采集：离线规划，再明确确认执行")
     parser.add_argument("action", choices=("plan", "run", "resume"))
     parser.add_argument("--store", required=True, help="隔离原始仓根")
     parser.add_argument("--plan", required=True, help="固定计划JSON，plan时写入，run时核对")

@@ -781,15 +781,29 @@ def test_full_market_plan_pins_snapshot_and_reports_exchange_gaps(tmp_path, monk
     from datalayer.directory import Directory
     config, registry = make_app(tmp_path)
     snapshot = {"snapshot_id": "snap-a", "source": "Tushare stock_basic", "fetched_at": "2026-10-12T00:00:00Z",
-                "companies": [{"ticker": "600887.SH", "market": "SH", "display_name": "伊利"},
-                              {"ticker": "000001.SZ", "market": "SZ", "display_name": "平安"},
-                              {"ticker": "920001.BJ", "market": "BJ", "display_name": "北交所公司"}],
+                "companies": [{"ticker": "600887.SH", "market": "SH", "display_name": "伊利", "instrument_type": "A股普通股"},
+                              {"ticker": "000001.SZ", "market": "SZ", "display_name": "平安", "metadata": {"market": "主板"}},
+                              {"ticker": "920001.BJ", "market": "BJ", "display_name": "北交所公司", "metadata": {"market": "北交所"}},
+                              {"ticker": "689009.SH", "market": "SH", "display_name": "九号公司",
+                               "metadata": {"market": "科创板"}}],
                 "coverage": {}, "exclusions": {}, "gaps": []}
     monkeypatch.setattr(Directory, "latest", lambda _: snapshot)
     monkeypatch.setattr(Directory, "get", lambda _, key: snapshot if key == "snap-a" else None)
     plan = call_route(registry, "GET", "/api/v1/research-data/plan", scope="all_a", company=TICKER, periods="20251231")["data"]
-    assert plan["company_count"] == 3 and plan["total"] == 24
+    assert plan["company_count"] == 4 and plan["total"] == 32
+    assert plan["instrument_type_counts"] == {"A股普通股": 3, "境内上市CDR": 1}
+    assert plan["directory"]["instrument_type_counts"] == plan["instrument_type_counts"]
     assert plan["inputs"]["snapshot_id"] == "snap-a" and not plan["blockers"]
+    unknown_snapshot = {**snapshot, "companies": snapshot["companies"] + [
+        {"ticker": "000002.SZ", "market": "SZ", "display_name": "未分类证券", "metadata": {"market": "未知板块"}}
+    ]}
+    monkeypatch.setattr(Directory, "latest", lambda _: unknown_snapshot)
+    monkeypatch.setattr(Directory, "get", lambda _, key: unknown_snapshot if key == "snap-a" else None)
+    unknown_plan = call_route(registry, "GET", "/api/v1/research-data/plan", scope="all_a", periods="20251231")["data"]
+    assert unknown_plan["directory"]["unknown_instrument_types"] == ["000002.SZ"]
+    assert any("无法确认证券类型" in blocker for blocker in unknown_plan["blockers"])
+    monkeypatch.setattr(Directory, "latest", lambda _: snapshot)
+    monkeypatch.setattr(Directory, "get", lambda _, key: snapshot if key == "snap-a" else None)
     pinned = call_route(registry, "GET", "/api/v1/research-data/plan", **plan["inputs"])["data"]
     assert pinned["digest"] == plan["digest"]
     snapshot["gaps"] = ["北交所覆盖未知：数据源拒绝"]
@@ -876,7 +890,7 @@ def test_market_prefetch_counts_new_targets_separately_from_directory_reuse(tmp_
     class Pro:
         def income_vip(self, **params):
             current = store.load_batch('bulk')['progress']['current']
-            assert current['company_ticker'] == '全部A股' and current['dataset'] == 'income'
+            assert current['company_ticker'] == '沪深北A股与境内上市CDR' and current['dataset'] == 'income'
             assert current['period'] == '20260630'
             calls.append(params)
             return finance if params['offset'] == 0 else pd.DataFrame()

@@ -124,7 +124,7 @@ def make_plan(ctx, inputs=None):
     store = DataStore(ctx.config.archive_root)
     scope = inputs.get("scope") or "watchlist"
     if scope not in ("watchlist", "all_a"):
-        raise BadRequest("公司范围只能是已维护公司或全部A股")
+        raise BadRequest("公司范围只能是已维护公司或全部A股与境内上市CDR")
     tier = inputs.get("tier") or "frugal"
     if tier not in profile_names():
         raise BadRequest("数据档位无效")
@@ -142,9 +142,18 @@ def make_plan(ctx, inputs=None):
         catalog = Directory(store)
         snapshot = catalog.get(inputs["snapshot_id"]) if inputs.get("snapshot_id") else catalog.latest()
         if not snapshot:
-            raise BadRequest("尚无全A股目录快照；请先明确确认刷新目录，再离线检查计划")
-        companies = snapshot["companies"]
+            raise BadRequest("尚无沪深北股票与CDR目录快照；请先明确确认刷新目录，再离线检查计划")
+        from datalayer.directory import annotate_instruments
+        companies = annotate_instruments(snapshot["companies"])
         directory = {key: value for key, value in snapshot.items() if key != "companies"}
+        directory["instrument_type_counts"] = dict(Counter(row["instrument_type"] for row in companies
+                                                            if row["instrument_type"]))
+        unknown_instruments = sorted(row["ticker"] for row in companies if not row["instrument_type"])
+        if unknown_instruments:
+            directory["unknown_instrument_types"] = unknown_instruments
+            directory["gaps"] = list(directory.get("gaps") or []) + [
+                f"{len(unknown_instruments)} 个目录标的无法确认证券类型：" + "、".join(unknown_instruments)
+            ]
     else:
         companies = Universe(store).entries(enabled_only=True)
     if not companies:
@@ -204,6 +213,7 @@ def make_plan(ctx, inputs=None):
             "requests_estimate": remaining, "reuse_estimate": complete, "counts": dict(counts),
             "groups": dict(Counter(row["group"] for row in rows)),
             "directory": directory, "company_count": len(companies),
+            "instrument_type_counts": dict(Counter(row.get("instrument_type", "") for row in companies if row.get("instrument_type"))),
             "unknowns": {"quota": "未知：数据源未提供此账号剩余配额", "permissions": "未知：账号接口权限未验证",
                          "duration": "未知：受响应速度、限频与重试影响"},
             "existing_records": store._connect().execute("SELECT COUNT(*) FROM raw_record").fetchone()[0],

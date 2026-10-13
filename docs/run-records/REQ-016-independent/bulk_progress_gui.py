@@ -14,7 +14,7 @@ try:
   time.sleep(.5)
  batch=c.evaluate('document.querySelector("[data-batch]")?.innerText || ""')
  current=[line for line in batch.splitlines() if '当前公司' in line or '当前业务组' in line or '当前日期' in line]
- w.record('bulk current company/group displayed truthfully',current,bool(current and '全部A股' in current[0] and '当前业务组' in current[0]))
+ w.record('bulk current company/group displayed truthfully',current,bool(current and '沪深北A股与境内上市CDR' in current[0] and '当前业务组' in current[0]))
  if args.expect_date:w.record('bulk date matches actual provider request',current,any(args.expect_date in line and '当前交易日期' in line for line in current))
  w.screenshot('bulk-current')
  (out/'observations.json').write_text(json.dumps(w.observations,ensure_ascii=False,indent=2));print(json.dumps(w.observations,ensure_ascii=False));raise SystemExit(bool(w.observations['failures']))

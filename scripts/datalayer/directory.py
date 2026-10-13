@@ -13,6 +13,28 @@ from .security import redact
 
 EXCHANGES = {"SSE": "SH", "SZSE": "SZ", "BSE": "BJ"}
 FIELDS = "ts_code,symbol,name,area,industry,fullname,enname,cnspell,market,exchange,curr_type,list_status,list_date,delist_date,is_hs"
+ORDINARY_STOCK_MARKETS = ("主板", "中小板", "创业板", "科创板", "北交所")
+
+
+def classify_instrument(ticker, market):
+    """Separate mainland A-share common stocks from exchange-listed CDRs.
+
+    Tushare's stock_basic can report an SSE CDR in ``科创板``; the 689xxx
+    SSE code segment identifies that instrument class more reliably.
+    """
+    ticker = str(ticker or "").upper()
+    market = str(market or "")
+    if market == "CDR" or (ticker.endswith(".SH") and ticker[:6].startswith("689")):
+        return "境内上市CDR"
+    if market in ORDINARY_STOCK_MARKETS:
+        return "A股普通股"
+    return ""
+
+
+def annotate_instruments(companies):
+    """Return plan rows with instrument types, deriving legacy snapshots safely."""
+    return [{**company, "instrument_type": company.get("instrument_type") or classify_instrument(
+        company.get("ticker"), (company.get("metadata") or {}).get("market"))} for company in companies]
 
 
 class Directory:
@@ -74,7 +96,7 @@ class Directory:
                             reason = "重复代码"
                             uncertain = True
                         elif not row.get("curr_type"):
-                            reason = "币种缺失，无法确认普通A股"
+                            reason = "币种缺失，无法确认受支持的人民币证券"
                             uncertain = True
                         elif row.get("list_status") != "L":
                             reason = "非当前上市"
@@ -82,28 +104,25 @@ class Directory:
                             reason = "交易所不匹配"
                             uncertain = True
                         elif str(row.get("curr_type") or "CNY") != "CNY":
-                            reason = "非人民币普通股"
-                        elif market not in ("主板", "中小板", "创业板", "科创板", "北交所"):
-                            reason = "非A股普通股或板块未知"
-                            uncertain |= market not in ("CDR", "B股", "基金", "ETF")
+                            reason = "非人民币证券"
+                        elif not classify_instrument(ticker, market):
+                            reason = "非支持证券类型或板块未知"
+                            uncertain |= market not in ("B股", "基金", "ETF")
                         elif not re.fullmatch(r"[0-9]{6}\.(SH|SZ|BJ)", ticker):
                             reason = "代码无效"
                             uncertain = True
-                        elif suffix == "SH" and ticker.startswith("689"):
-                            # Tushare may label a 689xxx CDR as 科创板; the code
-                            # segment still identifies a depositary receipt, not an A-share common stock.
-                            reason = "CDR代码段（689）"
                         elif (suffix == "SH" and not ticker.startswith("6")) or (suffix == "SZ" and not ticker.startswith(("0", "3"))):
                             reason = "非A股普通股代码"
                         if reason:
                             excluded.append({"ticker": ticker, "exchange": exchange, "reason": reason, "metadata": row})
                             continue
                         companies[ticker] = {"ticker": ticker, "display_name": row["name"], "market": suffix,
+                                             "instrument_type": classify_instrument(ticker, market),
                                              "exchange": exchange, "list_status": "L", "metadata": row}
                         count += 1
                     if not count:
                         uncertain = True
-                    reason = "目录字段存在不确定项或无普通A股" if uncertain else ""
+                    reason = "目录字段存在不确定项或无受支持证券" if uncertain else ""
                     coverage[exchange] = {"status": "unknown" if uncertain else "confirmed", "count": count, "reason": reason}
                     if uncertain:
                         gaps.append(f"{exchange} 覆盖未确认：{reason}")
@@ -116,7 +135,9 @@ class Directory:
         ordered = [companies[key] for key in sorted(companies)]
         digest = hashlib.sha256(json.dumps(ordered, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
         snapshot = {"snapshot_id": uuid.uuid4().hex, "source": "Tushare stock_basic", "fetched_at": self.store._now(),
-                    "content_sha256": digest, "companies": ordered, "count": len(ordered), "coverage": coverage,
+                    "content_sha256": digest, "companies": ordered, "count": len(ordered),
+                    "instrument_type_counts": dict(Counter(row["instrument_type"] for row in ordered)),
+                    "coverage": coverage,
                     "exclusions": {"count": len(excluded), "by_reason": dict(Counter(row["reason"] for row in excluded)),
                                    "items": excluded}, "gaps": gaps}
         self._connection()

@@ -69,7 +69,7 @@ export async function render(container, panel, payload) {
   container.append(root);
   root.append(node("p", data.guide || "先核对计划，再确认联网采集。"));
   const form = document.createElement("form"); form.className = "action-controls";
-  const [scopeLabel, scope] = select("公司范围", [["watchlist", "已维护公司"], ["all_a", "全部A股"]], "watchlist");
+  const [scopeLabel, scope] = select("公司范围", [["watchlist", "已维护公司"], ["all_a", "沪深北A股与境内上市CDR"]], "watchlist");
   const [tierLabel, tier] = select("数据档位", [["frugal", "基础必需数据"], ["bulk", "完整业务数据"]], "frugal");
   const periodLabel = node("label", "财报期次（YYYYMMDD，逗号分隔）");
   const periods = document.createElement("input"); periods.value = data.periods || "";
@@ -82,8 +82,8 @@ export async function render(container, panel, payload) {
   const inspect = button("检查计划（离线）", () => check());
   form.append(inspect); root.append(form);
   const directoryBox = node("div"); root.append(directoryBox);
-  const refreshDirectory = button("刷新全A股目录（联网）", async () => {
-    if (!window.confirm("目录刷新将向数据源查询沪、深、北交易所上市股票，会联网并消耗目录接口配额；不会创建公司数据采集批次。确认刷新？")) return;
+  const refreshDirectory = button("刷新沪深北股票与CDR目录（联网）", async () => {
+    if (!window.confirm("目录刷新将向数据源查询沪、深、北交易所当前上市 A 股普通股与境内上市 CDR，会联网并消耗目录接口配额；不会创建公司数据采集批次。确认刷新？")) return;
     refreshDirectory.disabled = true; feedback.textContent = "正在查询沪、深、北交易所目录…";
     try {
       const snapshot = await post("/api/v1/research-data/directory/refresh", { confirmed: true });
@@ -97,7 +97,7 @@ export async function render(container, panel, payload) {
       const result = (await api("/api/v1/research-data/directory")).data;
       directoryBox.replaceChildren();
       const snapshots = result.snapshots || [];
-      directoryBox.append(node("p", snapshots.length ? `已保存 ${snapshots.length} 个目录版本，旧版本可供批次审计。` : "尚无全A股目录。先确认刷新目录，再离线生成全市场计划。"));
+      directoryBox.append(node("p", snapshots.length ? `已保存 ${snapshots.length} 个目录版本，旧版本可供批次审计。` : "尚无沪深北股票与CDR目录。先确认刷新目录，再离线生成全市场计划。"));
       if (snapshots.length) directoryBox.append(details("目录历史（来源、时点、覆盖与排除项）", snapshots));
     } catch (error) { directoryBox.textContent = error.message; }
   }
@@ -126,8 +126,10 @@ export async function render(container, panel, payload) {
     planBox.append(node("h3", `计划完备度 ${plan.complete}/${plan.total} 个目标；剩余 ${plan.remaining} 个`));
     planBox.append(node("p", `目标公司 ${plan.companies.length} 家；范围：${scope.options[scope.selectedIndex].textContent}；期次 ${plan.inputs.periods}；档位 ${tier.options[tier.selectedIndex].textContent}`));
     const companies = document.createElement("details"); companies.append(node("summary", "目标公司清单（可核对数量）"));
-    companies.append(table(plan.companies, [["ticker", "代码"], ["display_name", "公司"], ["market", "市场"]])); planBox.append(companies);
+    companies.append(table(plan.companies, [["ticker", "代码"], ["display_name", "公司"], ["market", "市场"], ["instrument_type", "证券类型"]])); planBox.append(companies);
     if (plan.directory) {
+      const classes = Object.entries(plan.directory.instrument_type_counts || {}).map(([kind, count]) => `${kind} ${count} 家`).join("；");
+      planBox.append(node("p", `目录证券类型：${classes || "未知"}`));
       planBox.append(node("p", `目录来源：${plan.directory.source}；获取时点：${plan.directory.fetched_at}；版本：${plan.directory.snapshot_id}`));
       planBox.append(details("沪深北覆盖、排除项与目录缺口", plan.directory));
     } else planBox.append(node("p", "目录时点：本次计划生成时的已启用维护清单。"));
@@ -140,7 +142,8 @@ export async function render(container, panel, payload) {
     audit.append(table(plan.rows, [["company_ticker", "公司"], ["group", "业务组"], ["label", "数据"], ["period", "期次"], ["state_label", "状态"], ["fetched_at", "数据获取时点"], ["next_step", "下一步"]]));
     audit.append(details("接口名与请求参数（技术详情）", plan.targets)); planBox.append(audit);
     const start = button("确认采集（联网、消耗配额）", async () => {
-      if (!planned || !window.confirm(`公司范围：${scope.options[scope.selectedIndex].textContent} ${plan.companies.length} 家\n期次：${plan.inputs.periods}\n档位：${plan.inputs.tier}\n业务组：${Object.keys(plan.groups).join("、")}\n新增请求预估 ${plan.requests_estimate} 次，复用 ${plan.reuse_estimate} 个目标。账号权限未验证，耗时未知。\n确认联网采集？取消不会请求数据源。`)) return;
+      const classes = Object.entries(plan.instrument_type_counts || {}).map(([kind, count]) => `${kind} ${count} 家`).join("、");
+      if (!planned || !window.confirm(`公司范围：${scope.options[scope.selectedIndex].textContent} ${plan.companies.length} 家（${classes || "证券类型未知"}）\n期次：${plan.inputs.periods}\n档位：${plan.inputs.tier}\n业务组：${Object.keys(plan.groups).join("、")}\n新增请求预估 ${plan.requests_estimate} 次，复用 ${plan.reuse_estimate} 个目标。账号权限未验证，耗时未知。\n确认联网采集？取消不会请求数据源。`)) return;
       start.disabled = true;
       try {
         const batch = await post("/api/v1/research-data/run", { inputs: plan.inputs, digest: plan.digest, confirmed: true });

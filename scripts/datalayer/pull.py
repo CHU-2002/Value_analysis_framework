@@ -28,7 +28,7 @@ from .errors import BatchRunning, NoToken, QuotaConfirmRequired, UsageError
 from .gaps import DONE_KINDS, classify_result, completeness, pending_targets
 
 # 与既有 `webui/archive/quota.py` 相同的市场过滤规则：港股接口只对港股标的，
-# 美股接口只对美股标的，`stock_basic` 只对 A 股。
+# 美股接口只对美股标的，`stock_basic` 对沪深北 A 股与境内上市 CDR。
 HK_MARKETS = ("HK",)
 US_MARKETS = ("US", "NYSE", "NASDAQ")
 CN_MARKETS = ("SH", "SZ", "BJ", "")
@@ -311,7 +311,7 @@ class PullBatch:
                     request = self.access.current_request
                     params = request.get("params") or {}
                     batch["progress"]["current"] = {
-                        "ticker": "全部A股", "company_ticker": "全部A股",
+                        "ticker": "沪深北A股与境内上市CDR", "company_ticker": "沪深北A股与境内上市CDR",
                         "dataset": str(request.get("dataset") or "stock_basic").removesuffix("_vip"),
                         "period": params.get("period") or "latest", "trade_date": params.get("trade_date") or ""}
                     batch["usage"]["actual_requests"] = requests_before_bulk + max(0, self.access.remote_calls - calls_before_bulk)
