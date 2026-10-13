@@ -140,6 +140,8 @@ def prefetch(store, targets, access, *, completed=None, page_size=1000, max_page
             else:
                 date_params = [params]
             for request in date_params:
+                access.current_request = {"dataset": official_alias, "params": request}
+                access._notify("replaying")
                 source_params = {key: value for key, value in request.items() if key not in ("limit", "offset")}
                 source_period = str(request.get("period") or "latest")
                 checkpoint_key = f"market_bulk_checkpoint:{dataset}:{source_period}:{param_key(source_params)}"

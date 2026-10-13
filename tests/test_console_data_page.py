@@ -875,6 +875,9 @@ def test_market_prefetch_counts_new_targets_separately_from_directory_reuse(tmp_
     calls = []
     class Pro:
         def income_vip(self, **params):
+            current = store.load_batch('bulk')['progress']['current']
+            assert current['company_ticker'] == '全部A股' and current['dataset'] == 'income'
+            assert current['period'] == '20260630'
             calls.append(params)
             return finance if params['offset'] == 0 else pd.DataFrame()
     client = SimpleNamespace(pro=Pro(), MAX_RETRIES=1, RETRY_DELAY=0, _vip_mode=False)

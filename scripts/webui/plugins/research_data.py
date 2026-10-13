@@ -38,7 +38,7 @@ RESULTS = {
     "stale": ("过期/覆盖不足", "旧记录不能覆盖所需窗口/字段；补缺口"),
 }
 PHASES = {"pending": "排队", "running": "正在采集", "paused": "暂停", "done": "完成",
-          "partial": "部分成功", "failed": "中断", "waiting_rate_limit": "等待限频",
+          "partial": "部分成功", "failed": "中断", "waiting_rate_limit": "等待调用间隔或配额",
           "waiting_retry": "等待重试", "collecting_bulk": "正在读取全市场同源数据"}
 
 
@@ -341,14 +341,24 @@ class CollectionRunner:
             access = TushareClient(token, store=store, batch_id=batch["batch_id"])._access
             def pre_collect(current, current_access, should_pause):
                 from datalayer.market_bulk import prefetch
-                # The directory partition saves one request per remaining basic
-                # target. Reserve that reduction for whole-market attempts; a
-                # denied VIP route can still fall back to the original targets.
-                budget = sum(target["dataset"] == "stock_basic" for target in current["targets"]
-                             if not store.serves_target(target))
-                return prefetch(store, current["targets"], current_access,
-                                completed=current.get("completed"), should_pause=should_pause,
-                                max_requests=budget, whole_market=True, page_size=6000)
+                # Partition existing directory data first, without remote calls.
+                # Reserve enough of the original estimate for every remaining
+                # individual target. This keeps unused savings across resumes.
+                local = prefetch(store, [target for target in current["targets"] if target["dataset"] == "stock_basic"],
+                                 current_access, completed=current.get("completed"),
+                                 should_pause=should_pause, max_requests=0)
+                if local.get("paused"):
+                    return local
+                remaining = sum(not store.serves_target(target) for target in current["targets"])
+                budget = max(0, len(current["targets"]) - current["usage"].get("actual_requests", 0) - remaining)
+                report = prefetch(store, current["targets"], current_access,
+                                  completed=current.get("completed"), should_pause=should_pause,
+                                  max_requests=budget, whole_market=True, page_size=6000)
+                report["budget_available"] = budget
+                report["prefetched_targets"] += local["prefetched_targets"]
+                report["stock_basic_reused"] += local["stock_basic_reused"]
+                report["archive_hits"] -= local["prefetched_targets"]
+                return report
             bulk = pre_collect if (batch.get("progress") or {}).get("inputs", {}).get("scope") == "all_a" else None
             PullBatch(store, batch["targets"], batch["profile"], access, token=token,
                       should_pause=pause.is_set, pre_collect=bulk).run(batch_id=batch["batch_id"], confirm=True)

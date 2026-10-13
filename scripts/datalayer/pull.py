@@ -308,10 +308,17 @@ class PullBatch:
                 calls_before_bulk = self.access.remote_calls
                 requests_before_bulk = batch["usage"].get("actual_requests", 0)
                 def bulk_phase(phase):
+                    request = self.access.current_request
+                    params = request.get("params") or {}
+                    batch["progress"]["current"] = {
+                        "ticker": "全部A股", "company_ticker": "全部A股",
+                        "dataset": str(request.get("dataset") or "stock_basic").removesuffix("_vip"),
+                        "period": params.get("period") or "latest", "trade_date": params.get("trade_date") or ""}
                     batch["usage"]["actual_requests"] = requests_before_bulk + max(0, self.access.remote_calls - calls_before_bulk)
                     batch["progress"]["phase"] = phase if phase.startswith("waiting_") else "collecting_bulk"
                     self.store.append_batch(batch, changed_keys=[])
                 self.access.progress_callback = bulk_phase
+                bulk_phase("collecting_bulk")
                 report = self.pre_collect(batch, self.access,
                     lambda: self.should_pause() or pause_requested(self.store, batch_id))
                 batch["usage"]["actual_requests"] = requests_before_bulk + max(0, self.access.remote_calls - calls_before_bulk)
