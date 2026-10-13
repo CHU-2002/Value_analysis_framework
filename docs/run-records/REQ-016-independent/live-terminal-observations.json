@@ -1,0 +1,229 @@
+{
+  "observed_at": "2026-10-13T10:27:33.470129+00:00",
+  "connection": "SQLite mode=ro, query_only=ON",
+  "batch_id": "3acb1a5d48544d6ba3703e68a7004313",
+  "status": "done",
+  "created_at": "2026-10-12T15:24:47.335016+00:00",
+  "heartbeat_at": "2026-10-13T09:55:01.357167+00:00",
+  "plan_digest_verified": "313446ddaa61c84e3e58e82653b0978a4eee448434bdca1bd9da4a2583419b17",
+  "snapshot_content_sha256_verified": "bbc8736398aaf763b49f7981d5880a04c3c79a23b304714d66d4546c55006d74",
+  "snapshot_id": "a107a05c417d4762bb7145d74260f442",
+  "snapshot_source": "Tushare stock_basic",
+  "snapshot_fetched_at": "2026-10-12T15:17:19.023752+00:00",
+  "coverage": {
+    "SSE": {
+      "status": "confirmed",
+      "count": 2320,
+      "reason": ""
+    },
+    "SZSE": {
+      "status": "confirmed",
+      "count": 2904,
+      "reason": ""
+    },
+    "BSE": {
+      "status": "confirmed",
+      "count": 349,
+      "reason": ""
+    }
+  },
+  "company_count": 5573,
+  "target_count": 44584,
+  "completed_count": 44584,
+  "completed_result_counts": {
+    "ok": 44441,
+    "empty": 143
+  },
+  "dataset_distribution": {
+    "balancesheet": {
+      "ok": 11078,
+      "empty": 68
+    },
+    "cashflow": {
+      "ok": 5571,
+      "empty": 2
+    },
+    "daily": {
+      "ok": 5573
+    },
+    "fina_indicator": {
+      "ok": 5572,
+      "empty": 1
+    },
+    "income": {
+      "ok": 11074,
+      "empty": 72
+    },
+    "stock_basic": {
+      "ok": 5573
+    }
+  },
+  "companies_with_legal_empty": 71,
+  "serves_target_count": 44584,
+  "unserved": [],
+  "explain_batch": {
+    "status": "done",
+    "total": 44584,
+    "completed": 44584,
+    "success": 44584,
+    "empty": 143,
+    "failures": 0,
+    "uncompleted": 0,
+    "actual_requests": 34324,
+    "reused": 5440,
+    "new": 39144,
+    "counts": {
+      "ok": 44441,
+      "empty": 143
+    }
+  },
+  "usage": {
+    "actual_requests": 34324,
+    "archive_hits": 10880,
+    "current_batch_cache": 5440,
+    "failures": 0,
+    "new_requests": 33704,
+    "no_permission": 0
+  },
+  "requested_fields_absent_from_ok_response_columns": {
+    "income": {
+      "dt_eps": 11074
+    },
+    "balancesheet": {
+      "intang_assets": 11078
+    },
+    "cashflow": {
+      "c_pay_to_staff": 5571,
+      "receiv_tax_refund": 5571
+    },
+    "fina_indicator": {
+      "npl_ratio": 5572,
+      "prov_cov_ratio": 5572,
+      "cap_adequacy_ratio": 5572,
+      "core_cap_adequacy_ratio": 5572,
+      "net_int_margin": 5572,
+      "cost_income_ratio": 5572
+    }
+  },
+  "csv_matches_sql": true,
+  "diagnostics": {
+    "income_vip_permission_probe": {
+      "purpose": "核查整期权限",
+      "endpoint": "income_vip",
+      "actual_requests": 1,
+      "result": "no_permission",
+      "observation": "账号不具备income_vip接口权限，保留原单公司接口回退；诊断未创建采集批次。"
+    },
+    "two_code_income_probe": {
+      "endpoint": "income",
+      "requested_codes": "000001.SZ,000002.SZ",
+      "rows": 0,
+      "returned_codes": [],
+      "columns": [
+        "ts_code",
+        "end_date",
+        "report_type",
+        "revenue",
+        "oper_cost",
+        "biz_tax_surchg",
+        "sell_exp",
+        "admin_exp",
+        "rd_exp",
+        "fin_exp",
+        "assets_impair_loss",
+        "credit_impa_loss",
+        "fv_value_chg_gain",
+        "invest_income",
+        "asset_disp_income",
+        "operate_profit",
+        "non_oper_income",
+        "non_oper_exp",
+        "total_profit",
+        "income_tax",
+        "n_income",
+        "n_income_attr_p",
+        "minority_gain",
+        "basic_eps",
+        "diluted_eps"
+      ],
+      "remote_calls": 1
+    }
+  },
+  "final_prefetch": {
+    "actual_requests": 6,
+    "archive_hits": 12011,
+    "budget_available": 10266,
+    "checkpoint_reused": 0,
+    "failures": [
+      {
+        "dataset": "income",
+        "official_alias": "income_vip",
+        "params": {
+          "fields": "ts_code,end_date,report_type,revenue,oper_cost,biz_tax_surchg,sell_exp,admin_exp,rd_exp,fin_exp,assets_impair_loss,credit_impa_loss,fv_value_chg_gain,invest_income,asset_disp_income,operate_profit,non_oper_income,non_oper_exp,total_profit,income_tax,n_income,n_income_attr_p,minority_gain,basic_eps,diluted_eps,dt_eps",
+          "period": "20260630",
+          "report_type": "6"
+        },
+        "reason": "Tushare API 'income_vip' failed after 5 retries: 抱歉，您没有接口(income_vip)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。"
+      },
+      {
+        "dataset": "balancesheet",
+        "official_alias": "balancesheet_vip",
+        "params": {
+          "fields": "ts_code,end_date,goodwill,total_assets,total_liab,report_type,money_cap,trad_asset,notes_receiv,accounts_receiv,oth_receiv,inventories,oth_cur_assets,total_cur_assets,lt_eqt_invest,fix_assets,cip,intang_assets,st_borr,notes_payable,acct_payable,contract_liab,adv_receipts,non_cur_liab_due_1y,oth_cur_liab,total_cur_liab,lt_borr,bond_payable,defer_tax_assets,defer_tax_liab,total_hldr_eqy_exc_min_int,minority_int",
+          "period": "20260630",
+          "report_type": "1"
+        },
+        "reason": "Tushare API 'balancesheet_vip' failed after 5 retries: 抱歉，您没有接口(balancesheet_vip)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。"
+      },
+      {
+        "dataset": "balancesheet",
+        "official_alias": "balancesheet_vip",
+        "params": {
+          "fields": "ts_code,end_date,goodwill,total_assets,total_liab,report_type,money_cap,trad_asset,notes_receiv,accounts_receiv,oth_receiv,inventories,oth_cur_assets,total_cur_assets,lt_eqt_invest,fix_assets,cip,intang_assets,st_borr,notes_payable,acct_payable,contract_liab,adv_receipts,non_cur_liab_due_1y,oth_cur_liab,total_cur_liab,lt_borr,bond_payable,defer_tax_assets,defer_tax_liab,total_hldr_eqy_exc_min_int,minority_int",
+          "period": "20260630",
+          "report_type": "6"
+        },
+        "reason": "Tushare API 'balancesheet_vip' failed after 5 retries: 抱歉，您没有接口(balancesheet_vip)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。"
+      },
+      {
+        "dataset": "cashflow",
+        "official_alias": "cashflow_vip",
+        "params": {
+          "fields": "ts_code,end_date,report_type,n_cashflow_act,n_cashflow_inv_act,n_cash_flows_fnc_act,c_pay_acq_const_fiolta,depr_fa_coga_dpba,amort_intang_assets,lt_amort_deferred_exp,c_pay_dist_dpcp_int_exp,c_pay_to_staff,c_paid_for_taxes,n_recp_disp_fiolta,receiv_tax_refund,c_recp_return_invest",
+          "period": "20260630",
+          "report_type": "1"
+        },
+        "reason": "Tushare API 'cashflow_vip' failed after 5 retries: 抱歉，您没有接口(cashflow_vip)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。"
+      },
+      {
+        "dataset": "fina_indicator",
+        "official_alias": "fina_indicator_vip",
+        "params": {
+          "fields": "ts_code,end_date,roe,roe_waa,grossprofit_margin,netprofit_margin,rd_exp,current_ratio,quick_ratio,assets_turn,debt_to_assets,or_yoy,tr_yoy,netprofit_yoy,ocfps,bps,profit_dedt,ebitda,fcff,netdebt,interestdebt,npl_ratio,prov_cov_ratio,cap_adequacy_ratio,core_cap_adequacy_ratio,net_int_margin,cost_income_ratio",
+          "period": "20260630"
+        },
+        "reason": "Tushare API 'fina_indicator_vip' failed after 5 retries: 抱歉，您没有接口(fina_indicator_vip)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。"
+      },
+      {
+        "dataset": "income",
+        "official_alias": "income_vip",
+        "params": {
+          "fields": "ts_code,end_date,report_type,revenue,oper_cost,biz_tax_surchg,sell_exp,admin_exp,rd_exp,fin_exp,assets_impair_loss,credit_impa_loss,fv_value_chg_gain,invest_income,asset_disp_income,operate_profit,non_oper_income,non_oper_exp,total_profit,income_tax,n_income,n_income_attr_p,minority_gain,basic_eps,diluted_eps,dt_eps",
+          "period": "20260630",
+          "report_type": "1"
+        },
+        "reason": "Tushare API 'income_vip' failed after 5 retries: 抱歉，您没有接口(income_vip)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。"
+      }
+    ],
+    "fallback_targets": 32573,
+    "paused": false,
+    "prefetched_targets": 0,
+    "source_apis": {
+      "balancesheet": "balancesheet_vip",
+      "cashflow": "cashflow_vip",
+      "fina_indicator": "fina_indicator_vip",
+      "income": "income_vip"
+    },
+    "stock_basic_reused": 0
+  }
+}
