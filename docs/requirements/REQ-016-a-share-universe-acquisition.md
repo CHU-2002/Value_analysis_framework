@@ -9,7 +9,7 @@ updated: 2026-10-14
 issue: "#122"
 design: docs/DATA_LAYER_PLAN.md
 milestone: a-share-acquisition-v1
-pr: TBD
+pr: 128
 depends-on: REQ-011, REQ-014, REQ-015
 supersedes: TBD
 ---
@@ -74,7 +74,7 @@ supersedes: TBD
 - 验收标准：
   - **AC-1.1**：伊利报告列表及其他公司同类报告列表不显示 `latest.json`、`record.json`、`run_manifest.json`、`qualitative_input.json`、`data_pack_market_current.md`、章节解析文件等内部状态、输入或中间产物；受支持的用户报告和源材料仍可按产品设计浏览。
   - **AC-1.2**：被普通报告列表隐藏的内部文件不会因此从磁盘删除；列表分类有稳定、可回归验证的规则，未知类型不会误标为用户报告。
-- 追溯：源问题为 REQ-009 M3；走查证据见 `docs/run-records/2026-10-11-REQ-016-GUI-UX-review.md`；测试与 PR 待实现时登记。
+- 追溯：源问题为 REQ-009 M3；走查证据见 `docs/run-records/2026-10-11-REQ-016-GUI-UX-review.md`；测试：`tests/test_webui_views.py`；PR #128。
 
 ### REQ-016.2 变化报告先讲清经营变化与关键归因
 
@@ -87,7 +87,7 @@ supersedes: TBD
 -  - **AC-2.4**：五粮液相关材料须分别说明 2026 年对 2025 年一至三季度部分报表项目的前期会计差错更正，以及证监会历史行政处罚所认定的信息披露违法事实。会计更正不能单独推导为财务造假；除非权威决定明确对相应主体和报告期作出造假/虚假记载认定，否则报告不得用“造假”给更正事件定性，并须准确说明文件日期、涉及期间、来源与认定状态。
 -  - **AC-2.5**：对上述重大解释逐项标注原始定期报告、公告或监管文件的可定位证据，并将已披露/监管确认事实、公司解释、分析推断和未核实事项明确区分；无法取得来源或关键口径时写明缺口，不以模型补写事实。
 -  - **AC-2.6**：数据缺口、证据限制和后续动作保留，但不遮蔽关键经营变化；普通读者可从报告正文追溯到对应证据。
-- 追溯：源问题为 REQ-004 M1；走查证据见 `docs/run-records/2026-10-11-REQ-016-GUI-UX-review.md`；测试与 PR 待实现时登记。
+- 追溯：源问题为 REQ-004 M1；走查证据见 `docs/run-records/2026-10-11-REQ-016-GUI-UX-review.md`；测试：`tests/test_change_report.py`；PR #128。
 
 ### REQ-016.3 在界面维护自选股启用状态与公司信息
 
@@ -97,7 +97,7 @@ supersedes: TBD
   - **AC-3.1**：数据页可对清单中的公司启用或停用，并编辑显示名及数据档位；无需离开 GUI 或输入命令。停用公司仍留在清单中，但不会进入“已维护公司”的采集目标集合。
   - **AC-3.2**：启停或编辑后，清单、采集计划和公司页面在刷新后显示同一状态及信息；新增与现有用户可见文案符合 REQ-012 的文案约束。
   - **AC-3.3**：启停、编辑与移除均只修改清单配置，不删除原始数据、分析记录或报告产物；界面明确区分“停用”和“移除”。
-- 追溯：既有添加/导入/移除能力见 REQ-014；测试与 PR 待实现时登记。
+- 追溯：既有添加/导入/移除能力见 REQ-014；测试：`tests/test_watchlist_ui.py`；PR #128。
 
 ### REQ-016.4 沪深北 A 股与境内上市 CDR 目录快照与批次追踪
 
@@ -107,7 +107,7 @@ supersedes: TBD
   - **AC-4.1**：目录快照结构化保存数据源、获取时间、快照标识/内容摘要及逐标的代码、名称、证券类型、交易所和上市状态；快照记录与用户自选股清单分开维护，不能将“启用跟踪”状态混作上市状态。
   - **AC-4.2**：每个“沪深北A股与境内上市CDR”计划及批次引用一个确定快照标识，并可查按证券类型分类的目标数量、沪深北覆盖与排除项；恢复或审计批次时仍能还原当时的目标集合，不因后续目录刷新而变化。
   - **AC-4.3**：目录更新生成新快照并保留旧快照；代码新增、退市、交易所/名称变化可按快照比较，数据缺失或交易所覆盖不确定时明确报告，不静默覆盖历史。
-- 追溯：依赖 REQ-011 SQLite 原始数据仓；当前实现设计需在实现 PR 中登记并验证快照表/记录与迁移方案；测试与 PR 待实现时登记。
+- 追溯：依赖 REQ-011 SQLite 原始数据仓；快照结构与迁移方案见 `docs/DATA_LAYER_PLAN.md`；测试：`tests/test_data_directory.py`、`tests/test_console_data_page.py`；PR #128。
 
 ## 手工自测清单
 
@@ -127,8 +127,8 @@ AC-7 已由独立验收完成。owner 先审阅固定计划 `output/.live_req016
 | 项 | 内容 |
 |----|------|
 | 设计文档 | `docs/DATA_LAYER_PLAN.md` |
-| 实现 PR | TBD |
-| 测试 | TBD（受理后登记） |
+| 实现 PR | [#128](https://github.com/CHU-2002/Value_analysis_framework/pull/128) |
+| 测试 | `tests/test_webui_views.py`、`tests/test_change_report.py`、`tests/test_watchlist_ui.py`、`tests/test_data_directory.py`、`tests/test_console_data_page.py` |
 | 文档更新 | `docs/requirements/ledger.md`、`docs/requirements/README.md` |
 
 ## 备注
