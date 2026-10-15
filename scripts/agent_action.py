@@ -89,6 +89,9 @@ def build_agent_argv(cli, action: str, ticker: str, backend="claude", company_di
         options = ["--config", "sandbox_workspace_write.network_access=true"]
         if model:
             options += ["--model", model]
+            if action in ("business-analysis", "update-analysis"):
+                prompt += (f"本次明确选择的报告模型是 {model}；执行 REQ-017 financial_events 子流程时"
+                           f"同样显式传入 --model {model}，不要回退本机另一默认模型。")
         if company_dir is not None:
             prompt += (f"公司目录固定为 {company_dir}；命令文档中的 output/公司目录统一替换为此目录，"
                        "不要访问另一份同代码公司的产物。")

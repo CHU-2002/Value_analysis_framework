@@ -14,8 +14,8 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 
 | 项 | 当前 | 上限 | 使用率 |
 |----|------|------|--------|
-| 测试文件数 | 49 | 52 | 94% |
-| 收集到的用例数 | 1983 | 2000 | 99% |
+| 测试文件数 | 50 | 52 | 96% |
+| 收集到的用例数 | 1992 | 2000 | 100% |
 
 （用例数含 `parametrize` 展开，由 `pytest --collect-only` 统计；函数数见下表末列，仅作参考。）
 
@@ -23,7 +23,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 
 | 测试文件 | 归属需求 | 层 | 被测对象 | 测试函数数 |
 |----------|----------|----|----------|------------|
-| `tests/test_agent_action.py` | REQ-013, REQ-013.1, REQ-013.2, REQ-013.3, REQ-015, REQ-015.2 | `unit` | `scripts/agent_action.py` | 33 |
+| `tests/test_agent_action.py` | REQ-013, REQ-013.1, REQ-013.2, REQ-013.3, REQ-015, REQ-015.2, REQ-017 | `unit` | `scripts/agent_action.py` | 33 |
 | `tests/test_analysis_status.py` | REQ-003, REQ-010 | `unit` | `scripts/analysis_status.py` | 24 |
 | `tests/test_buy_sell_engine.py` | 基线 | `unit` | `scripts/buy_sell_engine.py` | 45 |
 | `tests/test_change_report.py` | REQ-004, REQ-006.1, REQ-016.2 | `unit` | — | 24 |
@@ -40,6 +40,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_derived_metrics.py` | 基线 | `unit` | — | 83 |
 | `tests/test_discover_report.py` | REQ-001, REQ-006.1 | `unit` | `scripts/discover_report.py` | 62 |
 | `tests/test_download_report.py` | REQ-001 | `unit` | `scripts/download_report.py` | 85 |
+| `tests/test_financial_events.py` | REQ-017 | `unit` | — | 13 |
 | `tests/test_format_utils.py` | 基线 | `unit` | `scripts/format_utils.py` | 21 |
 | `tests/test_integration.py` | 基线 | `integration` | — | 3 |
 | `tests/test_latest_valuation_publication.py` | REQ-010 | `unit` | — | 39 |
@@ -50,7 +51,7 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_periods.py` | REQ-001 | `unit` | `scripts/periods.py` | 24 |
 | `tests/test_phase1b_prompt.py` | 基线 | `unit` | — | 23 |
 | `tests/test_phase2b_prompt.py` | 基线 | `unit` | — | 20 |
-| `tests/test_phase3_prompt.py` | 基线 | `unit` | — | 76 |
+| `tests/test_phase3_prompt.py` | 基线 | `unit` | — | 72 |
 | `tests/test_portfolio_engine.py` | 基线 | `unit` | `scripts/portfolio_engine.py` | 9 |
 | `tests/test_prepare_primary_period.py` | REQ-002, REQ-006.2 | `unit` | — | 21 |
 | `tests/test_prepare_prior_analysis.py` | REQ-004 | `unit` | — | 6 |

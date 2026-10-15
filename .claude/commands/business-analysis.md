@@ -111,6 +111,21 @@ python3 -m scripts.results.synthesis \
   --output "output/{code}_{company}/synthesis/context.json"
 ```
 
+
+
+## 必需：财报重大事项主动发现（REQ-017）
+
+在交付定性报告前，读取 `shared/qualitative/agents/financial_events.md`。主动收集当前期/可比期完整报告、正式临时公告及可取得监管原件，建立 `{output_dir}/synthesis/event_materials.json`，运行：
+
+```bash
+python3 -m scripts.results.financial_events \
+  --materials "{output_dir}/synthesis/event_materials.json" \
+  --output-dir "{output_dir}/synthesis/events"
+```
+
+把本次 `synthesis/events/major_events.md` 整节放在 `qualitative_report.md` 的执行摘要之后、六维分析之前；Final Synthesis 读取本次已复核事项与覆盖清单，不能用模块节选替代逐页阅读。不得漏掉高优先事项、原文定位和待核实/排除记录。发现流程失败则交付状态为未完成，并说明具体阻断；不能把旧报告事件当成新结果。重大事项不自动生成交易指令。
+
+
 最后读取 `shared/qualitative/agents/final_synthesis.md`，启动 Final Synthesis Agent。它由大模型重新撰写执行摘要、六维度综合判断、风险排序和投资启示；不得直接拼接模块正文，也不得读取完整 PDF。输出 `qualitative_report.md` 和 `synthesis/result.json`。
 
 验证最终 sidecar：

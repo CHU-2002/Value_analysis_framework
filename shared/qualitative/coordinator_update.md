@@ -212,18 +212,20 @@ python3 -m scripts.results.change_report \
 {run_dir}/change_report_{period}.json   # investment.change_report sidecar
 ```
 
-变化报告正文写成后，必须加上读者优先的经营/利润摘要与重要事项区，保留原报告的详细变化与证据：
+变化报告正文写成后，先执行 REQ-017 主动发现：读取 `shared/qualitative/agents/financial_events.md`，收集当前期/可比期完整原件及可取得正式公告/监管文件，写 `synthesis/event_materials.json`，并运行：
 
 ```bash
+python3 -m scripts.results.financial_events \
+  --materials "{run_dir}/synthesis/event_materials.json" \
+  --output-dir "{run_dir}/synthesis/events"
 python3 -m scripts.results.report_presentation \
   --context "{run_dir}/synthesis/change_report_context.json" \
+  --events "{run_dir}/synthesis/events/report_events.json" \
   --body "{run_dir}/change_report_{period}.md" \
   --output "{run_dir}/change_report_{period}.md"
 ```
 
-若 REQ-017 已提供核验过的 `investment.report_events` 输入，追加 `--events "{run_dir}/synthesis/report_events.json"`。
-此步骤只呈现已查证事项，不代替事件识别或来源复核；没有该输入时正文明确缺少重大事项材料，不猜金额或归因。
-事项输入必须绑定公司/本次报告期，每项分别保留历史涉及期间、披露日期、金额口径、影响边界及原始来源定位。
+重大事项区同时保留原文引用、覆盖清单、待核实线索与排除理由。定性报告执行摘要之后也应呈现同一 `major_events.md`。不得以模块节选代替完整原件阅读；失败须显示具体阻断，不将旧事件文件作为本次发现。材料缺失时声明范围，不假称穷尽，金额与口径未知时不猜归因。
 
 
 ## Step 9：写入台账

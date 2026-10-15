@@ -1,3 +1,4 @@
+# 覆盖需求：REQ-017 —— 报告动作向事项发现子流程传递已选模型
 # 覆盖需求：REQ-015、REQ-015.2（AC-2.1~2.4：目录、单次模型传递、非法组合零分析、产物判定与审计）
 # 覆盖需求：REQ-013.1（包装脚本与动作白名单：AC-1.1~AC-1.4）
 # 覆盖需求：REQ-013.2（最小界面「一键页」：AC-2.1~AC-2.5）
@@ -642,6 +643,8 @@ def test_selected_model_reaches_each_fake_cli_once_and_is_audited(tmp_path, back
     argv = json.loads(marker.read_text())
     assert argv[argv.index("--model") + 1] == model
     assert ("exec" in argv) == (backend == "codex")
+    if backend == "codex":
+        assert f"--model {model}" in argv[-1] and "financial_events" in argv[-1]
     assert ("-p" in argv) == (backend == "claude")
     audit = json.loads(next((tmp_path / ".agent_audit").glob("*.json")).read_text())
     assert audit["requested_model"] == model and audit["requested_agent"] == backend

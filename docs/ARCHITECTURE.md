@@ -410,3 +410,10 @@ agent选择使用本地模型目录与服务端预检，单次argv携带模型�
 包装脚本流式捕获CLI事件，实际模型来自结构化事件或本次Codex thread运行记录；缺证据显示未知。
 执行前后报告内容摘要决定本次产物；GUI要求产物时退出0而无本动作报告转为失败。
 采集用不可变计划摘要绑定确认，工作线程各有SQLite连接；批次统计包含未尝试目标，实际请求与逻辑目标分别持久化。
+
+
+## 财报重大事项发现（REQ-017）
+
+独立于模块节选预算，`scripts/results/financial_events.py` 从每个 run 的 `synthesis/event_materials.json` 读取当前期、比较期、公告与监管原件清单。PDF 按物理页提取（扫描/不可读页显式报缺口），文本分包不裁剪；本机已认证 Codex 只读结构化推理完成 read → review → audit。read 回执必须覆盖每包所有页，review 必须处置每条候选，audit 核对原始页的公司、期间、金额口径、引用、归属及通俗表达。连续引用另由本地校验；法律定性需权威材料及机关/行为/状态，否定性说明不算指控。不存在公司名或事件类型触发白名单。
+
+`materials.json` 固定原件哈希与缺口；`reading-*.json` 保留读包输入摘要和输出；`review.json`/`audits.json` 保留综合、排除与复核；`report_events.json` 为已复核读者事项合同，`major_events.md` 是用户阅读产物。`run_state.json` 以 running/failed/complete 和结果摘要防止失败重跑复用旧结果。模型/预算错误返回非零；复核失败的候选只进入待核实/排除记录。首次定性报告摘要后呈现重大事项；更新报告经 `report_presentation --events` 呈现同一结果并保留范围限制。该层不写交易参数，不触发买卖计划。
