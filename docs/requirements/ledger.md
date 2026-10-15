@@ -23,7 +23,7 @@
 | [REQ-013](REQ-013-agent-cli-report.md) | 一键生成分析报告（程序化调用 agent CLI） | `in-progress` | P1 | #75 | #77, #114, #115, #116 | `tests/test_agent_action.py` |
 | [REQ-014](REQ-014-watchlist-maintenance-ui.md) | 控制台里的自选股清单维护（添加 / 从既有产物导入 / 移除） | `verified` | P1 | #102 | #112, #113 | `tests/test_watchlist_ui.py` |
 | [REQ-015](REQ-015-research-workspace-ux.md) | 公司研究工作区（研究导航 + K线与估值时间轴 + 可选生成 + 报告阅读 + 采集解释） | `in-progress` | P1 | [#118](https://github.com/CHU-2002/Value_analysis_framework/issues/118) | #120 | 原 AC-1…4 / AC-4.1 已完成；2026-10-11 owner 批准修改 AC-4.1，等待新范围实现与复验 |
-| [REQ-016](REQ-016-a-share-universe-acquisition.md) | A股与境内上市CDR全市场数据采集 | `verified` | P1 | [#122](https://github.com/CHU-2002/Value_analysis_framework/issues/122) | [#128](https://github.com/CHU-2002/Value_analysis_framework/pull/128) | 独立报告 AC-1…7 通过；实跑记录见 `docs/run-records/REQ-016-live-batch.md` |
+| [REQ-016](REQ-016-a-share-universe-acquisition.md) | A股与境内上市CDR全市场数据采集 | `verified` | P1 | [#122](https://github.com/CHU-2002/Value_analysis_framework/issues/122) | [#126](https://github.com/CHU-2002/Value_analysis_framework/pull/126), [#128](https://github.com/CHU-2002/Value_analysis_framework/pull/128) | 独立报告 AC-1…7 通过；实跑记录见 `docs/run-records/REQ-016-live-batch.md` |
 | [REQ-017](REQ-017-financial-report-events.md) | 财报重大事项主动发现与通俗解释 | `accepted` | P1 | [#125](https://github.com/CHU-2002/Value_analysis_framework/issues/125) | [#126](https://github.com/CHU-2002/Value_analysis_framework/pull/126) | TBD |
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
