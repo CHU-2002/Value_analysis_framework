@@ -393,7 +393,8 @@ async function fillCompanySelector() {
   const remembered = rememberedCompany();
   const options = [{ value: "", label: "（未选择）" }];
   for (const item of companies) {
-    options.push({ value: item.ticker || item.dir, label: item.display_name || item.name });
+    options.push({ value: item.ticker || item.dir, label: item.display_name || item.name,
+                   contextNote: item.context_note });
   }
   const explicit = new URLSearchParams(parseHash().query).has("company");
   const current = selection.company || (explicit ? "" : remembered) || "";
@@ -403,6 +404,7 @@ async function fillCompanySelector() {
     const node = document.createElement("option");
     node.value = option.value;
     node.textContent = option.label;
+    if (option.contextNote) node.dataset.contextNote = option.contextNote;
     if (option.value === current) node.selected = true;
     select.append(node);
   }
@@ -441,6 +443,21 @@ function updateCurrentCompanyLabel() {
   // 上下文还在，公司级动作被误判成缺上下文——实测踩到：点侧栏回任务页后动作全部禁用。
   if (select.value !== (selection.company || "")) {
     select.value = selection.company || "";
+  }
+  let status = document.getElementById("company-watchlist-status");
+  if (!status) {
+    status = document.createElement("span");
+    status.id = "company-watchlist-status";
+    status.className = "hint";
+    status.setAttribute("aria-live", "polite");
+    select.closest("label").insertAdjacentElement("afterend", status);
+  }
+  const chosen = select.selectedOptions[0];
+  status.hidden = !chosen?.value;
+  if (status.hidden) {
+    status.textContent = "";
+  } else {
+    status.textContent = chosen.dataset.contextNote || "";
   }
 }
 

@@ -200,3 +200,88 @@ def test_import_skips_links_without_reading_outside_the_output(tmp_path):
 @pytest.mark.parametrize("identifier, expected", [("000858", "000858.SZ"), ("00700", "00700.HK"), ("AAPL", "AAPL")])
 def test_market_resolution(identifier, expected):
     assert resolve_ticker(identifier) == expected
+
+
+# 覆盖需求：REQ-016.3 —— AC-3.1 启停与编辑；AC-3.2 刷新一致；AC-3.3 配置边界
+
+def test_maintenance_actions_refresh_state_names_tiers_and_preserve_assets(tmp_path):
+    import pandas as pd
+    from webui.core.context import RequestContext
+    from webui.plugins.companies import resolve_company
+
+    config, registry = make_app(tmp_path)
+    folder = company(config.output_root)
+    run(registry, "import")
+    store = DataStore(config.archive_root)
+    store.write_frame(ticker="600887.SH", dataset="income", period="20251231",
+                      params={}, frame=pd.DataFrame([{"revenue": 123}]), result="ok")
+    raw_before = store.records()
+    files_before = {str(p): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+    _, edited = run(registry, "edit", {"ticker": "600887.SH", "name": "伊利新简称", "tier": "frugal"})
+    assert edited["entry"]["display_name"] == "伊利新简称" and edited["entry"]["tier"] == "frugal"
+    row = panel_data(registry, "data.universe")["rows"][0]
+    indexed = call_route(registry, "GET", "/api/v1/companies")["data"]["companies"][0]
+    assert row["company"] == indexed["display_name"] == "600887 伊利新简称"
+    assert row["tier"] == indexed["tier"] == "frugal" and row["tier_label"] == "基础必需数据"
+    ctx = RequestContext(method="GET", path="/", config=config, registry=registry)
+    company_info = resolve_company(ctx, "600887.SH")
+    assert company_info["display_name"] == row["company"] and company_info["tier"] == "frugal"
+    _, disabled = run(registry, "disable", {"ticker": "600887.SH"})
+    assert not disabled["entry"]["enabled"]
+    assert len(Universe(store).entries()) == 1 and Universe(store).tickers() == []
+    assert panel_data(registry, "data.universe")["rows"][0]["enabled"] == "停用"
+    assert not resolve_company(ctx, "600887.SH")["enabled"]
+    listed = panel_data(registry, "companies.list")["rows"][0]
+    assert listed["watchlist_state"] == "停用" and listed["tier_label"] == "基础必需数据"
+    with pytest.raises(BadRequest, match="没有可采集公司|尚无启用公司"):
+        call_route(registry, "GET", "/api/v1/research-data/plan",
+                   scope="watchlist", periods="20251231")
+    _, enabled = run(registry, "enable", {"ticker": "600887.SH"})
+    assert enabled["entry"]["enabled"] and Universe(store).tickers() == ["600887.SH"]
+    plan = call_route(registry, "GET", "/api/v1/research-data/plan",
+                      scope="watchlist", periods="20251231")["data"]
+    assert {target["ticker"] for target in plan["targets"]} == {"600887.SH"}
+    _, edited = run(registry, "edit", {"ticker": "600887.SH", "name": "", "tier": "bulk"})
+    assert edited["entry"]["display_name"] == "伊利新简称" and edited["entry"]["tier"] == "bulk"
+    _, edited = run(registry, "edit", {"ticker": "600887.SH", "name": "伊利二次简称", "tier": ""})
+    assert edited["entry"]["tier"] == "bulk"
+    run(registry, "remove", {"ticker": "600887.SH"})
+    assert not Universe(store).entries()
+    assert store.records() == raw_before
+    assert all(Path(path).read_bytes() == content for path, content in files_before.items())
+
+
+def test_edit_bad_fields_and_stale_companies_rejected_before_job(tmp_path, capsys):
+    from watchlist_action import main
+    config, registry = make_app(tmp_path)
+    run(registry, "add", {"ticker": "600887", "name": "伊利"})
+    initial_jobs = len(registry.jobs.list_jobs())
+    for params in ({"ticker": "600887"}, {"ticker": "600887", "name": "python"},
+                   {"ticker": "600887", "tier": "unknown"}, {"ticker": "600887", "tier": []},
+                   {"ticker": "600887", "name": "新简称", "output_root": "/tmp/other"}):
+        with pytest.raises(BadRequest):
+            call_route(registry, "POST", "/api/v1/actions/universe.edit/run", body={"params": params})
+    for operation in ("enable", "disable", "edit"):
+        with pytest.raises(BadRequest):
+            call_route(registry, "POST", f"/api/v1/actions/universe.{operation}/run",
+                       body={"params": {"ticker": "000858.SZ", **({"name": "五粮液"} if operation == "edit" else {})}})
+    assert len(registry.jobs.list_jobs()) == initial_jobs
+    assert main(["--operation", "disable", "--ticker", "000858.SZ", "--archive-root", str(config.archive_root),
+                 "--output-root", str(config.output_root)]) == 1
+    assert "UniverseError" in capsys.readouterr().out
+    assert Universe(DataStore(config.archive_root)).get("600887.SH")["display_name"] == "伊利"
+
+
+def test_maintenance_action_copy_explains_disable_and_remove(tmp_path):
+    _, registry = make_app(tmp_path)
+    actions = {a["id"]: a for a in call_route(registry, "GET", "/api/v1/actions")["data"]["actions"]}
+    for operation in ("enable", "disable", "edit", "remove"):
+        action = actions[f"universe.{operation}"]
+        assert not action["enabled"] and action["effects"]["network"] is False
+        assert action["effects"]["quota"] is False
+        text = json.dumps({key: action[key] for key in ("title", "description", "confirm", "blockers")}, ensure_ascii=False)
+        assert not any(re.search(pattern, text) for pattern in FORBIDDEN), text
+    assert "仍保留在清单" in actions["universe.disable"]["description"]
+    assert "不再保留该条目" in actions["universe.remove"]["description"]
+    assert actions["universe.remove"]["confirm"]["confirm_label"] == "移除公司"
+    assert "新公司简称" in actions["universe.edit"]["inputs"][1]["label"]

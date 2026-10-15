@@ -146,6 +146,7 @@ class DataAccess:
         # 能用，但**不落仓**——不编造一个假的口径字段。拉取范围由「扫描 + 注册表门禁」守住。
         self.undeclared: set[str] = set()
         self.progress_callback = None
+        self.current_request = {}
 
     # ------------------------------------------------------------------ 主入口
 
@@ -336,6 +337,7 @@ class DataAccess:
     def _invoke(self, dataset, params):
         """真的联网调用——重试、限流、VIP 路由、连接重建全部在这里。"""
 
+        self.current_request = {"dataset": dataset, "params": sanitize_params(params)}
         client = self.client
         if client is None:
             raise DataUnavailable(dataset, dataset, 0, RuntimeError("在线取数需要 Tushare 客户端"))

@@ -1,0 +1,69 @@
+{
+  "purpose": "REQ-016 AC-1 browser verification of revised range label and exact option count",
+  "base_origin": "http://127.0.0.1:60844",
+  "network_policy": "isolated sandbox data; browser external DNS blocked; proxy disabled; only loopback app allowed",
+  "observed_http_origins": [
+    "http://127.0.0.1:60844"
+  ],
+  "checks": [
+    {
+      "name": "600887.SH: exactly the two scope choices and revised label",
+      "actual": {
+        "options": [
+          {
+            "value": "watchlist",
+            "label": "已维护公司"
+          },
+          {
+            "value": "all_a",
+            "label": "沪深北A股与境内上市CDR"
+          }
+        ],
+        "count": 2
+      },
+      "passed": true
+    },
+    {
+      "name": "600887.SH: native selector can choose revised range",
+      "actual": "all_a",
+      "passed": true
+    },
+    {
+      "name": "600887.SH: browser resources stay on local UI origin",
+      "actual": [
+        "http://127.0.0.1:60844"
+      ],
+      "passed": true
+    },
+    {
+      "name": "000858.SZ: exactly the two scope choices and revised label",
+      "actual": {
+        "options": [
+          {
+            "value": "watchlist",
+            "label": "已维护公司"
+          },
+          {
+            "value": "all_a",
+            "label": "沪深北A股与境内上市CDR"
+          }
+        ],
+        "count": 2
+      },
+      "passed": true
+    },
+    {
+      "name": "000858.SZ: native selector can choose revised range",
+      "actual": "all_a",
+      "passed": true
+    },
+    {
+      "name": "000858.SZ: browser resources stay on local UI origin",
+      "actual": [
+        "http://127.0.0.1:60844"
+      ],
+      "passed": true
+    }
+  ],
+  "failures": []
+}

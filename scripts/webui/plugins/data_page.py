@@ -88,9 +88,8 @@ def _records(ctx, **filters) -> list:
 def _universe_panel(ctx, **_):
     """自选股清单（`AC-4.1`）：每行一个标的 + 仓内的完备度。
 
-    显示名列用**规范显示名**（`AC-9`）：清单自己只存 `display_name`（用户登记什么就是
-    什么），产物里那条记录才是「公司 + 代码」的权威来源；两边都在时以产物为准，
-    否则同一家公司在数据页与公司页会显示成两个名字。
+    显示名取自实时清单配置（REQ-016.3）；公司索引同样覆盖清单信息，
+    因此编辑后各页面一致，且不改历史产物。
     """
     entries = _universe(ctx)
     store = _store(ctx)
@@ -107,13 +106,13 @@ def _universe_panel(ctx, **_):
         gaps = total - complete
         rows.append({
             "ticker": ticker,
-            # 清单里的显示名是用户登记什么就是什么；产物里有这家公司时以产物为准
-            # （`AC-9` 只认一个来源），两者都没有才按目录名约定拼。
+            # 公司索引已叠加实时清单配置，历史产物名称不覆盖用户编辑。
             "company": canonical.get(ticker.upper())
             or display_name_from_label(entry.get("display_name"))
             or display_name(ticker, ""),
             "market": entry.get("market", ""),
             "tier": entry.get("tier", ""),
+            "tier_label": {"bulk": "完整业务数据", "frugal": "基础必需数据"}.get(entry.get("tier"), "未知"),
             "enabled": "启用" if entry.get("enabled") else "停用",
             "completeness": f"{complete}/{total}" if total else "还没有数据",
             "gaps": gaps,
@@ -130,6 +129,7 @@ def _universe_panel(ctx, **_):
             {"key": "ticker", "title": "标的", "search": True, "sort": "text"},
             {"key": "market", "title": "市场", "sort": "text"},
             {"key": "enabled", "title": "状态", "search": True, "sort": "text"},
+            {"key": "tier_label", "title": "数据档位", "sort": "text"},
             {"key": "completeness", "title": "已有记录完成数（非计划完备度）", "sort": "text"},
             {"key": "gaps", "title": "缺口", "sort": "number"},
             {"key": "note", "title": "备注", "search": True},

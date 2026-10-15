@@ -550,13 +550,16 @@ def test_research_plan_includes_unattempted_and_scope_does_not_mutate_universe(t
     from datalayer.store import DataStore
     from datalayer.universe import Universe
     config, registry = make_app(tmp_path)
+    from datalayer.store import DataStore
+    from datalayer.universe import Universe
+    Universe(DataStore(config.archive_root)).add(TICKER, "伊利", tier="frugal")
     plan = call_route(registry, "GET", "/api/v1/research-data/plan", company=TICKER,
                       periods="20251231", tier="frugal")["data"]
     assert plan["total"] == 8 and plan["remaining"] == 8 and plan["complete"] == 0
     assert plan["existing_records"] == 0 and plan["requests_estimate"] == 8
     assert plan["counts"] == {"unattempted": 8}
     assert "未尝试" in plan["denominator"] and "财报" in plan["groups"]
-    assert Universe(DataStore(config.archive_root)).entries() == []
+    assert Universe(DataStore(config.archive_root)).tickers() == [TICKER]
     empty = panel_data(registry, "data.gaps")
     assert "尚未采集" in empty["meta"]["empty_hint"]
     assert "没有缺口" not in empty["meta"]["empty_hint"]
@@ -566,15 +569,18 @@ def test_research_plan_changes_scope_and_keeps_unattempted_denominator(tmp_path)
     from datalayer.store import DataStore
     from datalayer.universe import Universe
     config, registry = make_app(tmp_path)
+    from datalayer.store import DataStore
+    from datalayer.universe import Universe
+    Universe(DataStore(config.archive_root)).add(TICKER, "伊利", tier="frugal")
     universe = Universe(DataStore(config.archive_root))
     universe.add(TICKER, "伊利", tier="frugal")
     universe.add("000001.SZ", "平安", tier="frugal")
     current = call_route(registry, "GET", "/api/v1/research-data/plan", company=TICKER, periods="20251231")["data"]
     all_companies = call_route(registry, "GET", "/api/v1/research-data/plan", scope="watchlist", periods="20251231")["data"]
-    assert len(current["companies"]) == 1 and len(all_companies["companies"]) == 2
-    assert all_companies["total"] == 2 * current["total"]
-    assert set(target["ticker"] for target in current["targets"]) == {TICKER}
-    assert current["digest"] != all_companies["digest"]
+    assert len(current["companies"]) == len(all_companies["companies"]) == 2
+    assert all_companies["total"] == current["total"]
+    assert set(target["ticker"] for target in current["targets"]) == {TICKER, "000001.SZ"}
+    assert current["digest"] == all_companies["digest"]
     future = call_route(registry, "GET", "/api/v1/research-data/plan", company=TICKER, periods="20991231")["data"]
     assert future["blockers"] and future["complete"] == 0
     assert any(row["state_label"] == "期次尚未结束" for row in future["rows"])
@@ -582,6 +588,9 @@ def test_research_plan_changes_scope_and_keeps_unattempted_denominator(tmp_path)
 
 def test_research_history_plan_splits_years_and_uses_official_calendar_params(tmp_path):
     config, registry = make_app(tmp_path)
+    from datalayer.store import DataStore
+    from datalayer.universe import Universe
+    Universe(DataStore(config.archive_root)).add(TICKER, "伊利", tier="frugal")
     plan = call_route(registry, "GET", "/api/v1/research-data/plan", company=TICKER,
                       periods="20251231", chart_start="20150101", chart_end="20251231",
                       chart_metrics="daily,daily_basic,adj_factor,trade_cal,suspend_d")["data"]
@@ -598,6 +607,9 @@ def test_research_plan_distinguishes_empty_permission_stale_and_unattempted(tmp_
     from datalayer.store import DataStore
     from webui.plugins.research_data import make_plan
     config, registry = make_app(tmp_path)
+    from datalayer.store import DataStore
+    from datalayer.universe import Universe
+    Universe(DataStore(config.archive_root)).add(TICKER, "伊利", tier="frugal")
     ctx = RequestContext("GET", "/", config=config, registry=registry)
     inputs = {"company": TICKER, "periods": "20251231", "chart_start": "20250101", "chart_end": "20251231",
               "chart_metrics": "daily,daily_basic,adj_factor,suspend_d"}
@@ -618,7 +630,10 @@ def test_research_plan_distinguishes_empty_permission_stale_and_unattempted(tmp_
 def test_research_confirmation_and_changed_plan_rejected_before_runner(tmp_path, monkeypatch):
     from webui.plugins import research_data
     from webui.core.errors import QuotaConfirmRequired
-    _, registry = make_app(tmp_path)
+    config, registry = make_app(tmp_path)
+    from datalayer.store import DataStore
+    from datalayer.universe import Universe
+    Universe(DataStore(config.archive_root)).add(TICKER, "伊利", tier="frugal")
     monkeypatch.setattr(research_data, "_runner", lambda _: pytest.fail("must not submit"))
     with pytest.raises(QuotaConfirmRequired):
         call_route(registry, "POST", "/api/v1/research-data/run", {"inputs": {"company": TICKER}})
@@ -633,6 +648,9 @@ def test_research_batch_success_counts_only_batch_and_survives_reload(tmp_path):
     from datalayer.store import DataStore, target_key
     from webui.plugins.research_data import explain_batch
     config, registry = make_app(tmp_path)
+    from datalayer.store import DataStore
+    from datalayer.universe import Universe
+    Universe(DataStore(config.archive_root)).add(TICKER, "伊利", tier="frugal")
     store = DataStore(config.archive_root)
     targets = [{"ticker": TICKER, "dataset": dataset, "period": "20251231", "params": {"ts_code": TICKER}}
                for dataset in ("daily", "income")]
@@ -674,11 +692,13 @@ def test_research_partial_and_paused_batch_have_specific_remediation(tmp_path):
 
 
 def test_research_plan_rejects_unknown_metrics_dates_and_market(tmp_path):
-    _, registry = make_app(tmp_path)
+    config, registry = make_app(tmp_path)
+    from datalayer.store import DataStore
+    from datalayer.universe import Universe
+    Universe(DataStore(config.archive_root)).add(TICKER, "伊利", tier="frugal")
     for query in ({"company": TICKER, "chart_metrics": "shell"},
                   {"company": TICKER, "chart_metrics": "daily", "chart_start": "20251301", "chart_end": "20251231"},
-                  {"company": "00700.HK", "chart_metrics": "adj_factor", "chart_start": "20250101", "chart_end": "20251231"},
-                  {"company": "../../outside"}, {"company": TICKER, "periods": "20250230"}):
+                  {"scope": "current"}, {"scope": "unknown"}, {"company": TICKER, "periods": "20250230"}):
         with pytest.raises(BadRequest):
             call_route(registry, "GET", "/api/v1/research-data/plan", **query)
 
@@ -689,6 +709,9 @@ def test_research_confirmed_collection_runs_and_is_readable_after_server_restart
     from datalayer.access import DataAccess
     from webui.plugins import research_data
     config, registry = make_app(tmp_path)
+    from datalayer.store import DataStore
+    from datalayer.universe import Universe
+    Universe(DataStore(config.archive_root)).add(TICKER, "伊利", tier="frugal")
     calls = []
     class FakeClient:
         MAX_RETRIES = 1
@@ -715,4 +738,173 @@ def test_research_confirmed_collection_runs_and_is_readable_after_server_restart
     batches = call_route(restarted, "GET", "/api/v1/research-data/batches", company=TICKER)["data"]["batches"]
     assert batches[0]["status"] == "done" and batches[0]["actual_requests"] == 1
     assert batches[0]["rows"][0]["company"] == TICKER and batches[0]["new"] == 1
-    assert call_route(restarted, "GET", "/api/v1/research-data/batches", company="000001.SZ")["data"]["batches"] == []
+    assert call_route(restarted, "GET", "/api/v1/research-data/batches", company="000001.SZ")["data"]["batches"] == batches
+
+# 覆盖需求：REQ-016 —— AC-1～6 范围独立、离线计划、固定目录与显式确认；REQ-016.4 AC-4.2 批次固定目录。
+
+def test_maintained_scope_is_exactly_enabled_list_and_company_independent(tmp_path, monkeypatch):
+    from datalayer.access import DataAccess
+    from datalayer.store import DataStore
+    from datalayer.universe import Universe
+    config, registry = make_app(tmp_path)
+    store = DataStore(config.archive_root)
+    universe = Universe(store)
+    universe.add(TICKER, "伊利")
+    universe.add("000001.SZ", "平安", enabled=False)
+    make_company_dir(tmp_path)
+    monkeypatch.setattr(DataAccess, "_invoke", lambda *a, **kw: pytest.fail("plan must stay offline"))
+    first = call_route(registry, "GET", "/api/v1/research-data/plan", company="not-a-company", periods="20251231")["data"]
+    second = call_route(registry, "GET", "/api/v1/research-data/plan", company="00700.HK", periods="20251231")["data"]
+    assert [c["ticker"] for c in first["companies"]] == [TICKER]
+    assert first["digest"] == second["digest"]
+    assert first["unknowns"]["quota"].startswith("未知")
+    assert store.list_batches() == []
+    universe.set_enabled(TICKER, False)
+    with pytest.raises(BadRequest, match="没有可采集"):
+        call_route(registry, "GET", "/api/v1/research-data/plan", periods="20251231")
+
+
+def test_directory_refresh_requires_confirmation_and_plan_never_refreshes(tmp_path, monkeypatch):
+    from webui.core.errors import QuotaConfirmRequired
+    from datalayer.directory import Directory
+    config, registry = make_app(tmp_path)
+    monkeypatch.setattr(Directory, "refresh", lambda *a: pytest.fail("not authorized"))
+    with pytest.raises(QuotaConfirmRequired):
+        call_route(registry, "POST", "/api/v1/research-data/directory/refresh", {})
+    with pytest.raises(BadRequest, match="尚无"):
+        call_route(registry, "GET", "/api/v1/research-data/plan", scope="all_a", periods="20251231")
+    from datalayer.store import DataStore
+    assert DataStore(config.archive_root).list_batches() == []
+
+
+def test_full_market_plan_pins_snapshot_and_reports_exchange_gaps(tmp_path, monkeypatch):
+    from datalayer.directory import Directory
+    config, registry = make_app(tmp_path)
+    snapshot = {"snapshot_id": "snap-a", "source": "Tushare stock_basic", "fetched_at": "2026-10-12T00:00:00Z",
+                "companies": [{"ticker": "600887.SH", "market": "SH", "display_name": "伊利", "instrument_type": "A股普通股"},
+                              {"ticker": "000001.SZ", "market": "SZ", "display_name": "平安", "metadata": {"market": "主板"}},
+                              {"ticker": "920001.BJ", "market": "BJ", "display_name": "北交所公司", "metadata": {"market": "北交所"}},
+                              {"ticker": "689009.SH", "market": "SH", "display_name": "九号公司",
+                               "metadata": {"market": "科创板"}}],
+                "coverage": {}, "exclusions": {}, "gaps": []}
+    monkeypatch.setattr(Directory, "latest", lambda _: snapshot)
+    monkeypatch.setattr(Directory, "get", lambda _, key: snapshot if key == "snap-a" else None)
+    plan = call_route(registry, "GET", "/api/v1/research-data/plan", scope="all_a", company=TICKER, periods="20251231")["data"]
+    assert plan["company_count"] == 4 and plan["total"] == 32
+    assert plan["instrument_type_counts"] == {"A股普通股": 3, "境内上市CDR": 1}
+    assert plan["directory"]["instrument_type_counts"] == plan["instrument_type_counts"]
+    assert plan["inputs"]["snapshot_id"] == "snap-a" and not plan["blockers"]
+    unknown_snapshot = {**snapshot, "companies": snapshot["companies"] + [
+        {"ticker": "000002.SZ", "market": "SZ", "display_name": "未分类证券", "metadata": {"market": "未知板块"}}
+    ]}
+    monkeypatch.setattr(Directory, "latest", lambda _: unknown_snapshot)
+    monkeypatch.setattr(Directory, "get", lambda _, key: unknown_snapshot if key == "snap-a" else None)
+    unknown_plan = call_route(registry, "GET", "/api/v1/research-data/plan", scope="all_a", periods="20251231")["data"]
+    assert unknown_plan["directory"]["unknown_instrument_types"] == ["000002.SZ"]
+    assert any("无法确认证券类型" in blocker for blocker in unknown_plan["blockers"])
+    monkeypatch.setattr(Directory, "latest", lambda _: snapshot)
+    monkeypatch.setattr(Directory, "get", lambda _, key: snapshot if key == "snap-a" else None)
+    pinned = call_route(registry, "GET", "/api/v1/research-data/plan", **plan["inputs"])["data"]
+    assert pinned["digest"] == plan["digest"]
+    snapshot["gaps"] = ["北交所覆盖未知：数据源拒绝"]
+    assert call_route(registry, "GET", "/api/v1/research-data/plan", **plan["inputs"])["data"]["blockers"] == snapshot["gaps"]
+    from webui.plugins import research_data
+    monkeypatch.setattr(research_data, "_runner", lambda _: pytest.fail("incomplete universe must not run"))
+    with pytest.raises(BadRequest, match="覆盖未知"):
+        call_route(registry, "POST", "/api/v1/research-data/run", {"confirmed": True, "inputs": plan["inputs"], "digest": plan["digest"]})
+
+
+def test_market_cli_plan_is_offline_and_requires_review_before_run(tmp_path, capsys, monkeypatch):
+    import market_acquisition
+    from datalayer.store import DataStore
+    from datalayer.universe import Universe
+    root = tmp_path / 'archive'
+    Universe(DataStore(root)).add(TICKER, '伊利')
+    path = tmp_path / 'plan.json'
+    args = ['--store', str(root), '--plan', str(path)]
+    assert market_acquisition.main(['plan', *args, '--scope', 'watchlist']) == 0
+    saved = json.loads(path.read_text())
+    assert saved['company_count'] == 1 and not DataStore(root).list_batches()
+    monkeypatch.setattr(market_acquisition.CollectionRunner, 'start', lambda *a, **kw: pytest.fail('must not submit'))
+    assert market_acquisition.main(['run', *args]) == 2
+    Universe(DataStore(root)).set_enabled(TICKER, False)
+    assert market_acquisition.main(['run', *args, '--yes']) == 2
+    assert DataStore(root).list_batches() == []
+    assert '确认' in capsys.readouterr().err
+
+
+def test_cli_interrupt_waits_for_durable_worker_completion(tmp_path, capsys, monkeypatch):
+    import threading
+    import market_acquisition
+    from datalayer.store import DataStore
+    store = DataStore(tmp_path / 'archive')
+    batch = {'batch_id': 'signal', 'profile': 'frugal', 'status': 'running',
+             'targets': [{'ticker': TICKER, 'dataset': 'income', 'period': '20260630', 'params': {'ts_code': TICKER}}],
+             'completed': {}, 'progress': {}}
+    store.append_batch(batch)
+    plan = tmp_path / 'plan.json'
+    plan.write_text('{}')
+    pause = threading.Event()
+    class Finished:
+        done = False
+        calls = 0
+        def is_set(self): return self.done
+        def wait(self, timeout):
+            self.calls += 1
+            if self.calls == 1:
+                raise KeyboardInterrupt
+            assert pause.is_set()
+            batch['status'] = 'paused'
+            store.append_batch(batch)
+            self.done = True
+    finished = Finished()
+    class Runner:
+        def __init__(self, ctx):
+            self.active = {'signal': (object(), pause)}  # No thread liveness can certify disk state.
+            self.finished = {'signal': finished}
+        def start(self, planned, batch_id=None):
+            return {'batch_id': 'signal', 'status': 'running', 'total': 1}
+    monkeypatch.setattr(market_acquisition, 'CollectionRunner', Runner)
+    result = market_acquisition.main(['resume', '--store', str(store.root), '--plan', str(plan), '--batch-id', 'signal', '--yes'])
+    assert result == 130 and finished.calls == 2
+    assert store.load_batch('signal')['status'] == 'paused'
+    assert '"status": "paused"' in capsys.readouterr().out
+
+
+def test_market_prefetch_counts_new_targets_separately_from_directory_reuse(tmp_path):
+    import pandas as pd
+    from types import SimpleNamespace
+    from datalayer.access import DataAccess
+    from datalayer.store import DataStore
+    from datalayer.pull import PullBatch
+    from datalayer.market_bulk import prefetch
+    from webui.plugins.research_data import explain_batch
+    store = DataStore(tmp_path / 'archive')
+    tickers = [TICKER, '000001.SZ']
+    basic = pd.DataFrame({'ts_code': tickers, 'name': ['伊利', '平安']})
+    store.write_frame(ticker='', dataset='stock_basic', period='latest', params={'exchange': 'SSE'},
+                      frame=basic, result='ok', batch_id='directory-source')
+    finance = pd.DataFrame({'ts_code': tickers, 'end_date': ['20260630'] * 2,
+                            'report_type': ['1'] * 2, 'revenue': [10, 20]})
+    calls = []
+    class Pro:
+        def income_vip(self, **params):
+            current = store.load_batch('bulk')['progress']['current']
+            assert current['company_ticker'] == '沪深北A股与境内上市CDR' and current['dataset'] == 'income'
+            assert current['period'] == '20260630'
+            calls.append(params)
+            return finance if params['offset'] == 0 else pd.DataFrame()
+    client = SimpleNamespace(pro=Pro(), MAX_RETRIES=1, RETRY_DELAY=0, _vip_mode=False)
+    access = DataAccess(store, client=client, token='test', rate_limit_seconds=0)
+    targets = [{'ticker': ticker, 'dataset': 'stock_basic', 'period': 'latest', 'params': {'ts_code': ticker, 'fields': 'ts_code,name'}} for ticker in tickers]
+    targets += [{'ticker': ticker, 'dataset': 'income', 'period': '20260630',
+                 'params': {'ts_code': ticker, 'period': '20260630', 'report_type': '1', 'fields': 'ts_code,end_date,report_type,revenue'}} for ticker in tickers]
+    def prepare(batch, reader, pause):
+        return prefetch(store, batch['targets'], reader, completed=batch['completed'],
+                        should_pause=pause, max_requests=2, whole_market=True)
+    batch = PullBatch(store, targets, 'frugal', access, token='test', pre_collect=prepare).run(batch_id='bulk', confirm=True)
+    result = explain_batch(store, store.load_batch('bulk'))
+    assert len(calls) == result['actual_requests'] == 2
+    assert result['success'] == result['total'] == 4 and result['reused'] == result['new'] == 2
+    assert batch['usage']['current_batch_cache'] == 2
+    assert batch['progress']['prefetch']['source_apis']['income'] == 'income_vip'

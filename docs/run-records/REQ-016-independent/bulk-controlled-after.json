@@ -1,0 +1,13 @@
+{
+  "base": "http://127.0.0.1:8792",
+  "failures": [],
+  "checks": [
+    {
+      "name": "bulk current company/group displayed truthfully",
+      "passed": true,
+      "actual": [
+        "当前公司：全部A股；当前业务组：财报/公司基本信息"
+      ]
+    }
+  ]
+}

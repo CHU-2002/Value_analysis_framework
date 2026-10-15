@@ -1,0 +1,65 @@
+{
+  "schema": "investment.report_events",
+  "subject": {
+    "ticker": "000858.SZ",
+    "company": "五粮液",
+    "market": "CN"
+  },
+  "report_period": "2026H1",
+  "events": [
+    {
+      "title": "2026年更正2025年前三季度部分报表项目",
+      "period": "2025年一季度、半年度、三季度",
+      "disclosed_at": "2026-04-30",
+      "status": "company_explanation",
+      "explanation": "公司根据业务模式梳理，调整2025年部分业务收入确认核算。",
+      "importance": "比较2025年和其他期间时应使用重述口径，不能混用旧数。",
+      "amount": "2025H1营业收入由52,770,984,383.52元调整为23,509,972,048.65元；归母净利润由19,491,942,398.53元调整为4,623,850,715.13元。",
+      "impact": "涉及合并资产负债表、合并利润表部分项目；公司披露现金流量表列示不受影响。",
+      "limits": "本公告未对2025年更正事项作出监管造假认定；不能将历史处罚挪用到这个期间。",
+      "sources": [
+        {
+          "title": "五粮液关于前期会计差错更正的公告（2026/第011号）",
+          "date": "2026-04-30",
+          "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225273122.PDF",
+          "locator": "第1页原因与影响；第3—4页2025半年度更正表"
+        }
+      ],
+      "field_statuses": {
+        "explanation": "company_explanation",
+        "importance": "inference",
+        "amount": "disclosed",
+        "impact": "disclosed",
+        "limits": "unverified",
+        "terminology": "inference"
+      },
+      "terminology": "会计差错更正是把以前报出的数字按调整后口径重新列报，不能单凭更正定性为财务造假。"
+    },
+    {
+      "title": "2011年历史信息披露违法处罚与本次更正分开理解",
+      "period": "2001—2009年证券投资及2007年年报、董事事项",
+      "disclosed_at": "2011-04-29",
+      "status": "regulator_confirmed",
+      "explanation": "证监会认定历史信息披露违法，包括澄清公告重大遗漏、证券投资披露不及时不完整、2007年年报录入差错未及时更正和董事受司法羁押未及时公告。",
+      "importance": "这些认定涉及历史信息披露可信度；不能拿来替代2025年更正事项的监管判断。",
+      "amount": "对五粮液给予警告并处罚款60万元；该罚款属于2011年决定，不是2026年财务影响。",
+      "impact": "行政处罚决定已作出；涉及的主体与行为范围以决定原文为准。",
+      "limits": "后续复议、诉讼或执行状态未核实；没有依据认定2025年更正事件为财务造假。",
+      "sources": [
+        {
+          "title": "证监会行政处罚决定书（五粮液、唐桥等8名责任人员）〔2011〕17号",
+          "date": "2011-04-29",
+          "url": "https://www.csrc.gov.cn/csrc/c101928/c1043253/content.shtml",
+          "locator": "违法事实一至四、处罚决定第一项及文末落款"
+        }
+      ],
+      "field_statuses": {
+        "explanation": "regulator_confirmed",
+        "importance": "inference",
+        "amount": "regulator_confirmed",
+        "impact": "regulator_confirmed",
+        "limits": "unverified"
+      }
+    }
+  ]
+}

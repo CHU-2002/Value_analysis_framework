@@ -1,0 +1,39 @@
+{
+  "schema": "investment.report_events",
+  "subject": {
+    "ticker": "600887.SH",
+    "company": "伊利股份",
+    "market": "CN"
+  },
+  "report_period": "2026H1",
+  "events": [
+    {
+      "title": "澳优商誉及存货减值增加，本期利润受到影响",
+      "period": "2026年1—6月",
+      "disclosed_at": "2026-08-27",
+      "status": "company_explanation",
+      "explanation": "公司说明资产减值增加主要来自澳优商誉及存货减值增加。",
+      "importance": "减值降低本期利润及相关资产账面价值，需要与持续经营表现分开理解。",
+      "amount": "合并口径、人民币元：资产减值损失2,455,875,173.02；其中商誉减值1,546,544,866.49，存货跌价损失及合同履约成本减值损失本期907,520,836.34，上期315,591,928.82。利润表以负数列示损失。存货行合并含合同履约成本，不擅自拆分。",
+      "impact": "这是税前费用；确认减值不等于当期支付同额现金。",
+      "limits": "税费、少数股东影响及各因素对归母利润下降的贡献未逐项核实，不能把税前减值等同于归母净利润下降额，也不能说它单独解释全部下降。",
+      "sources": [
+        {
+          "title": "伊利2026年半年度报告",
+          "date": "2026-08-27",
+          "url": "https://static.cninfo.com.cn/finalpage/2026-08-27/1225511409.PDF",
+          "locator": "印刷第164页（PDF第167页），附注七（73）资产减值损失；第140页商誉减值准备；第49页合并利润表"
+        }
+      ],
+      "field_statuses": {
+        "explanation": "company_explanation",
+        "importance": "inference",
+        "amount": "disclosed",
+        "impact": "inference",
+        "limits": "unverified",
+        "terminology": "inference"
+      },
+      "terminology": "商誉减值是收购形成的预期价值被判断部分无法收回后确认的费用。存货减值是库存商品等预计卖不回原成本的部分确认损失。"
+    }
+  ]
+}

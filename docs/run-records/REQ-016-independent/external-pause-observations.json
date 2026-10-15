@@ -1,0 +1,19 @@
+{
+  "reply": {
+    "ok": true,
+    "schema_version": "1.0",
+    "data": {
+      "batch_id": "external-owned",
+      "message": "暂停已请求；当前请求完成后落盘并暂停"
+    },
+    "warnings": [],
+    "meta": {},
+    "error": null
+  },
+  "status_after": "running",
+  "progress_after": {
+    "completed": 0,
+    "total": 1
+  },
+  "active_after": []
+}

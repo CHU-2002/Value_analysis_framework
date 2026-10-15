@@ -1,0 +1,13 @@
+{
+  "base": "http://127.0.0.1:8791",
+  "failures": [
+    "bulk current company/group displayed truthfully"
+  ],
+  "checks": [
+    {
+      "name": "bulk current company/group displayed truthfully",
+      "passed": false,
+      "actual": []
+    }
+  ]
+}

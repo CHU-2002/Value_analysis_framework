@@ -1,0 +1,157 @@
+{
+  "purpose": "Independent read-only reclassification for REQ-016 revised A-share common stock + mainland-listed CDR scope",
+  "sqlite": {
+    "path": "output/.live_req016_delivery/archive/store.db",
+    "mode": "ro",
+    "query_only": true
+  },
+  "snapshot": {
+    "snapshot_id": "a107a05c417d4762bb7145d74260f442",
+    "source": "Tushare stock_basic",
+    "fetched_at": "2026-10-12T15:17:19.023752+00:00",
+    "content_sha256": "bbc8736398aaf763b49f7981d5880a04c3c79a23b304714d66d4546c55006d74",
+    "source_count": 5573,
+    "reclassified_counts": {
+      "A股普通股": 5572,
+      "境内上市CDR": 1
+    },
+    "unknown_count": 0,
+    "coverage": {
+      "SSE": {
+        "status": "confirmed",
+        "count": 2320,
+        "reason": ""
+      },
+      "SZSE": {
+        "status": "confirmed",
+        "count": 2904,
+        "reason": ""
+      },
+      "BSE": {
+        "status": "confirmed",
+        "count": 349,
+        "reason": ""
+      }
+    },
+    "cdr_rows": [
+      {
+        "ticker": "689009.SH",
+        "source_market": "科创板",
+        "exchange": "SSE",
+        "list_status": "L"
+      }
+    ]
+  },
+  "old_plan": {
+    "scope": "all_a",
+    "snapshot_id": "a107a05c417d4762bb7145d74260f442",
+    "company_count": 5573,
+    "target_count": 44584,
+    "directory_keys": [
+      "content_sha256",
+      "count",
+      "coverage",
+      "exclusions",
+      "fetched_at",
+      "gaps",
+      "snapshot_id",
+      "source"
+    ],
+    "instrument_type_counts_saved": false,
+    "explicit_confirmation_after_reclassification_evidenced": false
+  },
+  "old_batch": {
+    "batch_id": "3acb1a5d48544d6ba3703e68a7004313",
+    "status": "done",
+    "target_count": 44584,
+    "company_count": 5573,
+    "cdr_target_count": 8,
+    "progress_directory_keys": [
+      "content_sha256",
+      "count",
+      "coverage",
+      "exclusions",
+      "fetched_at",
+      "gaps",
+      "snapshot_id",
+      "source"
+    ],
+    "instrument_type_counts_saved": false
+  },
+  "classification_basis": "scripts.datalayer.directory.classify_instrument applied in memory to frozen snapshot JSON; no network request; no writes to output/.live_req016_delivery or HOME",
+  "verification": {
+    "targeted_command": ".venv/bin/python -m pytest tests/test_data_directory.py tests/test_console_data_page.py -q",
+    "targeted_result": "42 passed in 11.18s, exit 0",
+    "full_command": "COVERAGE_FILE=\"$PWD/output/.live_req016_acceptance/verify-cdr-approved.coverage\" make verify",
+    "full_result": "1980 passed, 3 skipped; coverage 76.45%; trace 18 passed; scope 49 files / 1983 cases; regression gate passed; exit 0",
+    "sandbox_attempt": "13 loopback-binding tests initially failed with PermissionError in restricted run; approved rerun passed"
+  },
+  "expanded_offline_preview": {
+    "path": "output/.live_req016_acceptance/plan-expanded-review.json",
+    "digest": "b61a795df3434a267ea236beccd5921f35a5a50506bab95a2ebef0b8cb200b6d",
+    "inputs": {
+      "scope": "all_a",
+      "snapshot_id": "a107a05c417d4762bb7145d74260f442",
+      "tier": "frugal",
+      "periods": "20260630"
+    },
+    "directory_type_counts": {
+      "A股普通股": 5572,
+      "境内上市CDR": 1
+    },
+    "company_count": 5573,
+    "target_count": 44584,
+    "requests_estimate": 5573,
+    "reuse_estimate": 39011,
+    "state_counts": {
+      "ok": 38868,
+      "stale": 5573,
+      "empty": 143
+    },
+    "blockers": [],
+    "owner_confirmation_after_preview": false,
+    "new_batch_started": false,
+    "new_source_requests": false
+  },
+  "store_comparison": {
+    "source_db": "output/.live_req016_delivery/archive/store.db",
+    "preview_db": "output/.live_req016_acceptance/preview-store/store.db",
+    "comparison": "SQLite mode=ro, PRAGMA query_only=ON; canonical row count and SHA-256 match by table",
+    "tables": {
+      "batch": {
+        "rows": 1,
+        "sha256": "f5b609022b174b54efa25058adb30d2aafdbc5eab3864cee2c02693eca65347a"
+      },
+      "batch_target": {
+        "rows": 44584,
+        "sha256": "dd7fe742f840a7857a46e6ae47f07ac07854331ef90dbeb3778f7213ee56e41f"
+      },
+      "raw_record": {
+        "rows": 44587,
+        "sha256": "b18cf27e9416373bc7c347bbd327d3c8974f91f4cc0267352299292ffbdaaf19"
+      },
+      "directory_snapshot": {
+        "rows": 2,
+        "sha256": "ad82c93bbfb57193e1a6a05475da3e7380201ccf70c2f88443dee000a852fc2a"
+      },
+      "meta": {
+        "rows": 2,
+        "sha256": "296ed98863bf15b533ad3320b1ea15e78f3d0c723babb344cdd01fcd75772bd7"
+      },
+      "batch_control": {
+        "rows": 1,
+        "sha256": "648eee942a7b20abac6d5cbde18db7e0d047bab24f508146d6d79d17ce1874e7"
+      }
+    },
+    "only_batch": {
+      "batch_id": "3acb1a5d48544d6ba3703e68a7004313",
+      "status": "done",
+      "actual_requests": 34324,
+      "new_requests": 33704,
+      "archive_hits": 10880,
+      "current_batch_cache": 5440
+    },
+    "interpretation": "Preview plan was read-only against a copy of the existing store; all persisted batch/target/raw-record/snapshot/control rows match the source. No new batch or source request was made."
+  },
+  "remaining_ac7": "Owner execution confirmation after reviewing this plan, followed by completion and recording of the corresponding confirmed batch."
+}

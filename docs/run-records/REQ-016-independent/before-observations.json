@@ -1,0 +1,61 @@
+{
+  "base": "http://127.0.0.1:8786",
+  "failures": [
+    "600887.SH scope exactly maintained/all-A",
+    "600887.SH enable GUI entry",
+    "600887.SH disable GUI entry",
+    "600887.SH edit GUI entry",
+    "000858.SZ scope exactly maintained/all-A",
+    "000858.SZ enable GUI entry",
+    "000858.SZ disable GUI entry",
+    "000858.SZ edit GUI entry"
+  ],
+  "checks": [
+    {
+      "name": "600887.SH scope exactly maintained/all-A",
+      "passed": false,
+      "actual": [
+        2,
+        "当前公司启用自选股"
+      ]
+    },
+    {
+      "name": "600887.SH enable GUI entry",
+      "passed": false,
+      "actual": false
+    },
+    {
+      "name": "600887.SH disable GUI entry",
+      "passed": false,
+      "actual": false
+    },
+    {
+      "name": "600887.SH edit GUI entry",
+      "passed": false,
+      "actual": false
+    },
+    {
+      "name": "000858.SZ scope exactly maintained/all-A",
+      "passed": false,
+      "actual": [
+        2,
+        "当前公司启用自选股"
+      ]
+    },
+    {
+      "name": "000858.SZ enable GUI entry",
+      "passed": false,
+      "actual": false
+    },
+    {
+      "name": "000858.SZ disable GUI entry",
+      "passed": false,
+      "actual": false
+    },
+    {
+      "name": "000858.SZ edit GUI entry",
+      "passed": false,
+      "actual": false
+    }
+  ]
+}

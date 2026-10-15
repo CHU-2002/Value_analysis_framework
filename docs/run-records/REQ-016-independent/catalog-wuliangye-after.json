@@ -1,0 +1,19 @@
+{
+  "url": "http://127.0.0.1:8788/#report?company=000858_%E4%BA%94%E7%B2%AE%E6%B6%B2",
+  "text": "报告阅读\n\nMarkdown 先转义再渲染；报告里的原始 HTML 不生效。\n\n公司：000858 五粮液\n\n报告类型\n价值分析\n商业质量\n变化报告\n源材料\n报告版本\n选择版本\n生成报告\n\n无法解析此类型的正式发布指针；可选择历史版本，未猜测最新版。\n\n尚无此类型报告。可以生成报告，或在源材料中查看已有数据。\n\n本次重新解析 · 数据生成时间 2026-10-12T15:41:40+00:00 · 产出格式 0.1.0\n\n产物\n\n按类型分组列出本地产物；点产物名在面板内阅读。\n\n显示 4 / 共 4 行\n产物\t类型\t位置（技术标识）\t字节\nchange_report_reader_2026H1.md\t变化报告\tchange_report_reader_2026H1.md\t2869\ndata_pack_market.md\t数据包\tdata_pack_market.md\t51\nqualitative_report.md\t定性报告\tqualitative_report.md\t51\nsource.md\t其他\tsource.md\t51\n\n4 行\n\n上一页\n第 1 / 1 页\n下一页\n\n本次重新解析 · 数据生成时间 2026-10-12T15:41:40+00:00 · 产出格式 0.1.0",
+  "failures": [],
+  "require": [
+    "change_report_reader_2026H1.md",
+    "qualitative_report.md",
+    "source.md"
+  ],
+  "forbid": [
+    "latest.json",
+    "record.json",
+    "run_manifest.json",
+    "qualitative_input.json",
+    "data_pack_market_current.md",
+    "pdf_sections_2026H1.json",
+    "unknown.bin"
+  ]
+}

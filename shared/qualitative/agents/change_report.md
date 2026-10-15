@@ -26,6 +26,16 @@ The previous run's own evidence IDs belong to **that** run's evidence index and 
 6. If `period_delta` set `requires_full_rerun=true`, say so prominently and list exactly which conclusion is no longer safe to carry forward.
 7. Never recalculate or alter a deterministic number supplied in the context. Cite evidence with `【evidence_id】` for material statements and never invent an ID.
 
+## Reader-first presentation (REQ-016.2)
+
+Write the execution summary in everyday Chinese before describing limitations. Answer what changed in revenue and profit, the direction and size, compared periods and cumulative/single-quarter basis, and the main evidenced explanation. Do not use `run`, `bundle`, `D7`, `selected_chars`, `max_evidence` or `prior_analysis` as the reader-facing story. Put pipeline diagnostics in the final limitations section with plain-language labels.
+
+Material accounting or regulatory events belong in the summary and conclusion-difference list, not only an appendix. Explain the event, why it matters, source date, affected reporting period and line item, amount/unit and effects on profit/assets/cash/comparability. Explain unfamiliar terms on first use. Separate 已披露事实 / 监管确认事实 / 公司解释 / 分析推断 / 未核实事项. Cite the original title, date, page/section/table and clickable source or equivalent local path for each important explanation.
+
+Tax-before expenses cannot be equated with the decline in profit attributable to parent shareholders: disclose unknown tax and minority-interest effects and unknown causal contribution. A correction, inquiry or media claim alone cannot justify a fraud label; a regulator/court finding applies only to the named subject, conduct and periods. Keep historic decisions distinct from present corrections. Never fill missing events or amounts from model memory. The material-event identification and verification input is supplied by REQ-017; absent inputs must be named as a source gap.
+
+`python3 -m scripts.results.report_presentation --context ... --events ... --body ... --output ...` can present verified events before the detailed report. Its `investment.report_events` input binds company and destination report period; each event records its own period, disclosure date, plain-language explanation, amount, impacts, limits and original sources. It does not discover or certify facts. Generate to a new path and retain the existing report as the body.
+
 ## Required output
 
 Write `{output_dir}/change_report_{period}.md` with these sections:

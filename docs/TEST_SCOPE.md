@@ -14,8 +14,8 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 
 | 项 | 当前 | 上限 | 使用率 |
 |----|------|------|--------|
-| 测试文件数 | 48 | 52 | 92% |
-| 收集到的用例数 | 1954 | 2000 | 98% |
+| 测试文件数 | 49 | 52 | 94% |
+| 收集到的用例数 | 1983 | 2000 | 99% |
 
 （用例数含 `parametrize` 展开，由 `pytest --collect-only` 统计；函数数见下表末列，仅作参考。）
 
@@ -23,18 +23,19 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 
 | 测试文件 | 归属需求 | 层 | 被测对象 | 测试函数数 |
 |----------|----------|----|----------|------------|
-| `tests/test_agent_action.py` | REQ-013, REQ-013.1, REQ-013.2, REQ-013.3, REQ-015, REQ-015.2 | `unit` | `scripts/agent_action.py` | 31 |
+| `tests/test_agent_action.py` | REQ-013, REQ-013.1, REQ-013.2, REQ-013.3, REQ-015, REQ-015.2 | `unit` | `scripts/agent_action.py` | 33 |
 | `tests/test_analysis_status.py` | REQ-003, REQ-010 | `unit` | `scripts/analysis_status.py` | 24 |
 | `tests/test_buy_sell_engine.py` | 基线 | `unit` | `scripts/buy_sell_engine.py` | 45 |
-| `tests/test_change_report.py` | REQ-004, REQ-006.1 | `unit` | — | 21 |
+| `tests/test_change_report.py` | REQ-004, REQ-006.1, REQ-016.2 | `unit` | — | 24 |
 | `tests/test_comparable_periods.py` | REQ-002 | `unit` | — | 39 |
 | `tests/test_config.py` | 基线 | `unit` | `scripts/config.py` | 43 |
 | `tests/test_console_actions.py` | REQ-009.1, REQ-012, REQ-012.2, REQ-015 | `unit` | — | 32 |
-| `tests/test_console_context.py` | REQ-009, REQ-009.2, REQ-012, REQ-012.1, REQ-015, REQ-015.5 | `unit` | — | 20 |
-| `tests/test_console_data_page.py` | REQ-012, REQ-012.4, REQ-014, REQ-015.4 | `unit` | — | 27 |
-| `tests/test_console_views.py` | REQ-009, REQ-009.3, REQ-012, REQ-012.3, REQ-015.3 | `unit` | — | 17 |
+| `tests/test_console_context.py` | REQ-009, REQ-009.2, REQ-012, REQ-012.1, REQ-015, REQ-015.5 | `unit` | — | 21 |
+| `tests/test_console_data_page.py` | REQ-012, REQ-012.4, REQ-014, REQ-015.4, REQ-016, REQ-016.4 | `unit` | — | 33 |
+| `tests/test_console_views.py` | REQ-009, REQ-009.3, REQ-012, REQ-012.3, REQ-015.3 | `unit` | — | 18 |
 | `tests/test_coordinator.py` | 基线 | `unit` | — | 9 |
-| `tests/test_data_pull.py` | REQ-009.4, REQ-011, REQ-011.2, REQ-015.4 | `unit` | — | 25 |
+| `tests/test_data_directory.py` | REQ-016, REQ-016.4 | `unit` | — | 9 |
+| `tests/test_data_pull.py` | REQ-009.4, REQ-011, REQ-011.2, REQ-015.4, REQ-016 | `unit` | — | 26 |
 | `tests/test_data_store.py` | REQ-011, REQ-011.1, REQ-015.1, REQ-015.4 | `unit` | — | 32 |
 | `tests/test_derived_metrics.py` | 基线 | `unit` | — | 83 |
 | `tests/test_discover_report.py` | REQ-001, REQ-006.1 | `unit` | `scripts/discover_report.py` | 62 |
@@ -66,11 +67,11 @@ CI 对每个 PR 都跑**全量**测试：只有全量才能发现「新功能踩
 | `tests/test_two_layout_e2e.py` | REQ-005, REQ-006 | `unit` | — | 5 |
 | `tests/test_update_docs_contract.py` | REQ-005, REQ-006, REQ-006.1 | `unit` | — | 20 |
 | `tests/test_version.py` | REQ-003, REQ-006 | `unit` | `scripts/version.py` | 16 |
-| `tests/test_watchlist_ui.py` | REQ-014, REQ-015, REQ-015.1 | `unit` | — | 10 |
+| `tests/test_watchlist_ui.py` | REQ-014, REQ-015, REQ-015.1, REQ-016.3 | `unit` | — | 13 |
 | `tests/test_webui_archive.py` | REQ-009.4 | `unit` | — | 10 |
 | `tests/test_webui_framework.py` | REQ-009, REQ-009.3, REQ-012 | `unit` | — | 43 |
 | `tests/test_webui_server.py` | REQ-009.1, REQ-012.2 | `unit` | — | 6 |
-| `tests/test_webui_views.py` | REQ-009, REQ-009.2, REQ-015.1, REQ-015.3 | `unit` | — | 27 |
+| `tests/test_webui_views.py` | REQ-009, REQ-009.2, REQ-015.1, REQ-015.3, REQ-016.1 | `unit` | — | 30 |
 
 归属为「基线」的测试覆盖需求体系建立前就已交付的能力，见
 [`docs/requirements/ledger.md`](requirements/ledger.md) 的「已交付基线」小节。

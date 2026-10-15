@@ -38,8 +38,8 @@ RESULTS = {
     "stale": ("过期/覆盖不足", "旧记录不能覆盖所需窗口/字段；补缺口"),
 }
 PHASES = {"pending": "排队", "running": "正在采集", "paused": "暂停", "done": "完成",
-          "partial": "部分成功", "failed": "中断", "waiting_rate_limit": "等待限频",
-          "waiting_retry": "等待重试"}
+          "partial": "部分成功", "failed": "中断", "waiting_rate_limit": "等待调用间隔或配额",
+          "waiting_retry": "等待重试", "collecting_bulk": "正在读取全市场同源数据"}
 
 
 def business_group(dataset):
@@ -122,9 +122,9 @@ def make_plan(ctx, inputs=None):
         raise BadRequest("采集参数需为对象")
     inputs = dict(inputs if inputs is not None else ctx.query)
     store = DataStore(ctx.config.archive_root)
-    scope = inputs.get("scope") or "current"
-    if scope not in ("current", "watchlist"):
-        raise BadRequest("公司范围只能是当前公司或自选股")
+    scope = inputs.get("scope") or "watchlist"
+    if scope not in ("watchlist", "all_a"):
+        raise BadRequest("公司范围只能是已维护公司或全部A股与境内上市CDR")
     tier = inputs.get("tier") or "frugal"
     if tier not in profile_names():
         raise BadRequest("数据档位无效")
@@ -136,29 +136,42 @@ def make_plan(ctx, inputs=None):
             datetime.strptime(period, "%Y%m%d")
         except ValueError as exc:
             raise BadRequest("财报期次日期无效") from exc
-    if scope == "current":
-        ticker, name = _company(ctx, inputs.get("company"))
-        companies = [{"ticker": ticker, "display_name": name, "market": market_of(ticker)}]
+    directory = None
+    if scope == "all_a":
+        from datalayer.directory import Directory
+        catalog = Directory(store)
+        snapshot = catalog.get(inputs["snapshot_id"]) if inputs.get("snapshot_id") else catalog.latest()
+        if not snapshot:
+            raise BadRequest("尚无沪深北股票与CDR目录快照；请先明确确认刷新目录，再离线检查计划")
+        from datalayer.directory import annotate_instruments
+        companies = annotate_instruments(snapshot["companies"])
+        directory = {key: value for key, value in snapshot.items() if key != "companies"}
+        directory["instrument_type_counts"] = dict(Counter(row["instrument_type"] for row in companies
+                                                            if row["instrument_type"]))
+        unknown_instruments = sorted(row["ticker"] for row in companies if not row["instrument_type"])
+        if unknown_instruments:
+            directory["unknown_instrument_types"] = unknown_instruments
+            directory["gaps"] = list(directory.get("gaps") or []) + [
+                f"{len(unknown_instruments)} 个目录标的无法确认证券类型：" + "、".join(unknown_instruments)
+            ]
     else:
         companies = Universe(store).entries(enabled_only=True)
-        if not companies:
-            raise BadRequest("自选股尚无启用公司；先在下方维护清单")
+    if not companies:
+        raise BadRequest("范围内没有可采集公司；请维护启用清单或检查目录缺口")
     metrics_text = str(inputs.get("chart_metrics") or "")
     metrics = metrics_text.split(",") if metrics_text else []
     if any(metric not in HISTORY_FIELDS for metric in metrics):
         raise BadRequest("行情指标不在采集白名单内")
-    if metrics and scope != "current":
-        raise BadRequest("历史行情补齐只用于当前公司，请重新选择范围")
     targets = []
     for company in companies:
         if metrics:
-            if company["market"] not in ("SH", "SZ"):
+            if company["market"] not in ("SH", "SZ", "BJ"):
                 raise BadRequest("这些历史指标当前只支持 A 股；其他市场不可用")
             for start, end in _split_years(inputs.get("chart_start"), inputs.get("chart_end")):
                 for metric in metrics:
                     params = {"start_date": start, "end_date": end, "fields": HISTORY_FIELDS[metric]}
                     if metric == "trade_cal":
-                        params["exchange"] = "SZSE" if company["market"] == "SZ" else "SSE"
+                        params["exchange"] = {"SH": "SSE", "SZ": "SZSE", "BJ": "BSE"}[company["market"]]
                     else:
                         params["ts_code"] = company["ticker"]
                     targets.append({"ticker": "" if metric == "trade_cal" else company["ticker"],
@@ -174,8 +187,10 @@ def make_plan(ctx, inputs=None):
     rows = []
     today_text = date.today().strftime("%Y%m%d")
     future_periods = sorted(period for period in periods if period > today_text)
+    recorded_pairs = {(row["ticker"], row["dataset"]) for row in store._connect().execute(
+        "SELECT DISTINCT ticker, dataset FROM raw_record")}
     for target in targets:
-        state, record = _state(store, target)
+        state, record = _state(store, target) if (target["ticker"], target["dataset"]) in recorded_pairs else ("unattempted", None)
         label, next_step = RESULTS[state]
         if target["period"] in future_periods:
             state, label, next_step = "unattempted", "期次尚未结束", "选择已结束期次；不期望此期财报已发布"
@@ -189,17 +204,22 @@ def make_plan(ctx, inputs=None):
     counts = Counter(row["state"] for row in rows)
     complete = counts["ok"] + counts["empty"]
     remaining = len(targets) - complete
-    normalized = {"scope": scope, "company": inputs.get("company") or "", "tier": tier,
+    normalized = {"scope": scope, "snapshot_id": directory["snapshot_id"] if directory else "", "tier": tier,
                   "periods": ",".join(periods), "chart_metrics": metrics_text,
                   "chart_start": inputs.get("chart_start") or "", "chart_end": inputs.get("chart_end") or ""}
-    digest = hashlib.sha256(json.dumps({"targets": targets, "inputs": normalized}, sort_keys=True).encode()).hexdigest()
+    digest = hashlib.sha256(json.dumps({"targets": targets, "inputs": normalized, "companies": companies}, sort_keys=True).encode()).hexdigest()
     return {"inputs": normalized, "companies": companies, "targets": targets, "rows": rows,
             "digest": digest, "total": len(targets), "complete": complete, "remaining": remaining,
             "requests_estimate": remaining, "reuse_estimate": complete, "counts": dict(counts),
             "groups": dict(Counter(row["group"] for row in rows)),
-            "existing_records": len(store.records(ticker=companies[0]["ticker"] if scope == "current" else None, include_rows=False)),
+            "directory": directory, "company_count": len(companies),
+            "instrument_type_counts": dict(Counter(row.get("instrument_type", "") for row in companies if row.get("instrument_type"))),
+            "unknowns": {"quota": "未知：数据源未提供此账号剩余配额", "permissions": "未知：账号接口权限未验证",
+                         "duration": "未知：受响应速度、限频与重试影响"},
+            "existing_records": store._connect().execute("SELECT COUNT(*) FROM raw_record").fetchone()[0],
             "denominator": "所选公司范围 × 财报期次 × 数据档位（行情补齐按指标 × 年度窗口）；包含未尝试目标，合法空响应算已完成但无数值",
-            "blockers": ["所选期次尚未结束，不期望财报已发布：" + "、".join(future_periods)] if future_periods else [],
+            "blockers": (["所选期次尚未结束，不期望财报已发布：" + "、".join(future_periods)] if future_periods else [])
+                        + (list(directory.get("gaps") or []) if directory else []),
             "notice": "请求预估按待补目标计；缓存/重试会改变实际请求次数。账号权限尚未验证，耗时未知。采集不自动生成报告。"}
 
 
@@ -211,7 +231,8 @@ def explain_batch(store, batch):
         state = outcome.get("result") or "unattempted"
         if state in ("ok", "empty") and not store.serves_target(target):
             state = "stale"
-        record = store.find(target["ticker"], target["dataset"], target["period"], params=target["params"], include_rows=False)
+        record = (store.find(target["ticker"], target["dataset"], target["period"], params=target["params"], include_rows=False)
+                  if outcome else None)
         rows.append({"company": target.get("company_ticker") or target["ticker"] or "市场公共数据",
                      "group": business_group(target["dataset"]), "dataset": target["dataset"],
                      "period": target["period"], "state": state, "state_label": RESULTS.get(state, (state, ""))[0],
@@ -234,10 +255,43 @@ def explain_batch(store, batch):
             "success": counts["ok"] + counts["empty"], "failures": failure,
             "uncompleted": counts["unattempted"] + counts["stale"], "empty": counts["empty"],
             "actual_requests": None if usage.get("actual_requests_incomplete") else usage.get("actual_requests"),
-            "reused": usage.get("archive_hits", 0),
-            "new": max(0, len(completed) - int(usage.get("archive_hits", 0)) - failure),
-            "rows": rows, "can_resume": status in ("paused", "partial", "failed"),
+            "reused": max(0, usage.get("archive_hits", 0) - usage.get("current_batch_cache", 0)),
+            "bulk_new": usage.get("current_batch_cache", 0),
+            "new": max(0, len(completed) - int(usage.get("archive_hits", 0)) + int(usage.get("current_batch_cache", 0)) - failure),
+            "rows": rows, "counts": dict(counts),
+            "by_company_group": _result_groups(rows),
+            "directory": progress.get("directory"), "inputs": progress.get("inputs") or {},
+            "can_resume": status in ("paused", "partial", "failed"),
             "notice": "仅统计本批次目标。合法空响应没有数值；图表可离线刷新，报告仍需显式重建/生成。耗时未知。"}
+
+
+def _result_groups(rows):
+    grouped = {}
+    for row in rows:
+        key = (row["company"], row["group"])
+        grouped.setdefault(key, Counter())[row["state"]] += 1
+    return [{"company": company, "group": group, **{key: counts[key] for key in RESULTS}}
+            for (company, group), counts in sorted(grouped.items())]
+
+
+def _directory_refresh(ctx, **_):
+    if _body(ctx).get("confirmed") is not True:
+        raise QuotaConfirmRequired("目录刷新会联网；请明确确认，刷新不会创建公司采集批次")
+    from datalayer.directory import Directory
+    from tushare_collector import TushareClient
+    token = resolve_token()
+    if not token:
+        raise NoToken("未配置数据源凭据；请在项目 .env 或环境变量配置")
+    store = DataStore(ctx.config.archive_root)
+    snapshot = Directory(store).refresh(TushareClient(token, store=store))
+    return envelope.ok({key: value for key, value in snapshot.items() if key != "companies"})
+
+
+def _directory_list(ctx, **_):
+    from datalayer.directory import Directory
+    catalog = Directory(DataStore(ctx.config.archive_root))
+    return envelope.ok({"snapshots": [{key: value for key, value in snapshot.items() if key != "companies"}
+                                       for snapshot in catalog.snapshots()]})
 
 
 def _body(ctx):
@@ -255,6 +309,7 @@ class CollectionRunner:
         self.ctx = ctx
         self.lock = threading.Lock()
         self.active = {}
+        self.finished = {}
 
     def start(self, planned, batch_id=None):
         token = resolve_token()
@@ -273,16 +328,19 @@ class CollectionRunner:
                 now = datetime.now(timezone.utc).isoformat()
                 existing = {"batch_id": batch_id, "profile": planned["inputs"]["tier"], "targets": targets,
                             "status": "pending", "completed": {}, "created_at": now,
-                            "progress": {"completed": 0, "total": len(targets), "inputs": planned["inputs"]},
+                            "progress": {"completed": 0, "total": len(targets), "inputs": planned["inputs"],
+                                         "directory": planned.get("directory") },
                             "usage": {"new_requests": 0, "archive_hits": 0, "actual_requests": 0}}
                 store.append_batch(existing)
             pause = threading.Event()
-            thread = threading.Thread(target=self._run, args=(store, existing, token, pause), daemon=True)
+            finished = threading.Event()
+            self.finished[batch_id] = finished
+            thread = threading.Thread(target=self._run, args=(store, existing, token, pause, finished), daemon=True)
             self.active[batch_id] = (thread, pause)
             thread.start()
         return explain_batch(store, store.load_batch(batch_id))
 
-    def _run(self, store, batch, token, pause):
+    def _run(self, store, batch, token, pause, finished):
         # The HTTP thread reads its connection while the worker writes snapshots.
         # Give the worker its own SQLite connection; never share one transaction
         # across the request and collection threads.
@@ -291,8 +349,29 @@ class CollectionRunner:
             from tushare_collector import TushareClient
 
             access = TushareClient(token, store=store, batch_id=batch["batch_id"])._access
+            def pre_collect(current, current_access, should_pause):
+                from datalayer.market_bulk import prefetch
+                # Partition existing directory data first, without remote calls.
+                # Reserve enough of the original estimate for every remaining
+                # individual target. This keeps unused savings across resumes.
+                local = prefetch(store, [target for target in current["targets"] if target["dataset"] == "stock_basic"],
+                                 current_access, completed=current.get("completed"),
+                                 should_pause=should_pause, max_requests=0)
+                if local.get("paused"):
+                    return local
+                remaining = sum(not store.serves_target(target) for target in current["targets"])
+                budget = max(0, len(current["targets"]) - current["usage"].get("actual_requests", 0) - remaining)
+                report = prefetch(store, current["targets"], current_access,
+                                  completed=current.get("completed"), should_pause=should_pause,
+                                  max_requests=budget, whole_market=True, page_size=6000)
+                report["budget_available"] = budget
+                report["prefetched_targets"] += local["prefetched_targets"]
+                report["stock_basic_reused"] += local["stock_basic_reused"]
+                report["archive_hits"] -= local["prefetched_targets"]
+                return report
+            bulk = pre_collect if (batch.get("progress") or {}).get("inputs", {}).get("scope") == "all_a" else None
             PullBatch(store, batch["targets"], batch["profile"], access, token=token,
-                      should_pause=pause.is_set).run(batch_id=batch["batch_id"], confirm=True)
+                      should_pause=pause.is_set, pre_collect=bulk).run(batch_id=batch["batch_id"], confirm=True)
         except KeyboardInterrupt:
             return
         except Exception as exc:
@@ -304,8 +383,21 @@ class CollectionRunner:
                 self.ctx.log(f"collection {batch['batch_id']} failed: {type(exc).__name__}")
         finally:
             store.close()
+            finished.set()
 
     def pause(self, batch_id):
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", batch_id):
+            raise BadRequest("批次标识无效")
+        store = DataStore(self.ctx.config.archive_root)
+        batch = store.load_batch(batch_id)
+        if not batch:
+            raise BatchNotFound("批次不存在")
+        if batch.get("status") not in ("pending", "running"):
+            return {"batch_id": batch_id, "message": "批次已停止；可核对结果后明确确认恢复"}
+        from datalayer.batch_control import request_pause, supports_pause
+        if batch_id not in self.active and not supports_pause(store, batch_id):
+            raise BadRequest("此批次由旧版外部进程运行；请在其命令窗口按 Ctrl+C 安全暂停，再由本页恢复")
+        request_pause(store, batch_id)
         with self.lock:
             running = self.active.get(batch_id)
             if running:
@@ -336,7 +428,7 @@ def _run(ctx, **_):
         raise QuotaConfirmRequired("请先核对采集范围、请求预估并明确确认")
     planned = make_plan(ctx, body.get("inputs") or {})
     if planned["blockers"]:
-        raise BadRequest("；".join(planned["blockers"]) + "；请选择已结束期次")
+        raise BadRequest("；".join(planned["blockers"]))
     if body.get("digest") != planned["digest"]:
         raise BadRequest("采集范围/期次已变化，请重新检查计划并确认")
     return envelope.ok(_runner(ctx).start(planned))
@@ -344,11 +436,7 @@ def _run(ctx, **_):
 
 def _batches(ctx, **_):
     store = DataStore(ctx.config.archive_root)
-    company = ctx.query.get("company")
-    ticker = _company(ctx, company)[0] if company else ""
-    batches = store.list_batches(limit=100)
-    if ticker:
-        batches = [batch for batch in batches if any((target.get("company_ticker") or target.get("ticker")) == ticker for target in batch["targets"])]
+    batches = store.list_batches(limit=20)
     return envelope.ok({"batches": [explain_batch(store, batch) for batch in batches]})
 
 
@@ -378,6 +466,8 @@ def _panel(ctx, company=None, **_):
 def contribute(registry):
     registry.panel(PanelSpec(id="data.research", kind="collection", render="client", title="采集计划与结果",
                              provider=_panel, params=(Param("company", source="selection.company"),)))
+    registry.route("POST", "/api/v1/research-data/directory/refresh", _directory_refresh)
+    registry.route("GET", "/api/v1/research-data/directory", _directory_list)
     registry.route("GET", "/api/v1/research-data/plan", _plan)
     registry.route("POST", "/api/v1/research-data/run", _run)
     registry.route("GET", "/api/v1/research-data/batches", _batches)

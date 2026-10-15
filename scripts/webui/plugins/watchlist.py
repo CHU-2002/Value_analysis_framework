@@ -29,21 +29,30 @@ class WatchlistAction(JobTypeSpec):
                      "placeholder": "例如 600887.SH、600887 或 600887_伊利"},
                     {"name": "name", "label": "公司简称", "required": True,
                      "placeholder": "例如 伊利股份"}]
-        if self.operation == "remove":
+        if self.operation in ("enable", "disable", "edit", "remove"):
             try:
                 entries = _entries(ctx)
             except WebUIError:
                 entries = []  # 预检已给出存储不可用理由，选择器保持空状态。
-            return [{"name": "ticker", "label": "停止跟踪的公司", "required": True,
+            fields = [{"name": "ticker", "label": "清单中的公司", "required": True,
                      "choices": [{"value": e["ticker"], "label": f"{e['ticker'].split('.')[0]} {e['display_name']}"}
                                  for e in entries]}]
+            if self.operation == "edit":
+                fields.extend([
+                    {"name": "name", "label": "新公司简称（留空保持原值）", "placeholder": "例如 伊利股份"},
+                    {"name": "tier", "label": "数据档位", "choices": [
+                        {"value": "", "label": "保持原档位"},
+                        {"value": "frugal", "label": "基础必需数据"},
+                        {"value": "bulk", "label": "完整业务数据"}]}])
+            return fields
         return []
 
     def prepare(self, ctx, params, context):
-        from watchlist_action import resolve_ticker, clean_name
+        from watchlist_action import resolve_ticker, clean_name, validate_tier
         from datalayer.errors import UniverseError
-        allowed = {"ticker", "name"} if self.operation == "add" else (
-            {"ticker"} if self.operation == "remove" else set())
+        allowed = ({"ticker", "name"} if self.operation == "add" else
+                   {"ticker", "name", "tier"} if self.operation == "edit" else
+                   {"ticker"} if self.operation in ("enable", "disable", "remove") else set())
         if set(params) - allowed:
             raise BadRequest("清单操作只接受页面里的公司信息")
         values = {"archive_root": str(Path(ctx.config.archive_root).resolve()),
@@ -57,7 +66,18 @@ class WatchlistAction(JobTypeSpec):
                 if not isinstance(params.get("name"), str):
                     raise UniverseError("请填写公司简称")
                 values["name"] = clean_name(params["name"])
-            if self.operation == "remove" and values["ticker"] not in {e["ticker"] for e in _entries(ctx)}:
+            if self.operation == "edit":
+                if not all(isinstance(params.get(key, ""), str) for key in ("name", "tier")):
+                    raise UniverseError("请填写有效的公司信息")
+                name, tier = params.get("name", "").strip(), params.get("tier", "").strip()
+                if not name and not tier:
+                    raise UniverseError("请填写新简称或选择新数据档位")
+                values["name"] = clean_name(name) if name else ""
+                try:
+                    values["tier"] = validate_tier(tier) if tier else ""
+                except UniverseError as exc:
+                    raise UniverseError("请选择页面中的数据档位") from exc
+            if self.operation in ("enable", "disable", "edit", "remove") and values["ticker"] not in {e["ticker"] for e in _entries(ctx)}:
                 raise UniverseError("这家公司已不在清单里，请刷新后重新选择")
         except UniverseError as exc:
             raise BadRequest(str(exc)) from exc
@@ -88,19 +108,24 @@ def contribute(registry):
     for operation, title, description, preflight in (
         ("add", "添加公司", "填写公司代码与简称，把它加入自选股清单；已有公司不会重复添加。", _store_blockers),
         ("import", "从既有产物导入", "把当前已接入的公司产物导入清单；展示导入与跳过家数，并逐项说明跳过原因。", _import_blockers),
-        ("remove", "移除公司", "停止跟踪选中的公司，只改自选股清单；数据包、公司记录与其他产物均保留。", _remove_blockers),
+        ("enable", "启用公司", "让选中的清单公司参与已维护公司采集；只改清单配置。", _remove_blockers),
+        ("disable", "停用公司", "公司仍保留在清单中，不参与已维护公司采集；已有数据与报告均保留。", _remove_blockers),
+        ("edit", "编辑公司信息", "修改清单中的显示名或数据档位；留空的简称及保持原档位选项不改变原值。", _remove_blockers),
+        ("remove", "移除公司", "从清单移除选中的公司；与停用不同，清单不再保留该条目，已有数据与报告均保留。", _remove_blockers),
     ):
         bind = {"operation": operation, "archive_root": "{archive_root}", "output_root": "{output_root}"}
         if operation != "import":
             bind["ticker"] = "{ticker}"
-        if operation == "add":
+        if operation in ("add", "edit"):
             bind["name"] = "{name}"
+        if operation == "edit":
+            bind["tier"] = "{tier}"
         registry.job_type(WatchlistAction(
             id=f"universe.{operation}", title=title, description=description, operation=operation,
-            group="自选股清单", order={"add": 1, "import": 2, "remove": 3}[operation],
+            group="自选股清单", order={"add": 1, "import": 2, "enable": 3, "disable": 4, "edit": 5, "remove": 6}[operation],
             steps=(CommandStep("watchlist_maintain", title=title, bind=bind),),
             effects={"network": False, "quota": False, "writes": ("自选股清单",)},
             danger=operation == "remove", preflight=preflight,
-            confirm={"title": "停止跟踪这家公司？", "body": "只从自选股清单移除，所有公司产物均会保留。",
-                     "confirm_label": "停止跟踪"} if operation == "remove" else {},
+            confirm={"title": "从清单移除这家公司？", "body": "只从自选股清单移除，所有公司产物均会保留。",
+                     "confirm_label": "移除公司"} if operation == "remove" else {},
         ))

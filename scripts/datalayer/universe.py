@@ -15,7 +15,7 @@ from .config import archive_root  # noqa: F401  （对外转出，CLI 与 GUI �
 from .errors import UniverseError  # noqa: F401  （对外转出：CLI 与调用方共用同一套错误类型）
 from .registry import BULK, PROFILES
 
-MARKETS = ("SH", "SZ", "HK", "US")
+MARKETS = ("SH", "SZ", "BJ", "HK", "US")
 _TICKER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 

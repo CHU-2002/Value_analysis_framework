@@ -190,7 +190,7 @@ make data-import-legacy
 
 ### 本地控制台 · 按键与视图（REQ-009.1 / REQ-009.2 / REQ-012）
 
-数据获取页与工作台提供「添加公司」「从既有产物导入」「移除公司」三个自选股清单动作。
+数据获取页与工作台提供添加、导入、启用、停用、编辑公司信息和移除自选股清单的动作。停用保留公司条目；移除只改清单，原始数据、分析记录和报告均保留。
 添加支持完整代码、裸代码或公司别名；导入扫描已接入的公司产物，显示新增与跳过家数及原因，
 重复导入不会重复添加。移除只停止跟踪，保留全部公司产物。三个动作均离线，不消耗数据源配额。
 
@@ -442,3 +442,22 @@ make cov      # 覆盖率报告与门禁（≥ 74%，基线 76.8%）
 根据 MIT 许可要求，原始版权声明与许可声明已保留在 [LICENSE](LICENSE) 中，衍生关系说明见 [NOTICE](NOTICE)。
 
 > **免责声明**：本项目仅用于研究与学习，不构成任何投资建议。市场有风险，决策需谨慎。
+
+### A股全市场采集（REQ-016）
+
+数据获取页固定选择「已维护公司」或「全部A股」，与正在浏览的公司无关。已维护公司只包含启用清单；全A股使用独立的沪深北目录快照。先明确确认「刷新全A股目录」，再离线检查计划，核对公司数、快照时点、数据组、请求预估、复用数与未知权限/配额，最后确认采集。取消不创建批次、不请求公司数据。目录历史、采集目标和批次固定关联，暂停/续跑不扩大旧计划。
+
+命令行同样分两步（沙箱路径可自行指定）：
+
+```bash
+.venv/bin/python -m scripts.datalayer directory refresh --store output/.live_market/archive --json
+.venv/bin/python scripts/market_acquisition.py plan --store output/.live_market/archive --plan output/.live_market/plan.json --periods 20260630
+# 复核上述预估后才明确确认
+.venv/bin/python scripts/market_acquisition.py run --store output/.live_market/archive --plan output/.live_market/plan.json --yes
+# Ctrl+C安全暂停；恢复时使用原批次标识和固定计划
+.venv/bin/python scripts/market_acquisition.py resume --store output/.live_market/archive --plan output/.live_market/plan.json --batch-id <原批次标识> --yes
+```
+
+全市场执行优先复用目录、采用完整分页的官方整期财报与整日行情接口；不能确认分页或字段完整时回退原目标。目标数与实际请求数不同，权限、限频与合法空响应分别呈现。目录刷新不会自动触发采集，采集也不自动更新报告。
+
+普通报告列表只展示受支持的用户报告和源材料，内部文件保留在磁盘。变化报告先呈现经营、利润与已核验重大事项，逐项链接原始来源并区分披露事实、公司解释、分析推断和未核实内容；没有来源时明确缺口。重大事项自动发现由 REQ-017 跟踪。
