@@ -1140,6 +1140,10 @@ def test_history_writes_are_safe_under_concurrent_writers(tmp_path):
     runner = registry.jobs
     real = runner._jobs[job["id"]]
 
+    # Compare twelve writers of one stable snapshot. The action itself may
+    # otherwise finish between reading disk and inspecting real.status.
+    wait_history_finished(registry, job["id"])
+
     # 12 个线程并发写同一个任务的历史。
     import threading
 
