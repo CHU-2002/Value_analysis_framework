@@ -282,3 +282,29 @@ def test_official_example_snapshots_preserve_amounts_and_separate_historical_dec
     report = (tmp_path / 'wuliangye/major_events.md').read_text()
     assert '2026-04-30' in report and '2011-04-29' in report
     assert '现金流量表列示不受影响' in report and '后续救济结果未知' in report
+
+
+def test_resume_reuses_only_exact_validated_responses_after_model_disconnect(tmp_path):
+    m = _materials(tmp_path)
+    model = Model()
+    def disconnected(stage, payload, schema):
+        if stage == 'audit':
+            raise RuntimeError('connection interrupted')
+        return model(stage, payload, schema)
+    output = tmp_path / 'resume'
+    with pytest.raises(RuntimeError, match='connection interrupted'):
+        fe.discover(m, disconnected, output)
+    recovered = Model()
+    payload = fe.discover(m, recovered, output, resume=True)
+    assert payload['events'] and [s for s, _ in recovered.calls] == ['audit']
+    altered = copy.deepcopy(m)
+    altered['pages']['report:1']['text'] += '新版本'
+    with pytest.raises(ValueError, match='fingerprint'):
+        fe.discover(altered, Model(), output, resume=True)
+    cache = next((output / 'responses').glob('read-*'))
+    cached = json.loads(cache.read_text())
+    cached['response']['notes'] = 'tampered'
+    cache.write_text(json.dumps(cached))
+    with pytest.raises(ValueError, match='response changed'):
+        fe.discover(m, Model(), output, resume=True)
+    assert json.loads((output / 'run_state.json').read_text())['status'] == 'failed'

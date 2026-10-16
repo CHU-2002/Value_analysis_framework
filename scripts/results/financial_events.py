@@ -299,11 +299,11 @@ def _event_shape(event):
         raise ValueError("every field requires an explicit attribution")
 
 
-def discover(materials, model, output_dir, *, read_chars=48000, workers=1):
+def discover(materials, model, output_dir, *, read_chars=48000, workers=1, resume=False):
     root = Path(output_dir)
     _dump(root / "run_state.json", {"status": "running", "material_digest": _hash(materials)})
     try:
-        payload = _discover(materials, model, root, read_chars=read_chars, workers=workers)
+        payload = _discover(materials, model, root, read_chars=read_chars, workers=workers, resume=resume)
     except Exception as exc:
         _dump(root / "run_state.json", {"status": "failed", "error_type": type(exc).__name__})
         raise
@@ -311,7 +311,7 @@ def discover(materials, model, output_dir, *, read_chars=48000, workers=1):
     return payload
 
 
-def _discover(materials, model, output_dir, *, read_chars=48000, workers=1):
+def _discover(materials, model, output_dir, *, read_chars=48000, workers=1, resume=False):
     """Read -> cross-material review -> original-page audit -> reader events.
 
     Every model response is retained, including exclusions and audit failures.
@@ -319,6 +319,29 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1):
     """
     root = Path(output_dir)
     root.mkdir(parents=True, exist_ok=True)
+    identity = {"materials": _hash(materials), "read_chars": read_chars,
+                "prompt": getattr(model, "prompt_sha256", hashlib.sha256(PROMPT_PATH.read_bytes()).hexdigest()),
+                "model": getattr(model, "settings", {"backend": "injected evaluator"}),
+                "pipeline": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+    fingerprint_path = root / "run_fingerprint.json"
+    if resume:
+        if not fingerprint_path.is_file() or json.loads(fingerprint_path.read_text(encoding="utf-8")) != identity:
+            raise ValueError("resume fingerprint mismatch or absent; use a fresh run with matching originals/model/prompt")
+    else:
+        _dump(fingerprint_path, identity)
+
+    def infer(stage, request, schema):
+        digest = _hash({"identity": identity, "stage": stage, "request": request, "schema": schema})
+        cache_path = root / "responses" / f"{stage}-{digest}.json"
+        if resume and cache_path.is_file():
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if cached.get("request_digest") != digest or cached.get("response_digest") != _hash(cached.get("response")):
+                raise ValueError("cached model response changed; cannot resume")
+            return cached["response"]
+        response = model(stage, request, schema)
+        _dump(cache_path, {"request_digest": digest, "response_digest": _hash(response), "response": response})
+        return response
+
     _dump(root / "materials.json", materials)
     common = {key: materials[key] for key in ("subject", "report_period", "documents", "gaps", "scope_note")}
     packets = reading_packets(materials, read_chars)
@@ -326,7 +349,7 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1):
     def read(index_packet):
         index, packet = index_packet
         payload = {**common, "pages": packet}
-        response = model("read", payload, READ_SCHEMA)
+        response = infer("read", payload, READ_SCHEMA)
         _dump(root / f"reading-{index:03}.json", {"input_digest": _hash(payload), "response": response})
         if sorted(response.get("read_pages", [])) != sorted({p["id"] for p in packet}):
             raise ValueError("model did not acknowledge every supplied page; no report published")
@@ -341,7 +364,7 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1):
         raise ValueError("cross-material notes exceed 180000 characters; split research scope explicitly")
     proposed = {c["id"] for reading in readings for c in reading["candidates"]}
     for attempt in range(2):
-        review = model("review", review_input, REVIEW_SCHEMA)
+        review = infer("review", review_input, REVIEW_SCHEMA)
         _dump(root / f"review-{attempt + 1}.json", review)
         selected = {event["id"] for event in review["events"]}
         excluded = {item["id"] for item in review["excluded"] if item.get("reason", "").strip()}
@@ -357,21 +380,25 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1):
     _dump(root / "review.json", review)
     events, audits, leads = [], [], []
     docs = {doc["id"]: doc for doc in materials["documents"]}
-    for candidate in review["events"]:
+    def audit_candidate(index_candidate):
+        index, candidate = index_candidate
+        history = []
+        audit_root = root / f"candidate-{index:03}"
         _event_shape(candidate)
         for attempt in range(2):
             errors = citation_errors(candidate, materials)
             cited_pages = {ref.get("page_id"): materials["pages"][ref["page_id"]]
                            for ref in candidate["references"] if ref.get("page_id") in materials["pages"]}
             audit_input = {**common, "candidate": candidate, "original_pages": cited_pages}
-            audit = model("audit", audit_input, AUDIT_SCHEMA)
+            audit = infer("audit", audit_input, AUDIT_SCHEMA)
+            _dump(audit_root / f"audit-response-{attempt + 1}.json", audit)
             if set(audit.get("checks", {})) != set(AUDIT_SCHEMA["properties"]["checks"]["properties"]):
                 raise ValueError("incomplete candidate audit")
             verified = (not errors and audit.get("verdict") == "verified"
                         and all(value is True for value in audit["checks"].values()))
-            audits.append({"id": candidate["id"], "attempt": attempt + 1, "candidate": candidate,
+            history.append({"id": candidate["id"], "attempt": attempt + 1, "candidate": candidate,
                            "local_errors": errors, **audit})
-            _dump(root / "audits.json", audits)
+            _dump(audit_root / "audits.json", history)
             if verified or audit.get("verdict") == "excluded" or attempt == 1:
                 break
             cited_docs = {p["document_id"] for p in cited_pages.values()}
@@ -388,13 +415,19 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1):
                 repair_scope = "所引页及相邻页；其他页未在本次回查中提供，无法核实则保留未知"
             else:
                 repair_scope = "所引文档的完整原文页"
-            revised = model("repair", {**audit_input, "original_pages": extra_pages, "page_scope": repair_scope,
+            revised = infer("repair", {**audit_input, "original_pages": extra_pages, "page_scope": repair_scope,
                                        "local_errors": errors, "audit": audit}, EVENT_SCHEMA)
-            _dump(root / f"repair-{len(audits):03}.json", revised)
+            _dump(audit_root / f"repair-{attempt + 1}.json", revised)
             _event_shape(revised)
             if revised["id"] != candidate["id"]:
                 raise ValueError("candidate repair changed its identity")
             candidate = revised
+        return candidate, audit, errors, verified, history
+
+    with ThreadPoolExecutor(max_workers=max(1, min(workers, 3))) as pool:
+        results = list(pool.map(audit_candidate, enumerate(review["events"], 1)))
+    for candidate, audit, errors, verified, history in results:
+        audits.extend(history)
         if not verified:
             leads.append({"id": candidate["id"], "title": candidate["title"], "priority": candidate["priority"],
                           "reason": "; ".join([*errors, audit.get("reason", "未完成复核")]),
@@ -457,6 +490,7 @@ def main(argv=None):
     parser.add_argument("--read-chars", type=int, default=48000)
     parser.add_argument("--workers", type=int, choices=(1, 2, 3), default=1)
     parser.add_argument("--timeout", type=int, default=600)
+    parser.add_argument("--resume", action="store_true", help="仅复用材料/模型/提示/管线指纹及响应摘要一致的本次断点")
     parser.add_argument("--transport", choices=("auto", "https"), default="auto",
                         help="https：仅本次使用官方 ChatGPT HTTPS 推理，避免 WebSocket 重连；需 ChatGPT 登录")
     args = parser.parse_args(argv)
@@ -465,7 +499,7 @@ def main(argv=None):
     try:
         model = CodexModel(args.cli, args.model, args.timeout, args.transport)
         payload = discover(load_materials(args.materials), model,
-                           args.output_dir, read_chars=args.read_chars, workers=args.workers)
+                           args.output_dir, read_chars=args.read_chars, workers=args.workers, resume=args.resume)
     except Exception as exc:
         _dump(state_path, {"status": "failed", "error_type": type(exc).__name__})
         raise
