@@ -1,5 +1,5 @@
 {
-  "requested_model": "gpt-6.1-sol",
+  "requested_model": "gpt-6-luna",
   "reasoning_effort": "medium",
   "cli_version": "0.157.0",
   "default_transport": {
@@ -18,5 +18,15 @@
     "donor_copies": 79,
     "limitations": "Persisted envelopes only; excludes failed/unpersisted requests and older pre-fingerprint responses. Not billing or total request count."
   },
-  "policy": "Only gpt-6.1-sol + medium for subsequent live inference; no automatic model substitution; one sample before further samples."
+  "policy": "Project default is gpt-6-luna + medium. Do not make live model requests until the owner restores usage; no automatic substitution.",
+  "cancelled_run": {
+    "requested_model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "state": "failed after owner reported no budget and switched to gpt-6-luna",
+    "completed_read_pages": 219,
+    "review_selected": 19,
+    "review_excluded": 22,
+    "candidate_audit_trails": 14,
+    "final_report_published": false
+  }
 }

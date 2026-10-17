@@ -17,7 +17,7 @@ import subprocess
 import tempfile
 
 from .report_presentation import EVENT_FIELDS, STATES, _line, _source_line
-from scripts.agent_models import default_model, validate_default, validate_model
+from scripts.agent_models import default_model, project_default, validate_default, validate_model
 
 VERSION = "financial-events-v1"
 FIELDS = (*EVENT_FIELDS, "terminology")
@@ -159,15 +159,17 @@ class CodexModel:
     The runtime saves only the final JSON and sanitized errors, never CLI logs.
     """
     def __init__(self, executable="codex", model=None, timeout=600, transport="auto"):
-        validate_default("codex", model or "default")
+        preference = project_default("codex")
+        selected_model = model or (preference or default_model("codex")).get("model")
+        validate_default("codex", selected_model or "default")
         if transport not in ("auto", "https"):
             raise ValueError("transport must be auto or https")
         self.transport = transport
         self.prompt = PROMPT_PATH.read_text(encoding="utf-8")
         self.prompt_sha256 = hashlib.sha256(self.prompt.encode()).hexdigest()
-        self.executable, self.model, self.timeout = executable, validate_model("codex", model), timeout
+        self.executable, self.model, self.timeout = executable, validate_model("codex", selected_model), timeout
         self.settings = {"backend": "codex", "model": self.model or default_model("codex")["model"],
-                         "selection": "explicit" if self.model else "local default", "timeout": timeout,
+                         "selection": "explicit" if model else ("project default" if preference else "local default"), "timeout": timeout,
                          "transport": transport, "reasoning_effort": "medium", "prompt_sha256": self.prompt_sha256,
                          "pipeline_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
 

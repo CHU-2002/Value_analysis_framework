@@ -85,3 +85,10 @@ owner要求后续仅`gpt-6.1-sol`、`medium`。旧目录把6.1标unavailable导�
 新型号/配置不能命中旧sol6响应，旧通过数不能冒充本次验收。51个相关离线用例通过；最终全量结果另附。
 
 最终模型配置版本f9504ad本地`make verify`退出0：1993 passed / 3 skipped、覆盖率76.76%，追溯18 passed、scope50文件/1996用例、回归绿；完整输出development-verify-f9504ad.log。三个skip为既有TUSHARE_TOKEN集成测试，未新增skip。PR仍草稿，独立盲样与新模型官方实例尚待验收。
+
+
+### Owner额度与项目默认模型切换（2026-10-17）
+
+Owner说明额度用完，当前会话切为`gpt-6-luna`，并要求项目内同步。已停止伊利`yili-sol61-medium`：失败状态下保存5/5读包（219页）、review（19项入选、22项排除）及14条候选审核链，没有最终报告；之后没有发出真实模型请求。历史产物及工具调用保存于隔离output目录。
+
+项目默认已切为`gpt-6-luna`/`medium`，配置位于`config/agent_models.json`。Codex研究控制台、`agent_action.py`的报告动作及REQ-017模型子流程均显式传该模型/强度，除非用户在单次动作明确选其他模型。用户HOME全局配置未修改。原先6.1探针和被中断实跑只作为历史记录，不表示当前项目仍使用6.1。

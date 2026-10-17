@@ -694,7 +694,7 @@ def test_defaults_remain_unknown_and_known_incompatible_default_is_blocked(tmp_p
     import agent_models
     monkeypatch.setattr(agent_models.Path,"home",lambda:tmp_path)
     monkeypatch.delenv("ANTHROPIC_MODEL",raising=False);monkeypatch.delenv("CODEX_HOME",raising=False)
-    assert agent_models.default_model("codex")["model"] is None
+    assert agent_models.default_model("codex")["model"] == "gpt-6-luna"
     assert agent_models.default_model("claude")["model"] is None
     assert agent_models.validate_model('codex', 'gpt-6.1-sol') == 'gpt-6.1-sol'
     monkeypatch.setattr(agent_models, 'catalog', lambda: [{'id':'codex', 'models':[{'id':'unavailable-test-model', 'compatibility':'unavailable'}]}])

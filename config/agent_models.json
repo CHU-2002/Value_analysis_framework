@@ -1,5 +1,11 @@
 {
   "version": "2026-10-17",
+  "defaults": {
+    "codex": {
+      "model": "gpt-6-luna",
+      "reasoning_effort": "medium"
+    }
+  },
   "agents": [
     {
       "id": "codex",
@@ -7,6 +13,11 @@
       "executable": "codex",
       "source": "本地维护目录 config/agent_models.json；目录不代表账号授权",
       "models": [
+        {
+          "id": "gpt-6-luna",
+          "compatibility": "unverified",
+          "evidence": "2026-10-15至17本项目真实财报尝试曾成功返回结构化读包与审核；有些早期综合仍因候选遗漏/证据口径未通过。此证据不表示全流程验收通过，也不表示其他账号必然可用。"
+        },
         {
           "id": "gpt-5.5",
           "compatibility": "unverified"
