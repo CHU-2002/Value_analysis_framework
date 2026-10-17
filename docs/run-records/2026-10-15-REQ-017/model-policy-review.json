@@ -1,0 +1,22 @@
+{
+  "requested_model": "gpt-6.1-sol",
+  "reasoning_effort": "medium",
+  "cli_version": "0.157.0",
+  "default_transport": {
+    "status": "interrupted",
+    "reason": "connection timeout and automatic retries; stopped"
+  },
+  "https_probe": {
+    "exit_code": 0,
+    "result": "OK",
+    "request_max_retries": 0,
+    "stream_max_retries": 0
+  },
+  "prior_saved_responses": {
+    "development_new": 100,
+    "evaluation_new": 148,
+    "donor_copies": 79,
+    "limitations": "Persisted envelopes only; excludes failed/unpersisted requests and older pre-fingerprint responses. Not billing or total request count."
+  },
+  "policy": "Only gpt-6.1-sol + medium for subsequent live inference; no automatic model substitution; one sample before further samples."
+}
