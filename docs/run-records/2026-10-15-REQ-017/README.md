@@ -92,3 +92,6 @@ owner要求后续仅`gpt-6.1-sol`、`medium`。旧目录把6.1标unavailable导�
 Owner说明额度用完，当前会话切为`gpt-6-luna`，并要求项目内同步。已停止伊利`yili-sol61-medium`：失败状态下保存5/5读包（219页）、review（19项入选、22项排除）及14条候选审核链，没有最终报告；之后没有发出真实模型请求。历史产物及工具调用保存于隔离output目录。
 
 项目默认已切为`gpt-6-luna`/`medium`，配置位于`config/agent_models.json`。Codex研究控制台、`agent_action.py`的报告动作及REQ-017模型子流程均显式传该模型/强度，除非用户在单次动作明确选其他模型。用户HOME全局配置未修改。原先6.1探针和被中断实跑只作为历史记录，不表示当前项目仍使用6.1。
+
+
+项目模型默认切到`gpt-6-luna`/`medium`后，首次全量门禁发现测试假CLI在`AGENT_CLI`设为Claude脚本时，被过早按默认Codex协议处理。已修正为先识别本次实际CLI再选对应项目模型；该修复在5c9bebd。修复后`make verify`退出0：1993 passed / 3 skipped，覆盖率76.75%，追溯18 passed、scope50文件/1996用例、回归门禁通过。完整输出见development-verify-luna-default.log。未启动真实模型调用。

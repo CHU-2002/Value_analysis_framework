@@ -28,5 +28,16 @@
     "review_excluded": 22,
     "candidate_audit_trails": 14,
     "final_report_published": false
+  },
+  "project_default": "gpt-6-luna",
+  "project_default_change_commit": "51d5906",
+  "post_backend_resolution_fix_commit": "5c9bebd",
+  "offline_make_verify": {
+    "status": "passed",
+    "tests": "1993 passed / 3 skipped",
+    "coverage": "76.75%",
+    "trace": "18 passed",
+    "scope": "50 files / 1996 cases",
+    "live_model_calls": false
   }
 }
