@@ -24,7 +24,7 @@
 | [REQ-014](REQ-014-watchlist-maintenance-ui.md) | 控制台里的自选股清单维护（添加 / 从既有产物导入 / 移除） | `verified` | P1 | #102 | #112, #113 | `tests/test_watchlist_ui.py` |
 | [REQ-015](REQ-015-research-workspace-ux.md) | 公司研究工作区（研究导航 + K线与估值时间轴 + 可选生成 + 报告阅读 + 采集解释） | `in-progress` | P1 | [#118](https://github.com/CHU-2002/Value_analysis_framework/issues/118) | #120 | 原 AC-1…4 / AC-4.1 已完成；2026-10-11 owner 批准修改 AC-4.1，等待新范围实现与复验 |
 | [REQ-016](REQ-016-a-share-universe-acquisition.md) | A股与境内上市CDR全市场数据采集 | `verified` | P1 | [#122](https://github.com/CHU-2002/Value_analysis_framework/issues/122) | [#126](https://github.com/CHU-2002/Value_analysis_framework/pull/126), [#128](https://github.com/CHU-2002/Value_analysis_framework/pull/128) | 独立报告 AC-1…7 通过；实跑记录见 `docs/run-records/REQ-016-live-batch.md` |
-| [REQ-017](REQ-017-financial-report-events.md) | 财报重大事项主动发现与通俗解释 | `in-progress` | P1 | [#125](https://github.com/CHU-2002/Value_analysis_framework/issues/125) | [#126](https://github.com/CHU-2002/Value_analysis_framework/pull/126) | TBD |
+| [REQ-017](REQ-017-financial-report-events.md) | 财报重大事项主动发现与通俗解释 | `in-progress` | P1 | [#125](https://github.com/CHU-2002/Value_analysis_framework/issues/125) | [#126](https://github.com/CHU-2002/Value_analysis_framework/pull/126)、[#129](https://github.com/CHU-2002/Value_analysis_framework/pull/129) | `tests/test_financial_events.py` `tests/test_agent_action.py` |
 
 状态说明：`proposed` 已登记待受理 · `accepted` 已受理 · `in-progress` 实现中 · `implemented` 已合入待验收 · `verified` 已验收 · `deferred` 暂缓 · `rejected` 不做 · `superseded` 被取代。
 
@@ -169,3 +169,5 @@ REQ-016 对应 GitHub Milestone：[A股全市场采集 v1](https://github.com/CH
 - 2026-10-11 本地 GUI 产品/QA 走查登记 REQ-016「A股全市场数据采集」。owner 随后明确批准受理并修改 REQ-015.4 AC-4.1；REQ-015 与 .4 回退 `in-progress`，REQ-016 转为 `accepted`。已创建 [Issue #122](https://github.com/CHU-2002/Value_analysis_framework/issues/122) 和 [GitHub Milestone #2](https://github.com/CHU-2002/Value_analysis_framework/milestone/2)。
 - 2026-10-11~12 owner 要求记录 GitHub Git 连接故障排查并强化财报解释能力。Git HTTPS 超时但 `gh` API 可用；为本机登记专用 SSH 公钥后，SSH over 443 的账号认证、`git ls-remote` 和 `git fetch origin main` 均成功。详情与安全边界见 `docs/DEVELOPMENT.md` §8「GitHub Git 连接故障排查」。财报重大事项发现涉及独立的跨公告/监管来源识别与定性能力，故登记 REQ-017（Issue #125），并同步扩充 REQ-016.2 的读者表达验收标准。
 - 同次走查将内部文件混入产物表登记为 REQ-009 M3，将伊利 H1 变化报告未突出商誉减值等重大候选归因登记为 REQ-004 M1；证据见 `docs/run-records/2026-10-11-REQ-016-GUI-UX-review.md`。
+
+REQ-017 对应 GitHub Milestone：[财报重大事项主动发现 v1](https://github.com/CHU-2002/Value_analysis_framework/milestone/3)，与 Issue #125、PR #129 同步，验收通过后再关闭。

@@ -265,7 +265,9 @@ def citation_errors(event, materials):
     matched = [docs[materials["pages"][ref["page_id"]]["document_id"]]
                for ref in refs if ref.get("page_id") in materials["pages"]]
     event_periods = _period_keys(event["period"])
-    if not any(event_periods and event_periods <= _period_keys(doc["period"])
+    # The manifest names the primary period; its tables can also disclose
+    # comparative periods. Each numeric/period claim is still audited below.
+    if not any(event_periods & _period_keys(doc["period"])
                and doc["date"] == event["disclosed_at"] for doc in matched):
         errors.append("事项期间/披露日没有对应的主证据；历史事项须单独处理")
     # Adverse legal labels require exact authoritative wording and attribution.
@@ -299,11 +301,12 @@ def _event_shape(event):
         raise ValueError("every field requires an explicit attribution")
 
 
-def discover(materials, model, output_dir, *, read_chars=48000, workers=1, resume=False):
+def discover(materials, model, output_dir, *, read_chars=48000, workers=1, resume=False, reuse_responses_from=None):
     root = Path(output_dir)
     _dump(root / "run_state.json", {"status": "running", "material_digest": _hash(materials)})
     try:
-        payload = _discover(materials, model, root, read_chars=read_chars, workers=workers, resume=resume)
+        payload = _discover(materials, model, root, read_chars=read_chars, workers=workers, resume=resume,
+                            reuse_responses_from=reuse_responses_from)
     except Exception as exc:
         _dump(root / "run_state.json", {"status": "failed", "error_type": type(exc).__name__})
         raise
@@ -311,7 +314,26 @@ def discover(materials, model, output_dir, *, read_chars=48000, workers=1, resum
     return payload
 
 
-def _discover(materials, model, output_dir, *, read_chars=48000, workers=1, resume=False):
+def _audit_pages(materials, candidate):
+    pages = materials["pages"]
+    selected = {ref.get("page_id") for ref in candidate["references"] if ref.get("page_id") in pages}
+    documents = {pages[pid]["document_id"] for pid in selected}
+    # These are document-structure anchors, never event detection rules.
+    headings = re.compile(r"(?mi)^\s*(?:[一二三四五六七八九十\d、.（）()]+\s*)?"
+                          r"(?:合并资产负债表|合并利润表|财务报表的编制基础|编制基础|合并范围|"
+                          r"consolidated balance sheets?|consolidated statements? of (?:income|operations)|"
+                          r"basis of (?:preparation|presentation))\s*$")
+    for doc in materials["documents"]:
+        if doc["id"] not in documents:
+            continue
+        available = [pid for pid in doc["page_ids"] if pid in pages]
+        selected.update(available[:3])
+        structural = [pid for pid in available if headings.search(pages[pid]["text"])]
+        selected.update(structural[:6])
+    return {pid: page for pid, page in pages.items() if pid in selected}
+
+
+def _discover(materials, model, output_dir, *, read_chars=48000, workers=1, resume=False, reuse_responses_from=None):
     """Read -> cross-material review -> original-page audit -> reader events.
 
     Every model response is retained, including exclusions and audit failures.
@@ -329,6 +351,15 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1, resu
             raise ValueError("resume fingerprint mismatch or absent; use a fresh run with matching originals/model/prompt")
     else:
         _dump(fingerprint_path, identity)
+    donor = None
+    if reuse_responses_from is not None:
+        donor_root = Path(reuse_responses_from).resolve()
+        donor = json.loads((donor_root / "run_fingerprint.json").read_text(encoding="utf-8"))
+        def inference_identity(value):
+            settings = {key: item for key, item in value["model"].items() if key != "pipeline_sha256"}
+            return {key: value[key] for key in ("materials", "read_chars", "prompt")} | {"model": settings}
+        if inference_identity(donor) != inference_identity(identity):
+            raise ValueError("response donor materials/model/prompt fingerprint mismatch")
 
     def infer(stage, request, schema):
         digest = _hash({"identity": identity, "stage": stage, "request": request, "schema": schema})
@@ -338,6 +369,17 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1, resu
             if cached.get("request_digest") != digest or cached.get("response_digest") != _hash(cached.get("response")):
                 raise ValueError("cached model response changed; cannot resume")
             return cached["response"]
+        if donor is not None:
+            old_digest = _hash({"identity": donor, "stage": stage, "request": request, "schema": schema})
+            old_path = donor_root / "responses" / f"{stage}-{old_digest}.json"
+            if old_path.is_file():
+                cached = json.loads(old_path.read_text(encoding="utf-8"))
+                if cached.get("request_digest") != old_digest or cached.get("response_digest") != _hash(cached.get("response")):
+                    raise ValueError("donor model response changed; cannot reuse")
+                _dump(cache_path, {**cached, "request_digest": digest,
+                                  "origin": {"directory": str(donor_root), "request_digest": old_digest,
+                                             "fingerprint": donor}})
+                return cached["response"]
         response = model(stage, request, schema)
         _dump(cache_path, {"request_digest": digest, "response_digest": _hash(response), "response": response})
         return response
@@ -387,8 +429,7 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1, resu
         _event_shape(candidate)
         for attempt in range(2):
             errors = citation_errors(candidate, materials)
-            cited_pages = {ref.get("page_id"): materials["pages"][ref["page_id"]]
-                           for ref in candidate["references"] if ref.get("page_id") in materials["pages"]}
+            cited_pages = _audit_pages(materials, candidate)
             audit_input = {**common, "candidate": candidate, "original_pages": cited_pages}
             audit = infer("audit", audit_input, AUDIT_SCHEMA)
             _dump(audit_root / f"audit-response-{attempt + 1}.json", audit)
@@ -445,6 +486,7 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1, resu
     _dump(root / "audits.json", audits)
     payload = {"schema": "investment.report_events", "version": VERSION, "subject": materials["subject"],
                "model_settings": getattr(model, "settings", {"backend": "injected evaluator"}),
+               "response_reuse": {"directory": str(donor_root), "fingerprint": donor} if donor is not None else None,
                "report_period": materials["report_period"], "material_digest": _hash(materials),
                "prompt_sha256": getattr(model, "prompt_sha256", hashlib.sha256(PROMPT_PATH.read_bytes()).hexdigest()),
                "coverage": {"documents": materials["documents"], "gaps": materials["gaps"],
@@ -491,6 +533,7 @@ def main(argv=None):
     parser.add_argument("--workers", type=int, choices=(1, 2, 3), default=1)
     parser.add_argument("--timeout", type=int, default=600)
     parser.add_argument("--resume", action="store_true", help="仅复用材料/模型/提示/管线指纹及响应摘要一致的本次断点")
+    parser.add_argument("--reuse-responses-from", help="显式从旧运行复用完全相同的模型请求响应；全部本地校验重新执行")
     parser.add_argument("--transport", choices=("auto", "https"), default="auto",
                         help="https：仅本次使用官方 ChatGPT HTTPS 推理，避免 WebSocket 重连；需 ChatGPT 登录")
     args = parser.parse_args(argv)
@@ -499,7 +542,8 @@ def main(argv=None):
     try:
         model = CodexModel(args.cli, args.model, args.timeout, args.transport)
         payload = discover(load_materials(args.materials), model,
-                           args.output_dir, read_chars=args.read_chars, workers=args.workers, resume=args.resume)
+                           args.output_dir, read_chars=args.read_chars, workers=args.workers, resume=args.resume,
+                           reuse_responses_from=args.reuse_responses_from)
     except Exception as exc:
         _dump(state_path, {"status": "failed", "error_type": type(exc).__name__})
         raise

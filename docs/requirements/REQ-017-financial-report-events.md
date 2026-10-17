@@ -5,11 +5,11 @@ status: in-progress
 priority: P1
 owner: CHU-2002
 created: 2026-10-11
-updated: 2026-10-15
+updated: 2026-10-17
 issue: "#125"
 design: docs/FINANCIAL_REPORT_EVENTS_PLAN.md
-milestone: TBD
-pr: TBD
+milestone: "财报重大事项主动发现 v1 (#3)"
+pr: "#129"
 depends-on: REQ-016.2
 supersedes: TBD
 ---
@@ -87,8 +87,8 @@ supersedes: TBD
 |----|------|
 | 需求 Issue | [#125](https://github.com/CHU-2002/Value_analysis_framework/issues/125) |
 | 前置/衔接需求 | [REQ-016.2](REQ-016-a-share-universe-acquisition.md) |
-| 实现 PR | TBD |
-| 测试 | TBD（实现时按 `REQ-017` 建立追溯） |
+| 实现 PR | [#129](https://github.com/CHU-2002/Value_analysis_framework/pull/129)（交付中） |
+| 测试 | `tests/test_financial_events.py`、`tests/test_agent_action.py` |
 | 文档更新 | `docs/requirements/ledger.md`、`docs/requirements/README.md` |
 
 ## 实施任务
@@ -116,3 +116,6 @@ supersedes: TBD
 
 - T11补充：独立复核确认五粮液r4更正已通过，历史处罚虽通过模型audit但本地法律精确原文检查仍失败；通用repair指令明确要求改用原文定性或补足连续引文，不删本地检查。候选复核也使用既有最多3并发，并按候选隔离保存每轮原始响应；所有实际失败/缓存命中均可审阅。
 - T12（2026-10-17，已修复，待CI）：首轮PR129 CI失败来自既有并发历史测试在任务运行中比较跨时刻状态，已登记REQ-012 M6，固定同一终态快照前置条件后保留全部12线程与完整性断言，不放宽门禁。
+- T13（2026-10-17，待独立判定/修复）：伊利r4的“当前期+比较期”候选仍可能因元数据只标主报告期而被本地期间集合拒绝；部分附注事项因局部审核页未提供合并口径/表头而降级。原件缺失与程序未提供已有证据不能混淆。已向独立评估者反馈，须按实际AC-1/2/8影响判定并修复，不把程序误拒一律当合理排除；当前不推进verified。
+
+- T13修复（2026-10-17）：主报告期作为锚点匹配，跨期数值/归属仍逐项原文audit；自动补充所引原件的身份页及财务报表结构/编制基础页，不按事件类型触发发现。新增显式`--reuse-responses-from`只迁移相同材料/分包/完整提示/模型、逐次stage+input+schema完全相同且响应摘要正确的真实响应，记录donor和旧管线指纹；改变后的audit输入无法命中旧响应，全部本地检查重做。原`--resume`全管线指纹约束不变。新增跨期锚点、未支持期间仍被audit拦下、上下文、迁移来源、不同模型/材料/篡改拒绝回归，未变更AC或门禁。

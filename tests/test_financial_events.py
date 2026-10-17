@@ -308,3 +308,65 @@ def test_resume_reuses_only_exact_validated_responses_after_model_disconnect(tmp
     with pytest.raises(ValueError, match='response changed'):
         fe.discover(m, Model(), output, resume=True)
     assert json.loads((output / 'run_state.json').read_text())['status'] == 'failed'
+
+
+def test_comparative_period_and_scope_context_are_checked_against_full_original(tmp_path):
+    m = _materials(tmp_path)
+    m['pages']['report:2']['text'] = '合并资产负债表\n单位：人民币元。比较期间2026H1、2025H1；退款准备100元、400元。'
+    candidate = _candidate()
+    candidate['period'] = '2026H1/2025H1'
+    assert fe.citation_errors(candidate, m) == []
+    model = Model(candidate)
+    fe.discover(m, model, tmp_path / 'compare')
+    audit_payload = next(p for stage, p in model.calls if stage == 'audit')
+    assert 'report:2' in audit_payload['original_pages']
+    candidate['period'] = '2025H1'
+    assert any('期间/披露日' in e for e in fe.citation_errors(candidate, m))
+    candidate['period'] = '2026H1/2024FY'
+    model = Model(candidate, checks={k: k != 'period' for k in fe.AUDIT_SCHEMA['properties']['checks']['properties']})
+    assert not fe.discover(m, model, tmp_path / 'unsupported')['events']
+
+
+def test_explicit_response_reuse_requires_identical_model_request_and_keeps_provenance(tmp_path, monkeypatch):
+    m = _materials(tmp_path)
+    donor = tmp_path / 'donor'
+    current_lookup = fe._audit_pages
+    monkeypatch.setattr(fe, '_audit_pages', lambda materials, event: {'report:1': materials['pages']['report:1']})
+    prior = Model()
+    fe.discover(m, prior, donor)
+    monkeypatch.setattr(fe, '_audit_pages', current_lookup)
+    identity = json.loads((donor / 'run_fingerprint.json').read_text())
+    identity['pipeline'] = 'prior-local-validator'
+    schemas = {'read': fe.READ_SCHEMA, 'review': fe.REVIEW_SCHEMA, 'audit': fe.AUDIT_SCHEMA}
+    for f in list((donor / 'responses').glob('*.json')):
+        envelope = json.loads(f.read_text())
+        stage = f.name.split('-', 1)[0]
+        request = next(payload for name, payload in prior.calls if name == stage)
+        digest = fe._hash({'identity': identity, 'stage': stage, 'request': request, 'schema': schemas[stage]})
+        envelope['request_digest'] = digest
+        moved = f.rename(f.with_name(f'{stage}-{digest}.json'))
+        moved.write_text(json.dumps(envelope))
+    (donor / 'run_fingerprint.json').write_text(json.dumps(identity))
+    with pytest.raises(ValueError, match='resume fingerprint'):
+        fe.discover(m, Model(), donor, resume=True)
+    model = Model()
+    target = tmp_path / 'target'
+    fe.discover(m, model, target, reuse_responses_from=donor)
+    assert [stage for stage, _ in model.calls] == ['audit']
+    envelopes = [json.loads(f.read_text()) for f in (target / 'responses').glob('*.json')]
+    origins = [entry['origin'] for entry in envelopes if 'origin' in entry]
+    assert len(origins) == 2 and all(o['fingerprint'] == identity for o in origins)
+    changed = copy.deepcopy(m)
+    changed['pages']['report:1']['text'] += 'different source'
+    with pytest.raises(ValueError, match='donor.*mismatch'):
+        fe.discover(changed, Model(), tmp_path / 'different', reuse_responses_from=donor)
+    different_model = Model()
+    different_model.settings = {'backend': 'another model'}
+    with pytest.raises(ValueError, match='donor.*mismatch'):
+        fe.discover(m, different_model, tmp_path / 'other-model', reuse_responses_from=donor)
+    envelope_path = next((donor / 'responses').glob('read-*'))
+    envelope = json.loads(envelope_path.read_text())
+    envelope['response']['notes'] = 'tampered'
+    envelope_path.write_text(json.dumps(envelope))
+    with pytest.raises(ValueError, match='donor model response changed'):
+        fe.discover(m, Model(), tmp_path / 'tampered', reuse_responses_from=donor)
