@@ -427,7 +427,7 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1, resu
         history = []
         audit_root = root / f"candidate-{index:03}"
         _event_shape(candidate)
-        for attempt in range(2):
+        for attempt in range(3):
             errors = citation_errors(candidate, materials)
             cited_pages = _audit_pages(materials, candidate)
             audit_input = {**common, "candidate": candidate, "original_pages": cited_pages}
@@ -440,7 +440,7 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1, resu
             history.append({"id": candidate["id"], "attempt": attempt + 1, "candidate": candidate,
                            "local_errors": errors, **audit})
             _dump(audit_root / "audits.json", history)
-            if verified or audit.get("verdict") == "excluded" or attempt == 1:
+            if verified or audit.get("verdict") == "excluded" or attempt == 2:
                 break
             cited_docs = {p["document_id"] for p in cited_pages.values()}
             extra_pages = {pid: page for pid, page in materials["pages"].items()

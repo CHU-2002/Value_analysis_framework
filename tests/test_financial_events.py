@@ -370,3 +370,30 @@ def test_explicit_response_reuse_requires_identical_model_request_and_keeps_prov
     envelope_path.write_text(json.dumps(envelope))
     with pytest.raises(ValueError, match='donor model response changed'):
         fe.discover(m, Model(), tmp_path / 'tampered', reuse_responses_from=donor)
+
+
+def test_second_plain_language_repair_still_requires_complete_new_audit(tmp_path):
+    m = _materials(tmp_path)
+    candidate = _candidate()
+    candidate['terminology'] = '以预期计量确认一项预计负债。'
+    repairs = []
+    def model(stage, payload, schema):
+        if stage in ('read', 'review'):
+            return Model(candidate)(stage, payload, schema)
+        if stage == 'repair':
+            revised = copy.deepcopy(payload['candidate'])
+            repairs.append(payload['audit']['reason'])
+            revised['terminology'] = '合同负债需计量。' if len(repairs) == 1 else '退款准备是可能退给客户的钱，先计入费用提醒预计支出。'
+            return revised
+        understandable = '可能退给客户的钱' in payload['candidate']['terminology']
+        return {'verdict': 'verified' if understandable else 'unverified',
+                'reason': '通俗解释已补齐' if understandable else '术语仍只有技术语言',
+                'checks': {k: (understandable if k == 'plain_language' else True)
+                           for k in fe.AUDIT_SCHEMA['properties']['checks']['properties']}}
+    output = tmp_path / 'language'
+    result = fe.discover(m, model, output)
+    assert result['events'] and len(repairs) == 2
+    audits = json.loads((output / 'audits.json').read_text())
+    assert [a['verdict'] for a in audits] == ['unverified', 'unverified', 'verified']
+    assert audits[0]['candidate']['terminology'] == '以预期计量确认一项预计负债。'
+    assert (output / 'candidate-001/repair-1.json').is_file() and (output / 'candidate-001/repair-2.json').is_file()
