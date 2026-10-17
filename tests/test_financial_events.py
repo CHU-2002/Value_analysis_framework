@@ -69,6 +69,11 @@ def test_full_material_reading_and_open_type_survives_to_report(tmp_path):
     assert fe._period_keys('涉及2000—2009年行为') == fe._period_keys('2000-2009历史披露')
 
 
+def test_repair_schema_preserves_candidate_identity():
+    candidate_id = 'report:1-original-id'
+    assert fe._repair_schema(candidate_id)['properties']['id']['enum'] == [candidate_id]
+
+
 def test_overlong_pages_are_read_in_full_and_missing_pages_are_explicit(tmp_path):
     m = _materials(tmp_path)
     m['pages']['report:1']['text'] = '完整正文' * 1600
@@ -156,6 +161,32 @@ def test_silent_omission_and_unread_pages_abort_publication(tmp_path):
     assert not (tmp_path / 'unread/major_events.md').exists()
 
 
+def test_review_correction_names_missing_and_unknown_candidate_ids(tmp_path):
+    model = Model()
+    review_inputs = []
+    review_schemas = []
+
+    def correct(stage, payload, schema):
+        if stage == 'review':
+            review_inputs.append(copy.deepcopy(payload))
+            review_schemas.append(copy.deepcopy(schema))
+            if len(review_inputs) == 1:
+                return {'events': [], 'excluded': [{'id': 'not-in-source', 'reason': '重复'}]}
+        return model(stage, payload, schema)
+
+    output = tmp_path / 'corrected-review'
+    result = fe.discover(_materials(tmp_path), correct, output)
+    assert result['events']
+    assert review_inputs[1]['review_errors'] == {
+        'candidate_ids_requiring_disposition': ['report:1-refund'],
+    }
+    assert '不得输出清单外id' in review_inputs[1]['instruction']
+    assert (output / 'review-2.json').is_file()
+    expected_ids = ['report:1-refund']
+    assert review_schemas[0]['properties']['events']['items']['properties']['id']['enum'] == expected_ids
+    assert review_schemas[0]['properties']['excluded']['items']['properties']['id']['enum'] == expected_ids
+
+
 def test_exclusion_and_unverified_status_remain_reviewable(tmp_path):
     model = Model()
     def exclude(stage, payload, schema):
@@ -166,7 +197,24 @@ def test_exclusion_and_unverified_status_remain_reviewable(tmp_path):
     output = tmp_path / 'out'
     payload = fe.discover(_materials(tmp_path), exclude, output)
     assert not payload['events']
-    assert '缺少重大性依据' in (output / 'major_events.md').read_text()
+    report = (output / 'major_events.md').read_text()
+    assert '缺少重大性依据' in report
+    assert '已复核排除：新产品退款准备增加' in report
+    assert 'https://example.org/original.pdf' in report and '退款准备从100元增至400元' in report
+    candidate = _candidate()
+    candidate['amount'] = 'Q1：原列报10元，调整-2元，更正后8元。'
+    model = Model(candidate, checks={key: key != 'numbers_and_basis'
+                                     for key in fe.AUDIT_SCHEMA['properties']['checks']['properties']})
+    output = tmp_path / 'unverified-detail'
+
+    payload = fe.discover(_materials(tmp_path), model, output)
+
+    assert not payload['events'] and payload['unverified']
+    report = (output / 'major_events.md').read_text()
+    assert '待核实：' in report and '更正后8元' in report
+    assert 'https://example.org/original.pdf' in report and '新产品退款准备从100元增至400元' in report
+    assert '引用不在原始页中' not in report
+    assert '原文：新产品退款准备从100元增至400元' in report
 
 
 def test_model_runtime_uses_structured_read_only_invocation_and_sanitizes_errors(tmp_path, monkeypatch):
@@ -223,6 +271,20 @@ def test_neutral_denials_do_not_become_legal_allegations(tmp_path):
         assert fe.citation_errors(candidate, m) == []
     candidate['explanation'] = '不能认定为财务造假，但公司另一事项存在虚假记载。'
     assert any('虚假记载' in error for error in fe.citation_errors(candidate, m))
+    candidate['explanation'] = '审计报告提示与持续经营相关的重大不确定性。'
+    assert any('持续经营' in error for error in fe.citation_errors(candidate, m))
+    candidate['explanation'] = '审计报告列示关键审计事项，但这不等于持续经营重大不确定性。'
+    assert fe.citation_errors(candidate, m) == []
+
+    doc = m['documents'][0]
+    doc.update(kind='regulator', authority='中国证监会', decision_status='作出行政处罚决定',
+               behavior='历史信息披露行为')
+    sentence = '经查明，公司信息披露存在以下违法事实；该行为违反《证券法》第六十三条。'
+    m['pages']['report:2']['text'] += sentence
+    candidate.update(title='监管机关认定历史信息披露违法事实', status='regulator_confirmed',
+                     explanation='监管机关认定该历史信息披露违法事实，不能挪用于本期事件。',
+                     references=[{'page_id': 'report:2', 'quote': sentence}])
+    assert fe.citation_errors(candidate, m) == []
 
 
 def test_failed_rerun_prevents_stale_event_consumption(tmp_path):
@@ -331,6 +393,44 @@ def test_comparative_period_and_scope_context_are_checked_against_full_original(
     assert not fe.discover(m, model, tmp_path / 'unsupported')['events']
 
 
+def test_small_source_documents_are_audited_in_full(tmp_path):
+    m = _materials(tmp_path)
+    document = m['documents'][0]
+    for number in (3, 4):
+        page_id = f'report:{number}'
+        document['page_ids'].append(page_id)
+        m['pages'][page_id] = {'id': page_id, 'document_id': document['id'],
+                               'locator': f'文本第{number}页', 'text': f'补充原文第{number}页，完整披露与本事项有关的限定内容。'}
+    model = Model()
+    fe.discover(m, model, tmp_path / 'all-source-pages')
+    audit_input = next(payload for stage, payload in model.calls if stage == 'audit')
+    assert set(audit_input['original_pages']) == set(m['pages'])
+    assert audit_input['audit_scope'][0]['all_source_pages_were_read'] is True
+    assert set(audit_input['audit_scope'][0]['provided_page_ids']) == set(m['pages'])
+    assert '合并报表是把母公司和纳入的子公司放在一起' in audit_input['reader_standard']
+    assert '记账时间变化不自动表示现金' in audit_input['reader_standard']
+
+
+def test_review_contract_carries_material_causes_from_full_reading_notes():
+    prompt = fe.PROMPT_PATH.read_text(encoding='utf-8')
+    assert 'notes 是完整阅读后的证据索引' in prompt
+    assert '报告称“原文未说明原因”前，必须检查全部 notes 及相关原页' in prompt
+
+    large_materials = {
+        'pages': {
+            f'large:{number}': {'id': f'large:{number}', 'document_id': 'large',
+                                'text': f'page {number}'} for number in range(1, 7)
+        },
+        'documents': [{'id': 'large', 'page_ids': [f'large:{number}' for number in range(1, 7)]}],
+    }
+    large_materials['pages']['large:6']['text'] += 'x' * 96_000
+    candidate = {'references': [{'page_id': 'large:5'}]}
+
+    audited = fe._audit_pages(large_materials, candidate)
+
+    assert set(audited) == {f'large:{number}' for number in range(1, 7)}
+
+
 def test_explicit_response_reuse_requires_identical_model_request_and_keeps_provenance(tmp_path, monkeypatch):
     m = _materials(tmp_path)
     donor = tmp_path / 'donor'
@@ -341,7 +441,7 @@ def test_explicit_response_reuse_requires_identical_model_request_and_keeps_prov
     monkeypatch.setattr(fe, '_audit_pages', current_lookup)
     identity = json.loads((donor / 'run_fingerprint.json').read_text())
     identity['pipeline'] = 'prior-local-validator'
-    schemas = {'read': fe.READ_SCHEMA, 'review': fe.REVIEW_SCHEMA, 'audit': fe.AUDIT_SCHEMA}
+    schemas = {'read': fe.READ_SCHEMA, 'review': fe._review_schema([_candidate()['id']]), 'audit': fe.AUDIT_SCHEMA}
     for f in list((donor / 'responses').glob('*.json')):
         envelope = json.loads(f.read_text())
         stage = f.name.split('-', 1)[0]
@@ -390,6 +490,8 @@ def test_second_plain_language_repair_still_requires_complete_new_audit(tmp_path
             revised['terminology'] = '合同负债需计量。' if len(repairs) == 1 else '退款准备是可能退给客户的钱，先计入费用提醒预计支出。'
             return revised
         assert '不能只用另一个未解释的专业词' in payload['reader_standard']
+        assert '未来能赚的钱额外付价' in payload['reader_standard']
+        assert '只说明术语的一般经济含义' in payload['reader_standard']
         understandable = '可能退给客户的钱' in payload['candidate']['terminology']
         return {'verdict': 'verified' if understandable else 'unverified',
                 'reason': '通俗解释已补齐' if understandable else '术语仍只有技术语言',

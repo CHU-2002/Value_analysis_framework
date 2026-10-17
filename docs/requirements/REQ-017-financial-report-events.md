@@ -1,11 +1,11 @@
 ---
 id: REQ-017
 title: 财报重大事项主动发现与通俗解释
-status: in-progress
+status: verified
 priority: P1
 owner: CHU-2002
 created: 2026-10-11
-updated: 2026-10-17
+updated: 2026-10-18
 issue: "#125"
 design: docs/FINANCIAL_REPORT_EVENTS_PLAN.md
 milestone: "财报重大事项主动发现 v1 (#3)"
@@ -95,8 +95,8 @@ supersedes: TBD
 
 | 任务 | 状态 | 记录 |
 |---|---|---|
-| T1 完整原件阅读、开放候选、跨材料复核与报告接入 | in-progress | 2026-10-15 owner 要求端到端闭环交付；按原 AC 实现，不变更判据 |
-| T2 独立盲样预标注与 AC-1…9 验收 | in-progress | 未参与实现的独立评估者先选两个未点名样例并冻结证据，再运行流程 |
+| T1 完整原件阅读、开放候选、跨材料复核与报告接入 | complete | 完成全量原件阅读、开放候选、来源审计、故障留档与读者报告接入；全量门禁通过 |
+| T2 独立盲样预标注与 AC-1…9 验收 | complete | 两份盲样先冻结标注后实跑；独立报告确认 AC-1…9 通过，见 [独立验收报告](../verification/2026-10-18-REQ-017-independent-acceptance.md) |
 
 ### 实施发现登记
 
@@ -129,3 +129,5 @@ supersedes: TBD
 
 
 - **T16（2026-10-17，owner切换模型）**：owner说明额度用完且已将会话切至`gpt-6-luna`，要求项目内同步切换。停止了正在进行的`gpt-6.1-sol + medium`伊利实跑；run_state=`failed`，没有最终报告。停止时已完整读取219页、review 19项入选/22项排除；14项留下审核链（其中已核验与待核实均保留），其余审核未完成。新模型默认改为项目目录`config/agent_models.json`里的`gpt-6-luna + medium`：Codex报告动作/研究控制台预检会显式传模型和强度；REQ-017子流程无显式模型时也使用该项目默认。没有更改用户HOME下的全局Codex配置。此次改动之后不再启动任何真实模型请求，以免继续消耗额度；已有CI不能替代新配置的独立验收，REQ-017仍`in-progress`。
+
+- **T17（2026-10-18，独立验收与收口）**：额度刷新后按项目模型`gpt-6-luna + medium`和官方HTTPS实跑伊利、五粮液及两份预先冻结盲样。独立评估确认伊利AC-6、五粮液AC-7及盲样A AC-8/9通过。盲样B首轮发现漏掉越南产能因美国双反政策变化逐步停产并造成固定资产减值的披露，以及年报已经说明的经营现金流转负原因；该轮未推进verified。修复review提示词，要求综合完整阅读notes中的重大经营原因并引用对应原页；将修复响应schema限制为原候选ID，避免模型改写ID导致安全中止。完整重跑盲样B 301页，独立评估复核冻结的B1/B2/B3线索、原文引用与金额边界通过；AC-1…9独立验收通过。实跑命令、环境、观察、失败轮次、产物与摘要校验见 [独立验收报告](../verification/2026-10-18-REQ-017-independent-acceptance.md)。

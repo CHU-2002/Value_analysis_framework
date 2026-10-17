@@ -38,7 +38,7 @@
 
 ## 最终观察
 
-待真实流程完成后追加实际退出码、事项/待核实数量与证据位置。独立盲样与AC逐条验收由未参与实现的评估者另行记录，不以本文研发记录替代。
+最终真实流程、退出码、事项数量与独立证据见本文末尾的2026-10-18收口记录。独立盲样及AC逐条判断以[独立验收报告](../../verification/2026-10-18-REQ-017-independent-acceptance.md)为准。
 
 ## 2026-10-17 继续交付
 
@@ -95,3 +95,21 @@ Owner说明额度用完，当前会话切为`gpt-6-luna`，并要求项目内同
 
 
 项目模型默认切到`gpt-6-luna`/`medium`后，首次全量门禁发现测试假CLI在`AGENT_CLI`设为Claude脚本时，被过早按默认Codex协议处理。已修正为先识别本次实际CLI再选对应项目模型；该修复在5c9bebd。修复后`make verify`退出0：1993 passed / 3 skipped，覆盖率76.75%，追溯18 passed、scope50文件/1996用例、回归门禁通过。完整输出见development-verify-luna-default.log。未启动真实模型调用。
+
+### 2026-10-18 收口实跑与验收
+
+额度刷新后继续执行四份官方/盲样材料，模型均为项目配置`gpt-6-luna`、`medium`，通过ChatGPT官方HTTPS传输；环境为macOS、Python 3.12.13、项目`.venv`、Codex CLI 0.157.0。所有输出位于`output/.live_req017/`或`output/.live_req017_eval/`，未修改`~/turtle_archive`，token未进入日志或产物。
+
+伊利最终运行退出0：219页，6项已复核，18项待核实/排除。五粮液最终运行退出0：7页，完整覆盖更正公告数字与独立历史监管决定；具体处置数量及每项独立结论见验收报告。盲样A退出0：328页，17项已复核、30项待核实/排除。盲样B修复后退出0：301页，4项已复核、22项待核实/排除；独立评估确认冻结的B1越南产能/美国双反政策/固定资产减值、B2资产减值边界和B3经营现金流公司解释均按原文呈现，引用可回查。待核实状态保留，不将其当作已独立证明的外部经济因果。
+
+盲样B首轮完整运行虽完成，但独立评估发现B1和B3内容遗漏，未通过AC-8。修复后的首轮综合已找回对应披露，但一条候选repair响应改变了原候选ID，程序按安全约束中止并将运行标记failed、不生成报告。随后将repair schema限制为原ID，并加强review阶段对全篇阅读notes的原因追踪和原页引用要求；final4完整完成，独立复核通过。首轮失败、final3身份变化与修复后final4均保留在[独立验收证据包](../../verification/req017-independent-package/2026-10-18-blind-B-final4-evidence.zip)中，不能把失败轮次改写成通过。
+
+final4实际命令（从final3迁移时只复用请求、schema和响应摘要完全相同的已存模型响应；12条迁移来源均由独立评估复核，所有语义/引用校验重新执行）：
+
+```bash
+.venv/bin/python -m scripts.results.financial_events --materials output/.live_req017_eval/blind_b_materials.json --output-dir output/.live_req017_eval/blind_b_luna_closure_final4 --workers 2 --model gpt-6-luna --transport https --reuse-responses-from output/.live_req017_eval/blind_b_luna_closure_final3
+```
+
+观察：退出码0；stdout为`已复核事项 4；待核实/排除 22；已阅读页 301；输出 output/.live_req017_eval/blind_b_luna_closure_final4`。最终`run_state=complete`，result digest为`54fb5bf718a5888370d905731120c13404dfefd831e1e55b79936453ebf88156`，可见重大事项报告SHA256为`bf5e4b90ca42a744a9899a74758da47069ae83c336e8e1bb86294c171610d714`。独立评估核验301页原件与冻结SHA相同、108条可见引用连续匹配、135份保存响应摘要匹配。
+
+本次研发`make verify`退出0：1,997 passed / 3 skipped，覆盖率76.80%，需求追溯18 passed，scope 50个测试文件/2000用例、回归门禁通过。三个skip仍是未设置`TUSHARE_TOKEN`的既有集成测试。完整独立AC-1…9判断、四份命令/观察、final3失败记录与证据清单见[2026-10-18独立验收报告](../../verification/2026-10-18-REQ-017-independent-acceptance.md)。报告所述独立内容复核不替代本地门禁或PR CI。

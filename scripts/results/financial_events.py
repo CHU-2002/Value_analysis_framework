@@ -52,6 +52,22 @@ AUDIT_SCHEMA = _object({
 })
 
 
+def _review_schema(candidate_ids):
+    """Constrain dispositions to IDs actually produced by the reading stage."""
+    schema = json.loads(json.dumps(REVIEW_SCHEMA))
+    for collection in ("events", "excluded"):
+        schema["properties"][collection]["items"]["properties"]["id"] = {
+            "type": "string", "enum": sorted(candidate_ids)}
+    return schema
+
+
+def _repair_schema(candidate_id):
+    """Keep repair responses attached to the original discovered candidate."""
+    schema = json.loads(json.dumps(EVENT_SCHEMA))
+    schema["properties"]["id"] = {"type": "string", "enum": [candidate_id]}
+    return schema
+
+
 def _dump(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -233,6 +249,18 @@ def _asserts_legal_term(narrative, term):
     return False
 
 
+def _authority_quote_supports(term, quote):
+    if term == "信息披露违法":
+        # Decisions can state the finding as "信息披露存在违法事实" or say
+        # disclosure violated the Securities Law instead of using this exact
+        # compound phrase. Require both the disclosure subject and violation
+        # language in the same authoritative continuous quote.
+        return (term in quote or
+                ("信息披露" in quote and ("违法" in quote or
+                                         ("违反" in quote and "证券法" in quote))))
+    return term in quote
+
+
 def _period_keys(text):
     """Compare period identities, not display punctuation or Chinese wording."""
     for label, tag in (("前三季度", "Q3"), ("第三季度", "Q3"), ("三季度", "Q3"),
@@ -284,11 +312,16 @@ def citation_errors(event, materials):
             page = materials["pages"].get(ref.get("page_id"))
             if page:
                 doc = docs[page["document_id"]]
-                if (doc["kind"] in ("regulator", "court") and term in ref.get("quote", "")
+                if (doc["kind"] in ("regulator", "court")
+                        and _authority_quote_supports(term, ref.get("quote", ""))
                         and all(doc.get(key) for key in ("authority", "decision_status", "behavior"))):
                     authoritative.append(doc)
         if not authoritative or event.get("status") != "regulator_confirmed":
             errors.append(f"{term}没有可对应的权威原始认定及机关/状态/行为，不得作确定性定性")
+    for term in ("与持续经营相关的重大不确定性", "持续经营重大不确定性"):
+        if _asserts_legal_term(narrative, term) and not any(
+                term in ref.get("quote", "") for ref in refs if isinstance(ref, dict)):
+            errors.append(f"审计报告未逐字披露“{term}”，不得将其他审计事项升级为该定性")
     if re.search(r"(?:建议|应当|立即|必须)(?:买入|卖出|清仓)|(?:买入|卖出)建议", narrative):
         errors.append("事项报告不得自动给出买卖建议")
     return errors
@@ -331,6 +364,20 @@ def _audit_pages(materials, candidate):
         if doc["id"] not in documents:
             continue
         available = [pid for pid in doc["page_ids"] if pid in pages]
+        if sum(len(pages[pid]["text"]) for pid in available) <= 96_000:
+            # Small source documents can be audited in full, preserving nearby
+            # tables, footnotes, and qualifications that affect a candidate.
+            selected.update(available)
+            continue
+        # Tables often split their headers and rows across adjacent PDF pages.
+        # Keep a one-page neighborhood around each citation so an audit can
+        # resolve column headings without relying on model-inferred labels.
+        positions = {pid: index for index, pid in enumerate(available)}
+        for page_id in tuple(selected):
+            if page_id not in positions:
+                continue
+            position = positions[page_id]
+            selected.update(available[max(0, position - 1):position + 2])
         selected.update(available[:3])
         structural = [pid for pid in available if headings.search(pages[pid]["text"])]
         selected.update(structural[:6])
@@ -390,6 +437,15 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1, resu
 
     _dump(root / "materials.json", materials)
     common = {key: materials[key] for key in ("subject", "report_period", "documents", "gaps", "scope_note")}
+    common["source_page_inventory"] = {
+        doc["id"]: [pid for pid in doc["page_ids"] if pid in materials["pages"]]
+        for doc in materials["documents"]
+    }
+    common["scope_instruction"] = (
+        "source_page_inventory 是材料清单中实际载入并将逐页阅读的原文页。read 每次 pages 只是当前分包；"
+        "audit 的 original_pages 只是本候选的定向复核摘录。不得仅因某页未出现在当前输入字段中，"
+        "就说材料缺失、未提供或未读取；应区分本次输入范围与材料实际覆盖范围。"
+    )
     packets = reading_packets(materials, read_chars)
 
     def read(index_packet):
@@ -409,20 +465,59 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1, resu
     if len(json.dumps(review_input, ensure_ascii=False)) > 180000:
         raise ValueError("cross-material notes exceed 180000 characters; split research scope explicitly")
     proposed = {c["id"] for reading in readings for c in reading["candidates"]}
-    for attempt in range(2):
-        review = infer("review", review_input, REVIEW_SCHEMA)
-        _dump(root / f"review-{attempt + 1}.json", review)
-        selected = {event["id"] for event in review["events"]}
-        excluded = {item["id"] for item in review["excluded"] if item.get("reason", "").strip()}
-        missing = proposed - selected - excluded
-        ambiguous = len(selected) != len(review["events"]) or selected & excluded
-        if not missing and not ambiguous:
-            break
-        if attempt == 1:
-            raise ValueError("review silently omitted candidates or has ambiguous dispositions; no report published")
-        review_input = {**review_input, "previous_review": review,
-                        "review_errors": {"missing_candidate_ids": sorted(missing), "ambiguous": bool(ambiguous)},
-                        "instruction": "逐个核对原始候选id。每个必须入选或明确排除并给理由；合并也须逐个登记。不能改写id或只说应保留却放入排除。重新给出完整综合结果。"}
+    first_review = infer("review", review_input, _review_schema(proposed))
+    _dump(root / "review-1.json", first_review)
+    selected_by_id = {}
+    excluded_by_id = {}
+    for event in first_review["events"]:
+        if event["id"] in proposed:
+            selected_by_id.setdefault(event["id"], []).append(event)
+    for item in first_review["excluded"]:
+        if item["id"] in proposed and item.get("reason", "").strip():
+            excluded_by_id.setdefault(item["id"], []).append(item)
+    conflicts = {candidate_id for candidate_id in proposed
+                 if len(selected_by_id.get(candidate_id, [])) > 1
+                 or len(excluded_by_id.get(candidate_id, [])) > 1
+                 or (candidate_id in selected_by_id and candidate_id in excluded_by_id)}
+    for candidate_id in conflicts:
+        selected_by_id.pop(candidate_id, None)
+        excluded_by_id.pop(candidate_id, None)
+    unresolved = (proposed - set(selected_by_id) - set(excluded_by_id)) | conflicts
+    correction_index = 2
+    # Preserve sound first-pass decisions and ask only about unresolved IDs.
+    # Re-running the entire synthesis when one ID is missing can destabilize
+    # the other dispositions, especially on large blind reports.
+    while unresolved and correction_index <= 5:
+        batch = sorted(unresolved)[:8]
+        batch_set = set(batch)
+        batch_readings = [{"candidates": [c for c in reading["candidates"] if c["id"] in batch_set],
+                           "notes": reading.get("notes", "")}
+                          for reading in readings if any(c["id"] in batch_set for c in reading["candidates"])]
+        correction_input = {**common, "candidate_batch": batch_readings,
+                            "previous_review": {"events": [e for e in first_review["events"] if e["id"] in batch_set],
+                                                "excluded": [e for e in first_review["excluded"] if e["id"] in batch_set]},
+                            "review_errors": {"candidate_ids_requiring_disposition": batch},
+                            "instruction": "只处置candidate_batch中列出的每个原始id：逐个选择入选或明确排除并给出可审阅理由；若存在跨包重复，可合并但仍须逐个处置。不得输出清单外id。返回完整events与excluded数组。"}
+        correction = infer("review", correction_input, _review_schema(batch_set))
+        _dump(root / f"review-{correction_index}.json", correction)
+        correction_index += 1
+        for event in correction["events"]:
+            if event["id"] in batch_set:
+                selected_by_id[event["id"]] = [event]
+                excluded_by_id.pop(event["id"], None)
+        for item in correction["excluded"]:
+            if item["id"] in batch_set and item.get("reason", "").strip():
+                excluded_by_id[item["id"]] = [item]
+                selected_by_id.pop(item["id"], None)
+        unresolved = (proposed - set(selected_by_id) - set(excluded_by_id))
+        unresolved |= {candidate_id for candidate_id in batch_set
+                       if len(selected_by_id.get(candidate_id, [])) > 1
+                       or len(excluded_by_id.get(candidate_id, [])) > 1
+                       or (candidate_id in selected_by_id and candidate_id in excluded_by_id)}
+    if unresolved:
+        raise ValueError("review silently omitted candidates or has ambiguous dispositions; no report published")
+    review = {"events": [selected_by_id[key][0] for key in sorted(selected_by_id)],
+              "excluded": [excluded_by_id[key][0] for key in sorted(excluded_by_id)]}
     _dump(root / "review.json", review)
     events, audits, leads = [], [], []
     docs = {doc["id"]: doc for doc in materials["documents"]}
@@ -434,11 +529,35 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1, resu
         for attempt in range(3):
             errors = citation_errors(candidate, materials)
             cited_pages = _audit_pages(materials, candidate)
+            audit_scope = []
+            for doc in materials["documents"]:
+                source_pages = common["source_page_inventory"].get(doc["id"], [])
+                provided_pages = [pid for pid, page in cited_pages.items() if page["document_id"] == doc["id"]]
+                if provided_pages:
+                    audit_scope.append({"document_id": doc["id"], "source_page_count": len(source_pages),
+                                        "source_page_ids": source_pages, "provided_page_ids": provided_pages,
+                                        "all_source_pages_were_read": set(source_pages) <= set(materials["pages"])})
             audit_input = {**common, "candidate": candidate, "original_pages": cited_pages,
+                           "audit_scope": audit_scope,
                            "reader_standard": "面向没有会计知识的普通读者审核plain_language：不能只用另一个未解释的专业词定义术语。"
-                           "应串明事项在现实中代表什么、为何产生该会计处理、如何影响本期数字；用日常语言说明经济含义，"
-                           "再标注专业名称。若只有账面价值/可辨认净资产/计量等技术转换而缺少日常含义，必须false并具体指出缺口。"
-                           "概念解释须与原件事实和分析归属区分，不能为通俗化添加未披露原因或金额。"}
+                           "用具体日常场景解释它代表什么、为何值得关注、如何影响本期数字，再标注专业名称。"
+                           "例如：买下一家公司时，买方有时会为这家公司未来能赚的钱额外付价；这部分记作商誉。"
+                           "若之后估算这家公司未来能带来的价值不足以支撑原来记录的金额，就把这部分记账金额调低并确认一项损失。"
+                           "资产减值可以解释为：公司估计某项资产将来带回的钱或可卖回的钱少于原来预计，于是调低记录金额；"
+                           "存货减值可用预计售价扣除后续加工和出售成本仍不足以补回成本来说明。"
+                           "超短期融资券是公司短期借钱、约定很快还本付息的融资工具；"
+                           "长期股权投资是把钱投进另一家公司并持有其股份，通常希望分享收益或参与经营。"
+                           "前期会计差错更正要用日常话说明：公司把以前发布过的报表数字改正，后续比较应使用改正后的数字；"
+                           "合并报表是把母公司和纳入的子公司放在一起，当作一个集团展示收支、资产和欠款，类似家庭合并查看共同账本。"
+                           "收入确认是确定一笔销售或服务收入记在什么期间，类似货物交付或服务完成后把这笔收入记入对应期间；"
+                           "记账时间变化不自动表示现金在同一时间收到或付出。"
+                           "递延所得税资产可解释为：会计账和报税账确认时间不一致，记录以后可能少缴的税；它不是现金存款或已收到的退款。"
+                           "每股收益是把属于普通股股东的利润按普通股数量折算成每一股对应的金额。"
+                           "避免用‘确认、计量、递延、累计、合并范围’等其他专业词循环解释概念；必要时先给生活例子，再给财报名称。"
+                           "这些只说明术语的一般经济含义，不代表当前公司的具体经营原因。"
+                           "本公司本次调整的现实原因必须以原件说明为准；原件未披露就标未知，不能为通俗化编造因果。"
+                           "若原件为利润表损失项目，必须在报告金额与影响中明确这是税前报表项目、列入税前利润；"
+                           "税后、归母或现金影响未披露就写未知。"}
             audit = infer("audit", audit_input, AUDIT_SCHEMA)
             _dump(audit_root / f"audit-response-{attempt + 1}.json", audit)
             if set(audit.get("checks", {})) != set(AUDIT_SCHEMA["properties"]["checks"]["properties"]):
@@ -461,11 +580,12 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1, resu
                     sid, number = pid.rsplit(":", 1)
                     neighborhood.update(f"{sid}:{n}" for n in (int(number) - 1, int(number) + 1))
                 extra_pages = {pid: page for pid, page in materials["pages"].items() if pid in neighborhood}
-                repair_scope = "所引页及相邻页；其他页未在本次回查中提供，无法核实则保留未知"
+                repair_scope = ("所引页及相邻页；其他页未放入本次定向回查输入。"
+                                "这不代表其他原文页缺失或未读取；不得据此声称材料缺失，超出引用范围的事实保留未知。")
             else:
                 repair_scope = "所引文档的完整原文页"
             revised = infer("repair", {**audit_input, "original_pages": extra_pages, "page_scope": repair_scope,
-                                       "local_errors": errors, "audit": audit}, EVENT_SCHEMA)
+                                       "local_errors": errors, "audit": audit}, _repair_schema(candidate["id"]))
             _dump(audit_root / f"repair-{attempt + 1}.json", revised)
             _event_shape(revised)
             if revised["id"] != candidate["id"]:
@@ -478,9 +598,19 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1, resu
     for candidate, audit, errors, verified, history in results:
         audits.extend(history)
         if not verified:
+            sources = []
+            for ref in candidate["references"]:
+                page = materials["pages"][ref["page_id"]]
+                if not _quote_match(ref["quote"], page["text"]):
+                    continue
+                doc = docs[page["document_id"]]
+                sources.append({"title": doc["title"], "url": doc["url"], "date": doc["date"],
+                                "locator": page["locator"], "quote": ref["quote"]})
             leads.append({"id": candidate["id"], "title": candidate["title"], "priority": candidate["priority"],
                           "reason": "; ".join([*errors, audit.get("reason", "未完成复核")]),
-                          "disposition": "excluded" if audit.get("verdict") == "excluded" else "unverified"})
+                          "disposition": "excluded" if audit.get("verdict") == "excluded" else "unverified",
+                          "candidate": {key: value for key, value in candidate.items() if key != "references"},
+                          "sources": sources})
             continue
         event = {key: value for key, value in candidate.items() if key != "references"}
         event["sources"] = []
@@ -492,6 +622,24 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1, resu
             event["sources"].append(source)
         events.append(event)
     _dump(root / "audits.json", audits)
+    read_candidates = {candidate["id"]: candidate for reading in readings for candidate in reading["candidates"]}
+    review_exclusions = []
+    for item in review["excluded"]:
+        original = read_candidates.get(item["id"])
+        if not original:
+            review_exclusions.append(item)
+            continue
+        sources = []
+        for ref in original["references"]:
+            page = materials["pages"][ref["page_id"]]
+            if not _quote_match(ref["quote"], page["text"]):
+                continue
+            doc = docs[page["document_id"]]
+            sources.append({"title": doc["title"], "date": doc["date"], "url": doc["url"],
+                            "locator": page["locator"], "quote": ref["quote"]})
+        review_exclusions.append({**item,
+                                  "candidate": {key: value for key, value in original.items() if key != "references"},
+                                  "sources": sources})
     payload = {"schema": "investment.report_events", "version": VERSION, "subject": materials["subject"],
                "model_settings": getattr(model, "settings", {"backend": "injected evaluator"}),
                "response_reuse": {"directory": str(donor_root), "fingerprint": donor} if donor is not None else None,
@@ -501,7 +649,7 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1, resu
                             "scope_note": materials["scope_note"], "read_pages": list(materials["pages"]),
                             "reading_packets": len(packets)},
                "events": sorted(events, key=lambda e: ("high", "medium", "low").index(e["priority"])),
-               "unverified": leads, "excluded": review["excluded"]}
+               "unverified": leads, "excluded": review_exclusions}
     _dump(root / "report_events.json", payload)
     (root / "major_events.md").write_text(render_events(payload), encoding="utf-8")
     return payload
@@ -524,8 +672,31 @@ def render_events(payload):
         lines += [f"- {_line(doc['title'])}（{doc['date']}，{_line(doc['period'])}）：{doc['status']}；{len(doc['page_ids'])}页。"]
     lines += ["- " + _line(str(gap)) for gap in payload["coverage"]["gaps"]]
     lines += ["", "### 待核实线索与排除记录", ""]
-    for item in [*payload["unverified"], *payload["excluded"]]:
-        lines += [f"- {_line(item.get('title', item['id']))}：{_line(item['reason'])}"]
+    for item in payload["unverified"]:
+        candidate = item.get("candidate", {})
+        lines += [f"### 待核实：{_line(item.get('title', item['id']))}", "",
+                  f"披露日期：{candidate.get('disclosed_at', '未核实')}；涉及报告期：{_line(candidate.get('period', '未核实'))}；状态：待核实。", "",
+                  f"复核限制：{_line(item['reason'])}", ""]
+        for key, label in (("explanation", "发生了什么"), ("terminology", "术语解释"), ("importance", "为什么重要"),
+                           ("amount", "金额与口径"), ("impact", "影响"), ("limits", "不能推出什么 / 未知")):
+            if candidate.get(key):
+                status = candidate.get("field_statuses", {}).get(key, "unverified")
+                lines += [f"**{label}（{STATES.get(status, '待核实')}）**：{_line(candidate[key])}", ""]
+        for source in item.get("sources", []):
+            lines += ["来源：" + _source_line(source), "原文：" + _line(source["quote"]), ""]
+    for item in payload["excluded"]:
+        candidate = item.get("candidate", {})
+        if candidate.get("priority") != "high":
+            lines += [f"- {_line(item.get('title', candidate.get('title', item['id'])))}：{_line(item['reason'])}"]
+            continue
+        lines += [f"### 已复核排除：{_line(item.get('title', candidate.get('title', item['id'])))}", "",
+                  f"披露日期：{candidate.get('disclosed_at', '未核实')}；涉及报告期：{_line(candidate.get('period', '未核实'))}。", "",
+                  f"排除理由：{_line(item['reason'])}", ""]
+        for key, label in (("explanation", "候选内容"), ("amount", "金额与口径"), ("importance", "重要性说明"), ("limits", "限制")):
+            if candidate.get(key):
+                lines += [f"**{label}**：{_line(candidate[key])}", ""]
+        for source in item.get("sources", []):
+            lines += ["来源：" + _source_line(source), "原文：" + _line(source["quote"]), ""]
     lines += ["", "历史认定只对应其涉及主体、行为与期间。税前费用不能直接等同于归母净利润变动；"
               "未核实税费、少数股东及其他因素时，因果贡献未知。本事项报告不生成交易建议。", ""]
     return "\n".join(lines)
