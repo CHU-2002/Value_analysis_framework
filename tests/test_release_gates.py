@@ -1,7 +1,7 @@
 """流程三道门的单测：PR 描述守卫、独立验收门禁、main 批量回归门禁。
 
-覆盖需求：REQ-006（需求-测试-开发流程与三道门）—— AC-2 研发自测必填、
-AC-3 独立验收报告、AC-4 批量回归阈值。
+覆盖需求：REQ-006、REQ-017（需求-测试-开发流程与三道门，以及独立验收报告路径识别）——
+AC-2 研发自测必填、AC-3 独立验收报告、AC-4 批量回归阈值、REQ-017收口证据包识别。
 REQ-006 任务 T2（门禁与治理工具加固）—— AC-1 需求编号小节必填、AC-4 空的逐条验收小节被拒、
 AC-8 夹具不用已废弃分支名。
 REQ-006 任务 T6（大特性拆子需求）—— 子需求的 AC 按小节核对、父需求的同号 AC 不被
@@ -603,13 +603,19 @@ def test_acceptance_gate_sees_a_report_with_a_non_ascii_filename(tmp_path):
 
     report = repo / "docs" / "verification" / "2026-09-29-REQ-011-中文名验收报告.md"
     report.write_text("---\nreviewer: x\n---\n", encoding="utf-8")
+    evidence = repo / "docs" / "verification" / "supporting-evidence"
+    evidence.mkdir()
+    (evidence / "bundle.zip").write_bytes(b"PK\x03\x04binary evidence")
+    (evidence / "checks.json").write_text("{}", encoding="utf-8")
     _git(repo, "add", "-A")
     _commit(repo, "report")
     head = _git(repo, "rev-parse", "HEAD").stdout.strip()
 
-    assert acceptance_gate.changed_files(base, head, repo=repo) == [
-        "docs/verification/2026-09-29-REQ-011-中文名验收报告.md"
-    ]
+    assert set(acceptance_gate.changed_files(base, head, repo=repo)) == {
+        "docs/verification/2026-09-29-REQ-011-中文名验收报告.md",
+        "docs/verification/supporting-evidence/bundle.zip",
+        "docs/verification/supporting-evidence/checks.json",
+    }
     assert acceptance_gate.added_reports(base, head, repo=repo) == [report]
     # 门禁的判定链也要能走到「报告存在」，而不是卡在「没有报告」
     assert not any(

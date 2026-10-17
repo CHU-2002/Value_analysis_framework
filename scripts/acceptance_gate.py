@@ -199,11 +199,13 @@ def requires_live_run(req_id: str) -> bool:
 
 
 def added_reports(base: str, head: str, repo: Path = ROOT) -> list:
-    """本 PR 新增/修改的验收报告（排除模板）。"""
+    """本 PR 新增/修改的顶层 Markdown 验收报告（排除模板与支持性归档）。"""
     return [
         repo / name
         for name in changed_files(base, head, repo=repo)
-        if name.startswith("docs/verification/") and Path(name).name != "TEMPLATE.md"
+        if Path(name).parent == Path("docs/verification")
+        and Path(name).suffix.lower() == ".md"
+        and Path(name).name != "TEMPLATE.md"
     ]
 
 
