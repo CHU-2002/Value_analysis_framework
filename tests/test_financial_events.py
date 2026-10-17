@@ -181,6 +181,8 @@ def test_model_runtime_uses_structured_read_only_invocation_and_sanitizes_errors
     args, kwargs = calls[0]
     assert args[args.index('--sandbox') + 1] == 'read-only' and '--ephemeral' in args
     assert 'features.shell_tool=false' in args and args[-1] == '-'
+    assert 'model_reasoning_effort="medium"' in args
+    assert fe.CodexModel(model='gpt-6-luna').settings['reasoning_effort'] == 'medium'
     assert 'model_providers.turtle_events_https.supports_websockets=false' in args
     assert 'model_providers.turtle_events_https.requires_openai_auth=true' in args
     assert 'data' in kwargs['input'] and kwargs['timeout'] == 600
