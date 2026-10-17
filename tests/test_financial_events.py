@@ -185,6 +185,8 @@ def test_model_runtime_uses_structured_read_only_invocation_and_sanitizes_errors
     assert fe.CodexModel(model='gpt-6-luna').settings['reasoning_effort'] == 'medium'
     assert 'model_providers.turtle_events_https.supports_websockets=false' in args
     assert 'model_providers.turtle_events_https.requires_openai_auth=true' in args
+    assert 'model_providers.turtle_events_https.request_max_retries=0' in args
+    assert 'model_providers.turtle_events_https.stream_max_retries=0' in args
     assert 'data' in kwargs['input'] and kwargs['timeout'] == 600
     def failed(*args, **kwargs):
         raise subprocess.TimeoutExpired('SECRET', 1)

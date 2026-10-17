@@ -192,6 +192,8 @@ class CodexModel:
                     'model_providers.turtle_events_https.requires_openai_auth=true',
                     'model_providers.turtle_events_https.base_url="https://chatgpt.com/backend-api/codex"',
                     'model_providers.turtle_events_https.supports_websockets=false',
+                    'model_providers.turtle_events_https.request_max_retries=0',
+                    'model_providers.turtle_events_https.stream_max_retries=0',
                 ):
                     args += ["--config", setting]
             try:
