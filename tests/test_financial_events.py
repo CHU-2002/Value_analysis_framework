@@ -385,6 +385,7 @@ def test_second_plain_language_repair_still_requires_complete_new_audit(tmp_path
             repairs.append(payload['audit']['reason'])
             revised['terminology'] = '合同负债需计量。' if len(repairs) == 1 else '退款准备是可能退给客户的钱，先计入费用提醒预计支出。'
             return revised
+        assert '不能只用另一个未解释的专业词' in payload['reader_standard']
         understandable = '可能退给客户的钱' in payload['candidate']['terminology']
         return {'verdict': 'verified' if understandable else 'unverified',
                 'reason': '通俗解释已补齐' if understandable else '术语仍只有技术语言',

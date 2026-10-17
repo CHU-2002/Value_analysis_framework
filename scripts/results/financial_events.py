@@ -430,7 +430,11 @@ def _discover(materials, model, output_dir, *, read_chars=48000, workers=1, resu
         for attempt in range(3):
             errors = citation_errors(candidate, materials)
             cited_pages = _audit_pages(materials, candidate)
-            audit_input = {**common, "candidate": candidate, "original_pages": cited_pages}
+            audit_input = {**common, "candidate": candidate, "original_pages": cited_pages,
+                           "reader_standard": "面向没有会计知识的普通读者审核plain_language：不能只用另一个未解释的专业词定义术语。"
+                           "应串明事项在现实中代表什么、为何产生该会计处理、如何影响本期数字；用日常语言说明经济含义，"
+                           "再标注专业名称。若只有账面价值/可辨认净资产/计量等技术转换而缺少日常含义，必须false并具体指出缺口。"
+                           "概念解释须与原件事实和分析归属区分，不能为通俗化添加未披露原因或金额。"}
             audit = infer("audit", audit_input, AUDIT_SCHEMA)
             _dump(audit_root / f"audit-response-{attempt + 1}.json", audit)
             if set(audit.get("checks", {})) != set(AUDIT_SCHEMA["properties"]["checks"]["properties"]):
