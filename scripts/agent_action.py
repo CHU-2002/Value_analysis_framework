@@ -214,13 +214,13 @@ def preflight(action, raw_ticker, output_root, cli_value=None, backend=None, mod
     directory = directories[0].resolve()
     if not directory.is_relative_to(Path(output_root).resolve()):
         raise ValueError("公司目录指向数据目录之外，不能执行。")
-    validate_default(backend, model)
-    protocol = resolve_backend(cli_value or DEFAULT_CLI, backend)
+    value = cli_value or (backend if backend in ("codex", "claude") else os.environ.get("AGENT_CLI")) or DEFAULT_CLI
+    protocol = resolve_backend(value, backend)
+    validate_default(protocol, model)
     validate_model(protocol, model)
     selected_model = model
     if protocol == "codex" and model in (None, "default"):
         selected_model = default_model(protocol).get("model")
-    value = cli_value or (protocol if backend in ("codex", "claude") else os.environ.get("AGENT_CLI")) or DEFAULT_CLI
     cli = resolve_cli(value)
     if cli is None:
         raise FileNotFoundError("本机找不到 agent CLI，或它不可执行。" + INSTALL_HINT)
@@ -372,7 +372,7 @@ def main(argv=None) -> int:
             if not requested_model and "--model" in command:
                 requested_model = command[command.index("--model") + 1]
             audit = {"id": uuid.uuid4().hex, "ticker": ticker, "action": args.action,
-                     "requested_agent": resolve_backend(args.cli or DEFAULT_CLI, args.backend),
+                     "requested_agent": resolve_backend(args.cli or os.environ.get("AGENT_CLI") or DEFAULT_CLI, args.backend),
                      "requested_model": requested_model or "CLI default", "actual_model": "未知",
                      "actual_source": "CLI 未回报模型", "started_at": datetime.now(timezone.utc).isoformat()}
             code = _execute(command, args.timeout, audit)
