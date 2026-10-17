@@ -1,4 +1,4 @@
-"""REQ-016.2 读者摘要：呈现已核验事项，不代替 REQ-017 的跨材料识别。"""
+"""Reader summary and verified event presentation (REQ-016.2 / REQ-017)."""
 from __future__ import annotations
 
 import argparse
@@ -33,6 +33,11 @@ def load_events(path: str | Path | None, context: dict) -> list[dict]:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(payload, dict) or payload.get("schema") != "investment.report_events":
         raise ValueError("invalid report events schema")
+    if payload.get("version"):
+        from .financial_events import _hash
+        state = json.loads(Path(path).with_name("run_state.json").read_text(encoding="utf-8"))
+        if state.get("status") != "complete" or state.get("result_digest") != _hash(payload):
+            raise ValueError("event discovery incomplete or result changed; do not reuse stale events")
     if payload.get("subject") != context["subject"] or payload.get("report_period") != context["report_period"]:
         raise ValueError("report events company or destination period mismatch")
     events = payload.get("events")
@@ -63,7 +68,7 @@ def _line(text: str) -> str:
     return text.replace("\n", " ").replace("\r", " ")
 
 
-def render_reader_summary(context: dict, events: list[dict]) -> str:
+def render_reader_summary(context: dict, events: list[dict], discovery: dict | None = None) -> str:
     """日常中文正文；数字来自确定性结果，已核验事项由外部输入，不猜因果。"""
     subject = context["subject"]
     period, prior = context["report_period"], context["comparable_period"]
@@ -86,10 +91,14 @@ def render_reader_summary(context: dict, events: list[dict]) -> str:
             lines.append(statement)
         else:
             lines.append(f"- {name}同比变化尚未核实，不能判断幅度。")
-    lines += ["", "## 重要事项与主要解释", ""]
-    if not events:
+    if discovery is not None:
+        from .financial_events import render_events
+        lines += ["", render_events(discovery)]
+    else:
+        lines += ["", "## 重要事项与主要解释", ""]
+    if not events and discovery is None:
         lines.append("尚未取得本次报告已核验的重大事项材料。收入、利润的同比变化不能单独证明变化原因；需补充原始报表附注、公告或监管文件，再核实金额及影响。")
-    for event in events:
+    for event in ([] if discovery is not None else events):
         lines += [f"### {_line(event['title'])}", "",
                   f"披露日期：{_line(event['disclosed_at'])}；涉及期间：{_line(event['period'])}。", ""]
         statuses = event.get("field_statuses", {})
@@ -125,7 +134,13 @@ def main(argv=None) -> None:
     context = json.loads(Path(args.context).read_text(encoding="utf-8"))
     if context.get("schema") != "investment.change_report_context":
         raise ValueError("invalid change report context")
-    text = render_reader_summary(context, load_events(args.events, context))
+    events = load_events(args.events, context)
+    discovery = None
+    if args.events:
+        payload = json.loads(Path(args.events).read_text(encoding="utf-8"))
+        if payload.get("version"):
+            discovery = payload
+    text = render_reader_summary(context, events, discovery)
     if args.body:
         text += "\n## 详细变化与证据\n\n" + Path(args.body).read_text(encoding="utf-8")
     output = Path(args.output)

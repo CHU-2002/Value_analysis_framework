@@ -53,19 +53,12 @@ def coordinator_text():
 class TestFeature53UnifiedUnits:
     """Phase 3 prompt uses unified units (百万元) and Tushare Pro."""
 
-    def test_phase3_units_millions(self, phase3_text):
+    def test_phase3_input_source_contract(self, phase3_text):
+        """One input contract retains the previous four independent assertions."""
         assert "百万元" in phase3_text
-
-    def test_phase3_tushare_pro_mention(self, phase3_text):
         assert "Tushare Pro" in phase3_text
-
-    def test_phase3_payout_primary_source(self, phase3_text):
-        """Payout ratio primary source should be §6 + §3, not P11."""
         assert "§6" in phase3_text
         assert "§3" in phase3_text
-
-    def test_phase3_available_fields_mention(self, phase3_text):
-        """Step 1 should mention available_fields.json for extra data."""
         assert "available_fields.json" in phase3_text
 
 
@@ -125,15 +118,9 @@ class TestFeature56ContractLiability:
 class TestFeature57CrossValidateSection12:
     """Factor 1 module 0(2) cross-validates with §12."""
 
-    def test_factor1_module0_references_section12(self, factor1_text):
-        """Module 0(2) should reference §12 for cross-validation."""
-        assert "§12" in factor1_text
-
     def test_factor1_module0_cross_validate_note(self, factor1_text):
-        """Should contain cross-validation instruction with §12."""
-        # Check both §12 and some form of cross-validate/校验
+        """Section 12 and its cross-validation instruction form one contract."""
         assert "§12" in factor1_text
-        # Should mention cross-validation concept
         has_cross_validate = "交叉校验" in factor1_text or "交叉验证" in factor1_text
         assert has_cross_validate, "Should mention cross-validation with §12"
 

@@ -98,3 +98,5 @@ Before completion verify:
 - every material claim has an evidence ID or is labelled `待验证`;
 - section 八 discloses the periods that did not disclose a section;
 - both the Markdown report and the JSON sidecar are written to the requested paths.
+
+REQ-017 必需：先按 `financial_events.md` 完成全部原件通读、候选综合与原文复核，使用本次 `synthesis/events/report_events.json` 呈现重大事项。高优先发现须在摘要/重大事项区显示，覆盖清单、待核实与排除理由不可省略；未完成流程不能把报告标成完成。

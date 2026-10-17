@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 
 from config import validate_stock_code
-from agent_models import validate_model, validate_default
+from agent_models import default_model, validate_model, validate_default
 
 EXIT_OK = 0
 EXIT_USAGE = 2
@@ -86,9 +86,13 @@ def build_agent_argv(cli, action: str, ticker: str, backend="claude", company_di
         # Data refresh in the fixed analysis commands needs outbound HTTP. Keep
         # the workspace-write filesystem boundary and enable only its network
         # switch for this explicitly confirmed analysis invocation.
-        options = ["--config", "sandbox_workspace_write.network_access=true"]
+        options = ["--config", "sandbox_workspace_write.network_access=true",
+                   "--config", 'model_reasoning_effort="medium"']
         if model:
             options += ["--model", model]
+            if action in ("business-analysis", "update-analysis"):
+                prompt += (f"本次明确选择的报告模型是 {model}；执行 REQ-017 financial_events 子流程时"
+                           f"同样显式传入 --model {model}，不要回退本机另一默认模型。")
         if company_dir is not None:
             prompt += (f"公司目录固定为 {company_dir}；命令文档中的 output/公司目录统一替换为此目录，"
                        "不要访问另一份同代码公司的产物。")
@@ -210,15 +214,18 @@ def preflight(action, raw_ticker, output_root, cli_value=None, backend=None, mod
     directory = directories[0].resolve()
     if not directory.is_relative_to(Path(output_root).resolve()):
         raise ValueError("公司目录指向数据目录之外，不能执行。")
-    validate_default(backend, model)
-    protocol = resolve_backend(cli_value or DEFAULT_CLI, backend)
+    value = cli_value or (backend if backend in ("codex", "claude") else os.environ.get("AGENT_CLI")) or DEFAULT_CLI
+    protocol = resolve_backend(value, backend)
+    validate_default(protocol, model)
     validate_model(protocol, model)
-    value = cli_value or (protocol if backend in ("codex", "claude") else os.environ.get("AGENT_CLI")) or DEFAULT_CLI
+    selected_model = model
+    if protocol == "codex" and model in (None, "default"):
+        selected_model = default_model(protocol).get("model")
     cli = resolve_cli(value)
     if cli is None:
         raise FileNotFoundError("本机找不到 agent CLI，或它不可执行。" + INSTALL_HINT)
     return ticker, directory, build_agent_argv(
-        cli, action, ticker, resolve_backend(value, backend), directory, model, bool(backend),
+        cli, action, ticker, resolve_backend(value, backend), directory, selected_model, bool(backend),
     )
 
 
@@ -361,9 +368,12 @@ def main(argv=None) -> int:
                 print("这家公司已有分析任务在执行，请等待结束或先取消。", file=sys.stderr)
                 return EXIT_BUSY
             before = _report_hashes(company_dir)
+            requested_model = args.model
+            if not requested_model and "--model" in command:
+                requested_model = command[command.index("--model") + 1]
             audit = {"id": uuid.uuid4().hex, "ticker": ticker, "action": args.action,
-                     "requested_agent": resolve_backend(args.cli or DEFAULT_CLI, args.backend),
-                     "requested_model": args.model or "default", "actual_model": "未知",
+                     "requested_agent": resolve_backend(args.cli or os.environ.get("AGENT_CLI") or DEFAULT_CLI, args.backend),
+                     "requested_model": requested_model or "CLI default", "actual_model": "未知",
                      "actual_source": "CLI 未回报模型", "started_at": datetime.now(timezone.utc).isoformat()}
             code = _execute(command, args.timeout, audit)
             if audit["requested_agent"] == "codex" and audit.get("thread_id") and audit["actual_model"] == "未知":

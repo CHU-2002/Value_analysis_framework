@@ -1,0 +1,223 @@
+{
+  "yili": {
+    "directory": "output/.live_req017/yili-luna-closure-r7",
+    "model": {
+      "backend": "codex",
+      "model": "gpt-6-luna",
+      "selection": "explicit",
+      "timeout": 600,
+      "transport": "https",
+      "reasoning_effort": "medium",
+      "prompt_sha256": "a37fd8e381bc34b35570a0742d88c1189ea066b996ce6fc506a6c2c9cd6a4dfb",
+      "pipeline_sha256": "804ac8297a15f250029207a37ff85ad6564af92add94cd69716dc39093ec2619"
+    },
+    "response_reuse": null,
+    "run_state": {
+      "status": "complete",
+      "result_digest": "8a83f37b33619c7854c4a254ac011e0fc0275dc45a8d235ca89bf520198416a2"
+    },
+    "result_digest_matches": true,
+    "report_sha256": "144a7ad78ab5f991a0f631b46a849d4b5597fd38c7dbea0f33ee61c362bf9164",
+    "source_sha256": [
+      {
+        "id": "current",
+        "sha256": "423af4d63f2b620a03ed9d0080adbb063f3ef14d874abeca8097d0e0d1441ac2",
+        "actual_sha256": "423af4d63f2b620a03ed9d0080adbb063f3ef14d874abeca8097d0e0d1441ac2"
+      }
+    ],
+    "pages": 219,
+    "read_ack": 219,
+    "missing_read_ack": [],
+    "response_counts": {
+      "audit": 56,
+      "repair": 35,
+      "read": 5,
+      "review": 2
+    },
+    "response_integrity_errors": [],
+    "quotes": {
+      "events": {
+        "quotes": 17,
+        "mismatches": [],
+        "items": 6
+      },
+      "unverified": {
+        "quotes": 64,
+        "mismatches": [],
+        "items": 15
+      },
+      "excluded": {
+        "quotes": 6,
+        "mismatches": [],
+        "items": 3
+      }
+    }
+  },
+  "wuliangye": {
+    "directory": "output/.live_req017/wuliangye-luna-closure-r8",
+    "model": {
+      "backend": "codex",
+      "model": "gpt-6-luna",
+      "selection": "explicit",
+      "timeout": 600,
+      "transport": "https",
+      "reasoning_effort": "medium",
+      "prompt_sha256": "a37fd8e381bc34b35570a0742d88c1189ea066b996ce6fc506a6c2c9cd6a4dfb",
+      "pipeline_sha256": "804ac8297a15f250029207a37ff85ad6564af92add94cd69716dc39093ec2619"
+    },
+    "response_reuse": null,
+    "run_state": {
+      "status": "complete",
+      "result_digest": "1abad35874bcb91dfafd1959ffe19327a27ae104b580f802ea5d65417b98cda4"
+    },
+    "result_digest_matches": true,
+    "report_sha256": "e6c9af396f799f907964f4354342b1c6b89f479df856d3a63eeef9f564a72928",
+    "source_sha256": [
+      {
+        "id": "correction",
+        "sha256": "466e1e18f25c1391fd160945b5977ce83732a40f223fc0dee7407bd90bb0e10d",
+        "actual_sha256": "466e1e18f25c1391fd160945b5977ce83732a40f223fc0dee7407bd90bb0e10d"
+      },
+      {
+        "id": "decision",
+        "sha256": "b599d3688d8181922738f4804be84a03d6a812519010b1236a843e3249df0ed5",
+        "actual_sha256": "b599d3688d8181922738f4804be84a03d6a812519010b1236a843e3249df0ed5"
+      }
+    ],
+    "pages": 7,
+    "read_ack": 7,
+    "missing_read_ack": [],
+    "response_counts": {
+      "repair": 6,
+      "read": 8,
+      "audit": 10,
+      "review": 1
+    },
+    "response_integrity_errors": [],
+    "quotes": {
+      "events": {
+        "quotes": 6,
+        "mismatches": [],
+        "items": 1
+      },
+      "unverified": {
+        "quotes": 24,
+        "mismatches": [],
+        "items": 3
+      },
+      "excluded": {
+        "quotes": 17,
+        "mismatches": [],
+        "items": 4
+      }
+    }
+  },
+  "blind_A": {
+    "directory": "output/.live_req017_eval/blind_a_luna_closure_final",
+    "model": {
+      "backend": "codex",
+      "model": "gpt-6-luna",
+      "selection": "explicit",
+      "timeout": 600,
+      "transport": "https",
+      "reasoning_effort": "medium",
+      "prompt_sha256": "a37fd8e381bc34b35570a0742d88c1189ea066b996ce6fc506a6c2c9cd6a4dfb",
+      "pipeline_sha256": "804ac8297a15f250029207a37ff85ad6564af92add94cd69716dc39093ec2619"
+    },
+    "response_reuse": null,
+    "run_state": {
+      "status": "complete",
+      "result_digest": "4697eba8f870b42b110c75af0c0b54a8d2e37771168375757f7ec7385ab5ab5e"
+    },
+    "result_digest_matches": true,
+    "report_sha256": "52c9e53ff2b6a74fb882da25e07de09d1885f432f4e16ef865f0694094b3910f",
+    "source_sha256": [
+      {
+        "id": "annual_report",
+        "sha256": "bf541085ceee4c2b6ce411a242c2f04156969c8ed3cdd8a8c2102979d10deec9",
+        "actual_sha256": "bf541085ceee4c2b6ce411a242c2f04156969c8ed3cdd8a8c2102979d10deec9"
+      }
+    ],
+    "pages": 328,
+    "read_ack": 328,
+    "missing_read_ack": [],
+    "response_counts": {
+      "repair": 78,
+      "audit": 124,
+      "read": 9,
+      "review": 2
+    },
+    "response_integrity_errors": [],
+    "quotes": {
+      "events": {
+        "quotes": 50,
+        "mismatches": [],
+        "items": 17
+      },
+      "unverified": {
+        "quotes": 102,
+        "mismatches": [],
+        "items": 29
+      },
+      "excluded": {
+        "quotes": 0,
+        "mismatches": [],
+        "items": 1
+      }
+    }
+  },
+  "blind_B": {
+    "directory": "output/.live_req017_eval/blind_b_luna_closure_final",
+    "model": {
+      "backend": "codex",
+      "model": "gpt-6-luna",
+      "selection": "explicit",
+      "timeout": 600,
+      "transport": "https",
+      "reasoning_effort": "medium",
+      "prompt_sha256": "a37fd8e381bc34b35570a0742d88c1189ea066b996ce6fc506a6c2c9cd6a4dfb",
+      "pipeline_sha256": "804ac8297a15f250029207a37ff85ad6564af92add94cd69716dc39093ec2619"
+    },
+    "response_reuse": null,
+    "run_state": {
+      "status": "complete",
+      "result_digest": "a4270e537327faff58a899ec348a68fdf7cbe150a7077da9e277209f00c540c5"
+    },
+    "result_digest_matches": true,
+    "report_sha256": "1ca3a64ecd459bb22aaece7771134b1686436f0e2a5ec0aa63a5331b4cabc4bd",
+    "source_sha256": [
+      {
+        "id": "annual_report",
+        "sha256": "c9e11fc7ec92a59d7d1ccfcf8a4f1fbb35ee8ec0435df16a3e968497b5f64bb8",
+        "actual_sha256": "c9e11fc7ec92a59d7d1ccfcf8a4f1fbb35ee8ec0435df16a3e968497b5f64bb8"
+      }
+    ],
+    "pages": 301,
+    "read_ack": 301,
+    "missing_read_ack": [],
+    "response_counts": {
+      "audit": 61,
+      "repair": 39,
+      "read": 5,
+      "review": 2
+    },
+    "response_integrity_errors": [],
+    "quotes": {
+      "events": {
+        "quotes": 12,
+        "mismatches": [],
+        "items": 5
+      },
+      "unverified": {
+        "quotes": 66,
+        "mismatches": [],
+        "items": 17
+      },
+      "excluded": {
+        "quotes": 13,
+        "mismatches": [],
+        "items": 4
+      }
+    }
+  }
+}

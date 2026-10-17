@@ -1,0 +1,140 @@
+{
+  "directory": "/Users/everett.li/Project/Turtle_investment_framework/output/.live_req017_eval/blind_b_luna_closure_final4",
+  "model": {
+    "backend": "codex",
+    "model": "gpt-6-luna",
+    "selection": "explicit",
+    "timeout": 600,
+    "transport": "https",
+    "reasoning_effort": "medium",
+    "prompt_sha256": "f2696b35e935da8d756ac95e56d393bb613c00c125ea0f4d72b950625d39f950",
+    "pipeline_sha256": "f8f618dc3c2670902bc83fdd39884d295e45b42770e36d28aac255501393417f"
+  },
+  "response_reuse": {
+    "directory": "/Users/everett.li/Project/Turtle_investment_framework/output/.live_req017_eval/blind_b_luna_closure_final3",
+    "fingerprint": {
+      "materials": "31e0b7cf47da87daf1fe0cd434d1d1a42c6079a10039021776d76a600873af5c",
+      "read_chars": 48000,
+      "prompt": "f2696b35e935da8d756ac95e56d393bb613c00c125ea0f4d72b950625d39f950",
+      "model": {
+        "backend": "codex",
+        "model": "gpt-6-luna",
+        "selection": "explicit",
+        "timeout": 600,
+        "transport": "https",
+        "reasoning_effort": "medium",
+        "prompt_sha256": "f2696b35e935da8d756ac95e56d393bb613c00c125ea0f4d72b950625d39f950",
+        "pipeline_sha256": "804ac8297a15f250029207a37ff85ad6564af92add94cd69716dc39093ec2619"
+      },
+      "pipeline": "804ac8297a15f250029207a37ff85ad6564af92add94cd69716dc39093ec2619"
+    }
+  },
+  "run_state": {
+    "status": "complete",
+    "result_digest": "54fb5bf718a5888370d905731120c13404dfefd831e1e55b79936453ebf88156"
+  },
+  "result_digest_matches": true,
+  "report_sha256": "bf5e4b90ca42a744a9899a74758da47069ae83c336e8e1bb86294c171610d714",
+  "original_sha256": "c9e11fc7ec92a59d7d1ccfcf8a4f1fbb35ee8ec0435df16a3e968497b5f64bb8",
+  "pages": 301,
+  "acknowledged_pages": 301,
+  "missing_page_acknowledgements": [],
+  "response_counts": {
+    "repair": 51,
+    "audit": 77,
+    "review": 2,
+    "read": 5
+  },
+  "response_integrity_errors": [],
+  "origins": [
+    {
+      "file": "audit-ae1e90c7b2e448ba8e28715b8bc438a007f0dfe41d448039582028f25e4a4707.json",
+      "source": "/Users/everett.li/Project/Turtle_investment_framework/output/.live_req017_eval/blind_b_luna_closure_final3/responses/audit-341a7cc2c243e321a556f09e825744963853b0fee3faf1ea2a0ed46ba849738a.json",
+      "same_response_digest": true,
+      "source_actual_response_digest_valid": true
+    },
+    {
+      "file": "review-66beb328e82af76458fda922146fdc9030824c05c5956688c6bc23f7d34c371d.json",
+      "source": "/Users/everett.li/Project/Turtle_investment_framework/output/.live_req017_eval/blind_b_luna_closure_final3/responses/review-0a2fc4bacebd3ef53908fd555c57925abca574fffcd3e171736e8e10a9fb650a.json",
+      "same_response_digest": true,
+      "source_actual_response_digest_valid": true
+    },
+    {
+      "file": "read-22b5f09ebb5d99094e812893be75efd93c6c31e854b5142c16624e3ba278e3c9.json",
+      "source": "/Users/everett.li/Project/Turtle_investment_framework/output/.live_req017_eval/blind_b_luna_closure_final3/responses/read-49e21acd6e67a755c8810ffd104a78d0cc3137c72cb521aae3a0cb585c73febe.json",
+      "same_response_digest": true,
+      "source_actual_response_digest_valid": true
+    },
+    {
+      "file": "read-0a18786d09472f9bd41c35babddb8df1d37132e3a8ad3f52406522de91053f48.json",
+      "source": "/Users/everett.li/Project/Turtle_investment_framework/output/.live_req017_eval/blind_b_luna_closure_final3/responses/read-30c7d9ad98144c3d5705fcc3223f1d22ff728883527f34fa82dea73bc5edece2.json",
+      "same_response_digest": true,
+      "source_actual_response_digest_valid": true
+    },
+    {
+      "file": "audit-d57b44da63dd4134b9d5dc05a4b551ce393d43280967b934855763df2b59ea25.json",
+      "source": "/Users/everett.li/Project/Turtle_investment_framework/output/.live_req017_eval/blind_b_luna_closure_final3/responses/audit-2f95925bd8eeac6886a09fdf59aff25dcf6beb3dad3d52e8a9758d05cdcecfca.json",
+      "same_response_digest": true,
+      "source_actual_response_digest_valid": true
+    },
+    {
+      "file": "audit-cc70f182127b36eca5123d2ed9627e84c416c4b121665dbb392e70203cfc3acc.json",
+      "source": "/Users/everett.li/Project/Turtle_investment_framework/output/.live_req017_eval/blind_b_luna_closure_final3/responses/audit-2087969fe42ec260dd3fd34544d6e8a8a27032dffe458a97c66eaeec542bdb8b.json",
+      "same_response_digest": true,
+      "source_actual_response_digest_valid": true
+    },
+    {
+      "file": "audit-e8541ddfd02803c3aaa269ee998fdf50429ce27d994de249b5275abafe9bb0ce.json",
+      "source": "/Users/everett.li/Project/Turtle_investment_framework/output/.live_req017_eval/blind_b_luna_closure_final3/responses/audit-f8861c8d9953f48f682f94d918c5ee56d2ec44c721bd2744a21a75eea2066572.json",
+      "same_response_digest": true,
+      "source_actual_response_digest_valid": true
+    },
+    {
+      "file": "review-058e4a8c05ad0c68c673806af4adce24345d7df59f80bedde39fc0dcde6415cf.json",
+      "source": "/Users/everett.li/Project/Turtle_investment_framework/output/.live_req017_eval/blind_b_luna_closure_final3/responses/review-9700bf88edf2c243f61a979521f8bf71b0e8fa6f129aa9dc5a2bccca87a97d15.json",
+      "same_response_digest": true,
+      "source_actual_response_digest_valid": true
+    },
+    {
+      "file": "read-acdbe452f084c27ca3cf52724da83412f8c98097eaccd73aecf8488443850a9d.json",
+      "source": "/Users/everett.li/Project/Turtle_investment_framework/output/.live_req017_eval/blind_b_luna_closure_final3/responses/read-8117d783f7deca2662fb65af02bab497026a36e5f96bdd0ac071198e04d555a6.json",
+      "same_response_digest": true,
+      "source_actual_response_digest_valid": true
+    },
+    {
+      "file": "read-8f80d33a0b73800d2db0f87c8584a8ff1adcd754f4ad8683580a6157bc6b977e.json",
+      "source": "/Users/everett.li/Project/Turtle_investment_framework/output/.live_req017_eval/blind_b_luna_closure_final3/responses/read-d8f2968b42f03811196e4b9ce4cf778ba37faea831dbf01f4a0bb96f2d0b7508.json",
+      "same_response_digest": true,
+      "source_actual_response_digest_valid": true
+    },
+    {
+      "file": "audit-fc3b02a842229ba3319ad2c76b4d3b51ed89e0f0c965f93ab4bd37965a94192b.json",
+      "source": "/Users/everett.li/Project/Turtle_investment_framework/output/.live_req017_eval/blind_b_luna_closure_final3/responses/audit-9e0b05ebc373eab6715d806cee65a6e87811bbc685ecfad2000810bb311b69c9.json",
+      "same_response_digest": true,
+      "source_actual_response_digest_valid": true
+    },
+    {
+      "file": "read-9d1c2f9239881d4f45ccb9083807b4056404d5f8654b6c6d2ac0bd2d28af51d2.json",
+      "source": "/Users/everett.li/Project/Turtle_investment_framework/output/.live_req017_eval/blind_b_luna_closure_final3/responses/read-939981a169e5e777ad510e982f04695934df7b5728181e82937183da3f03ec0b.json",
+      "same_response_digest": true,
+      "source_actual_response_digest_valid": true
+    }
+  ],
+  "quotes": {
+    "events": {
+      "items": 4,
+      "quotes": 16,
+      "mismatches": []
+    },
+    "unverified": {
+      "items": 22,
+      "quotes": 92,
+      "mismatches": []
+    },
+    "excluded": {
+      "items": 0,
+      "quotes": 0,
+      "mismatches": []
+    }
+  }
+}

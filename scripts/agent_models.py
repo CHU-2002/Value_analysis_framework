@@ -10,8 +10,26 @@ CATALOG_PATH = Path(__file__).resolve().parents[1] / 'config' / 'agent_models.js
 
 
 def catalog():
-    payload = json.loads(CATALOG_PATH.read_text(encoding='utf-8'))
-    return payload['agents']
+    return json.loads(CATALOG_PATH.read_text(encoding='utf-8'))['agents']
+
+
+def project_default(backend):
+    """Return this repository's explicit model preference, if configured."""
+    try:
+        value = json.loads(CATALOG_PATH.read_text(encoding='utf-8')).get('defaults', {}).get(backend)
+    except (OSError, ValueError, AttributeError):
+        return None
+    if not isinstance(value, dict):
+        return None
+    model = value.get('model')
+    if not isinstance(model, str):
+        return None
+    agent = next((a for a in catalog() if a['id'] == backend), None)
+    entry = next((m for m in agent['models'] if m['id'] == model), None) if agent else None
+    if not entry or entry.get('compatibility') == 'unavailable':
+        return None
+    return {'model': model, 'reasoning_effort': value.get('reasoning_effort'),
+            'source': '本项目 config/agent_models.json 默认配置'}
 
 
 def validate_model(backend, model):
@@ -25,7 +43,10 @@ def validate_model(backend, model):
 
 
 def default_model(backend):
-    """Only an explicit local setting is evidence; implicit defaults remain unknown."""
+    """Prefer this repository's configured default; otherwise read explicit local settings."""
+    preferred = project_default(backend)
+    if preferred:
+        return preferred
     if backend == 'claude':
         value = os.environ.get('ANTHROPIC_MODEL')
         if value and re.fullmatch(r'[A-Za-z0-9_.:-]+', value):

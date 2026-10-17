@@ -195,8 +195,11 @@ def _preflight(ctx, **_):
         if blocker:
             result["reason"] = blocker
             return envelope.ok(result)
+        effective_model = ctx.query.get("model")
+        if not effective_model and "--model" in argv:
+            effective_model = argv[argv.index("--model") + 1]
         result.update(ready=True, ticker=ticker, agent=ctx.query.get("backend") or "CLI 配置",
-                      model=ctx.query.get("model") or "default", configuration=_agent_catalog(),
+                      model=effective_model or "CLI 默认", configuration=_agent_catalog(),
                       command_line=redact(shlex.join(argv), ctx.secrets))
     except FileNotFoundError:
         result["reason"] = "本机找不到可执行的 Codex（或配置的 agent CLI）。请先在终端安装并登录，再刷新页面。"

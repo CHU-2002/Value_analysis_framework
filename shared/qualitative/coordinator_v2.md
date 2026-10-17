@@ -221,6 +221,21 @@ python3 -m scripts.results.synthesis \
   --output "{output_dir}/synthesis/context.json"
 ```
 
+
+
+## 必需：财报重大事项主动发现（REQ-017）
+
+在交付定性报告前，读取 `shared/qualitative/agents/financial_events.md`。主动收集当前期/可比期完整报告、正式临时公告及可取得监管原件，建立 `{output_dir}/synthesis/event_materials.json`，运行：
+
+```bash
+python3 -m scripts.results.financial_events \
+  --materials "{output_dir}/synthesis/event_materials.json" \
+  --output-dir "{output_dir}/synthesis/events"
+```
+
+把本次 `synthesis/events/major_events.md` 整节放在 `qualitative_report.md` 的执行摘要之后、六维分析之前；Final Synthesis 读取本次已复核事项与覆盖清单，不能用模块节选替代逐页阅读。不得漏掉高优先事项、原文定位和待核实/排除记录。发现流程失败则交付状态为未完成，并说明具体阻断；不能把旧报告事件当成新结果。重大事项不自动生成交易指令。
+
+
 启动 Final Synthesis Agent，读取 `shared/qualitative/agents/final_synthesis.md` 和 `synthesis/context.json`。它由大模型重新撰写执行摘要、六维度分析、跨维度判断、风险排序和投资启示，不得直接拼接模块正文；同时输出 `qualitative_report.md` 和 `synthesis/result.json`。
 汇总默认不超过 30,000 字符；参数、主判断、关键风险、指标口径和 reconciliation 保留原值，其他条目按整体 JSON 预算选入。检查各卡片 `omitted` 计数，对影响结论的省略项按 `result_path` 限量补读；未能补齐时披露缺口。引用沿用模块精准摘录，按 `quote_index` 选择对应原文，不得拼接多个不连续摘录。交付前执行带 `--evidence-index` 的 sidecar 校验，并单独核查金额、单位、日期与判断的语义对应。
 

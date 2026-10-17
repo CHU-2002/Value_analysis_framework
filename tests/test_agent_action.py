@@ -1,3 +1,4 @@
+# 覆盖需求：REQ-017 —— 报告动作向事项发现子流程传递已选模型
 # 覆盖需求：REQ-015、REQ-015.2（AC-2.1~2.4：目录、单次模型传递、非法组合零分析、产物判定与审计）
 # 覆盖需求：REQ-013.1（包装脚本与动作白名单：AC-1.1~AC-1.4）
 # 覆盖需求：REQ-013.2（最小界面「一键页」：AC-2.1~AC-2.5）
@@ -642,6 +643,8 @@ def test_selected_model_reaches_each_fake_cli_once_and_is_audited(tmp_path, back
     argv = json.loads(marker.read_text())
     assert argv[argv.index("--model") + 1] == model
     assert ("exec" in argv) == (backend == "codex")
+    if backend == "codex":
+        assert f"--model {model}" in argv[-1] and "financial_events" in argv[-1]
     assert ("-p" in argv) == (backend == "claude")
     audit = json.loads(next((tmp_path / ".agent_audit").glob("*.json")).read_text())
     assert audit["requested_model"] == model and audit["requested_agent"] == backend
@@ -662,7 +665,7 @@ def test_invalid_agent_model_combinations_never_launch(tmp_path, monkeypatch):
     fake = make_fake_cli(tmp_path)
     monkeypatch.setenv("AGENT_CLI", str(fake))
     make_company_dir(tmp_path)
-    for backend, model in [("codex", "sonnet"), ("claude", "gpt-5.5"), ("codex", "gpt-6.1-sol"), ("codex", "bad;command")]:
+    for backend, model in [("codex", "sonnet"), ("claude", "gpt-5.5"), ("codex", "bad;command")]:
         completed, marker = run_script(tmp_path, "--action", "value-analysis", "--ticker", "600887",
                                        "--backend", backend, "--model", model, "--cli", fake, "--output-root", tmp_path)
         assert completed.returncode == 2 and not marker.exists()
@@ -691,9 +694,13 @@ def test_defaults_remain_unknown_and_known_incompatible_default_is_blocked(tmp_p
     import agent_models
     monkeypatch.setattr(agent_models.Path,"home",lambda:tmp_path)
     monkeypatch.delenv("ANTHROPIC_MODEL",raising=False);monkeypatch.delenv("CODEX_HOME",raising=False)
-    assert agent_models.default_model("codex")["model"] is None
+    assert agent_models.default_model("codex")["model"] == "gpt-6-luna"
     assert agent_models.default_model("claude")["model"] is None
-    (tmp_path/".codex").mkdir(); (tmp_path/".codex/config.toml").write_text('model = "gpt-6.1-sol"')
+    assert agent_models.validate_model('codex', 'gpt-6.1-sol') == 'gpt-6.1-sol'
+    monkeypatch.setattr(agent_models, 'catalog', lambda: [{'id':'codex', 'models':[{'id':'unavailable-test-model', 'compatibility':'unavailable'}]}])
+    with pytest.raises(ValueError, match='不兼容'):
+        agent_models.validate_model('codex', 'unavailable-test-model')
+    (tmp_path/".codex").mkdir(); (tmp_path/".codex/config.toml").write_text('model = "unavailable-test-model"')
     with pytest.raises(ValueError,match="默认模型已知不兼容"):
         agent_models.validate_default("codex","default")
     assert agent_models.validate_model("codex","default") is None
